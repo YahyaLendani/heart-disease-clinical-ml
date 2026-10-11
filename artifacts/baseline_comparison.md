@@ -1,0 +1,5 @@
+| model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | cv_accuracy_mean | cv_accuracy_std | cv_f1_mean | cv_f1_std | cv_roc_auc_mean | cv_roc_auc_std | cv_pr_auc_mean | cv_pr_auc_std | cv_brier_mean | cv_brier_std |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XGBoost | 0.8533 | 0.8708 | 0.9286 | 0.9415 | 0.1077 | 0.5994 | 0.8812 | 0.5994 | 0.7384 | 0.8273 | 0.0263 | 0.8459 | 0.0246 | 0.8783 | 0.0137 | 0.8696 | 0.0184 | 0.1347 | 0.0116 |
+| Random Forest | 0.8261 | 0.8491 | 0.9235 | 0.9380 | 0.1210 | 0.4293 | 0.8636 | 0.5515 | 0.6920 | 0.8218 | 0.0405 | 0.8394 | 0.0407 | 0.8837 | 0.0126 | 0.8812 | 0.0079 | 0.1389 | 0.0072 |
+| Logistic Regression | 0.8152 | 0.8365 | 0.9090 | 0.9352 | 0.1237 | 0.6447 | 0.8557 | 0.7404 | 0.7183 | 0.8127 | 0.0291 | 0.8331 | 0.0260 | 0.8790 | 0.0139 | 0.8894 | 0.0116 | 0.1371 | 0.0100 |

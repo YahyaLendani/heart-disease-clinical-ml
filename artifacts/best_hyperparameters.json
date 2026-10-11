@@ -1,0 +1,10 @@
+{
+  "optimizer": "adam",
+  "learning_rate": 0.001,
+  "dropout": 0.2,
+  "grad_clip": 0.5,
+  "label_smoothing": 0.0,
+  "exit_code": 0,
+  "val_accuracy": 0.7551,
+  "test_accuracy": 0.8361
+}

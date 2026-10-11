@@ -1,0 +1,11 @@
+dataset,model,rank,feature,mean_abs_shap
+mimic,xgboost,1,num__hospital_los_days,1.2293037176132202
+mimic,xgboost,2,num__icu_total_los_days,1.1873339414596558
+mimic,xgboost,3,num__diag_count,0.8076715469360352
+mimic,xgboost,4,num__ed_los_hours,0.7365851998329163
+mimic,xgboost,5,num__has_icu_stay,0.6302297115325928
+mimic,random_forest,1,num__icu_total_los_days,0.06287379083523598
+mimic,random_forest,2,num__unique_diag_count,0.036612143011535266
+mimic,random_forest,3,num__icu_stay_count,0.03549167945581604
+mimic,random_forest,4,num__diag_count,0.035258757344777555
+mimic,random_forest,5,num__hospital_los_days,0.03129656488094472
