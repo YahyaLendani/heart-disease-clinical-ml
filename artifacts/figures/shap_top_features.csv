@@ -1,11 +1,11 @@
 dataset,model,rank,feature,mean_abs_shap
-mimic,xgboost,1,num__age_at_admission,1.6955387592315674
-mimic,xgboost,2,cat__admission_location_EMERGENCY ROOM,0.7331063747406006
-mimic,xgboost,3,cat__race_UNKNOWN,0.6516968607902527
-mimic,xgboost,4,num__ed_los_hours,0.6246649622917175
-mimic,xgboost,5,num__prior_diag_count,0.6179977059364319
-mimic,random_forest,1,num__prior_diag_count,0.05547212739623142
-mimic,random_forest,2,cat__marital_status_MARRIED,0.033241845147003506
-mimic,random_forest,3,cat__admission_location_TRANSFER FROM HOSPITAL,0.03170319348307555
-mimic,random_forest,4,cat__race_UNKNOWN,0.0313262205351946
-mimic,random_forest,5,num__has_ed_visit,0.03002736784015697
+heart,random_forest,1,num__cp,0.1336580473493554
+heart,random_forest,2,num__thal,0.10114744450887464
+heart,random_forest,3,num__ca,0.09079324486387533
+heart,random_forest,4,num__oldpeak,0.06272172369795179
+heart,random_forest,5,num__exang,0.06141557947486804
+heart,xgboost,1,num__cp,0.7912524938583374
+heart,xgboost,2,num__ca,0.5240417718887329
+heart,xgboost,3,num__thal,0.5080482363700867
+heart,xgboost,4,num__oldpeak,0.27870362997055054
+heart,xgboost,5,num__age,0.166199192404747

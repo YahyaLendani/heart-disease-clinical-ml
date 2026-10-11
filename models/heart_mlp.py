@@ -31,12 +31,22 @@ class HeartMLP(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         hidden = self.fc1(features)
-        hidden = self.bn1(hidden)
+        if self.training and hidden.shape[0] == 1:
+            self.bn1.eval()
+            hidden = self.bn1(hidden)
+            self.bn1.train()
+        else:
+            hidden = self.bn1(hidden)
         hidden = F.relu(hidden)
         hidden = F.dropout(hidden, p=self.dropout, training=self.training)
 
         hidden = self.fc2(hidden)
-        hidden = self.bn2(hidden)
+        if self.training and hidden.shape[0] == 1:
+            self.bn2.eval()
+            hidden = self.bn2(hidden)
+            self.bn2.train()
+        else:
+            hidden = self.bn2(hidden)
         hidden = F.relu(hidden)
         hidden = F.dropout(hidden, p=self.dropout, training=self.training)
 

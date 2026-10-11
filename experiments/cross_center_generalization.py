@@ -79,7 +79,12 @@ def run_cross_center_study(
 
     df = pd.read_csv(path)
     if "site" not in df.columns:
-        raise ValueError("Dataset must contain 'site' column indicating hospital center.")
+        combined_path = PROJECT_ROOT / "cleaned_heart_disease_combined.csv"
+        if combined_path.exists():
+            print(f"Warning: {path.name} lacks 'site' column. Falling back to multi-center cohort {combined_path.name} for LOCO evaluation.")
+            df = pd.read_csv(combined_path)
+        else:
+            raise ValueError("Dataset must contain 'site' column indicating hospital center.")
 
     print(f"Loaded combined dataset: {len(df)} patients across {df['site'].nunique()} centers")
     df = add_cardiovascular_features(df)

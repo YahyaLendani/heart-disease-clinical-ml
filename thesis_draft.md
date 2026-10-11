@@ -345,21 +345,21 @@ The best-ranked model by PR-AUC is **PyTorch MLP (Ours)** (PR-AUC=0.1534). This 
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | cv_accuracy_mean | cv_accuracy_std | cv_f1_mean | cv_f1_std | cv_roc_auc_mean | cv_roc_auc_std | cv_pr_auc_mean | cv_pr_auc_std | cv_brier_mean | cv_brier_std |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| XGBoost | 0.8533 | 0.8708 | 0.9286 | 0.9415 | 0.1077 | 0.5994 | 0.8812 | 0.5994 | 0.7384 | 0.8273 | 0.0263 | 0.8459 | 0.0246 | 0.8783 | 0.0137 | 0.8696 | 0.0184 | 0.1347 | 0.0116 |
-| Random Forest | 0.8261 | 0.8491 | 0.9235 | 0.9380 | 0.1210 | 0.4293 | 0.8636 | 0.5515 | 0.6920 | 0.8218 | 0.0405 | 0.8394 | 0.0407 | 0.8837 | 0.0126 | 0.8812 | 0.0079 | 0.1389 | 0.0072 |
-| Logistic Regression | 0.8152 | 0.8365 | 0.9090 | 0.9352 | 0.1237 | 0.6447 | 0.8557 | 0.7404 | 0.7183 | 0.8127 | 0.0291 | 0.8331 | 0.0260 | 0.8790 | 0.0139 | 0.8894 | 0.0116 | 0.1371 | 0.0100 |
+| Logistic Regression | 0.8033 | 0.8235 | 0.8972 | 0.9098 | 0.1360 | 0.5797 | 0.8615 | 0.5797 | 0.7056 | 0.8556 | 0.0539 | 0.8724 | 0.0445 | 0.9333 | 0.0367 | 0.9411 | 0.0312 | 0.0956 | 0.0283 |
+| Random Forest | 0.7869 | 0.8060 | 0.8874 | 0.9141 | 0.1387 | 0.3300 | 0.8451 | 0.3300 | 0.6234 | 0.8778 | 0.0544 | 0.8921 | 0.0488 | 0.9411 | 0.0367 | 0.9472 | 0.0321 | 0.0994 | 0.0263 |
+| XGBoost | 0.8033 | 0.8235 | 0.8799 | 0.9032 | 0.1415 | 0.4662 | 0.8406 | 0.5970 | 0.6396 | 0.8667 | 0.0619 | 0.8795 | 0.0575 | 0.9402 | 0.0287 | 0.9451 | 0.0270 | 0.0969 | 0.0346 |
 
 ### 3) Interpretation of Findings (Auto-generated)
-The best-ranked model by ROC-AUC is **XGBoost** (ROC-AUC=0.9286).
+The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8972).
 
 ### 4) Clinical Calibration & Threshold Metrics (Auto-generated)
 **Table Y-B. Calibration and threshold tuning metrics for heart disease prediction.**
 
 | model | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- |
-| XGBoost | 0.9415 | 0.1077 | 0.5994 | 0.8812 | 0.5994 | 0.7384 |
-| Random Forest | 0.9380 | 0.1210 | 0.4293 | 0.8636 | 0.5515 | 0.6920 |
-| Logistic Regression | 0.9352 | 0.1237 | 0.6447 | 0.8557 | 0.7404 | 0.7183 |
+| Logistic Regression | 0.9098 | 0.1360 | 0.5797 | 0.8615 | 0.5797 | 0.7056 |
+| Random Forest | 0.9141 | 0.1387 | 0.3300 | 0.8451 | 0.3300 | 0.6234 |
+| XGBoost | 0.9032 | 0.1415 | 0.4662 | 0.8406 | 0.5970 | 0.6396 |
 
 **Note:** Brier Score measures calibration quality (lower is better, 0 = perfect). PR-AUC summarizes the precision-recall trade-off. Optimal thresholds are computed via F1-maximization and Youden's J statistic.
 
@@ -402,53 +402,53 @@ The best-ranked model by ROC-AUC is **XGBoost** (ROC-AUC=0.9286).
 
 This section presents feature importance analysis using SHAP (SHapley Additive exPlanations). SHAP values quantify each feature's contribution to individual predictions, providing both global and local model interpretability.
 
-### Random Forest — Mimic Dataset
+### Random Forest — Heart Dataset
 
 **Top 5 Most Important Features (Random Forest):**
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__prior_diag_count | 0.0555 |
-| 2 | cat__marital_status_MARRIED | 0.0332 |
-| 3 | cat__admission_location_TRANSFER FROM HOSPITAL | 0.0317 |
-| 4 | cat__race_UNKNOWN | 0.0313 |
-| 5 | num__has_ed_visit | 0.0300 |
+| 1 | num__cp | 0.1337 |
+| 2 | num__thal | 0.1011 |
+| 3 | num__ca | 0.0908 |
+| 4 | num__oldpeak | 0.0627 |
+| 5 | num__exang | 0.0614 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
-![SHAP Summary — Random Forest](artifacts/figures/mimic_random_forest_shap_summary.png)
+![SHAP Summary — Random Forest](artifacts/figures/heart_random_forest_shap_summary.png)
 
 **Local Explanation — Highest-Risk Patient:**
 
-![Waterfall High Risk — Random Forest](artifacts/figures/mimic_random_forest_shap_waterfall_high_risk.png)
+![Waterfall High Risk — Random Forest](artifacts/figures/heart_random_forest_shap_waterfall_high_risk.png)
 
 **Local Explanation — Lowest-Risk Patient:**
 
-![Waterfall Low Risk — Random Forest](artifacts/figures/mimic_random_forest_shap_waterfall_low_risk.png)
+![Waterfall Low Risk — Random Forest](artifacts/figures/heart_random_forest_shap_waterfall_low_risk.png)
 
-### Xgboost — Mimic Dataset
+### Xgboost — Heart Dataset
 
 **Top 5 Most Important Features (Xgboost):**
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__age_at_admission | 1.6955 |
-| 2 | cat__admission_location_EMERGENCY ROOM | 0.7331 |
-| 3 | cat__race_UNKNOWN | 0.6517 |
-| 4 | num__ed_los_hours | 0.6247 |
-| 5 | num__prior_diag_count | 0.6180 |
+| 1 | num__cp | 0.7913 |
+| 2 | num__ca | 0.5240 |
+| 3 | num__thal | 0.5080 |
+| 4 | num__oldpeak | 0.2787 |
+| 5 | num__age | 0.1662 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
-![SHAP Summary — Xgboost](artifacts/figures/mimic_xgboost_shap_summary.png)
+![SHAP Summary — Xgboost](artifacts/figures/heart_xgboost_shap_summary.png)
 
 **Local Explanation — Highest-Risk Patient:**
 
-![Waterfall High Risk — Xgboost](artifacts/figures/mimic_xgboost_shap_waterfall_high_risk.png)
+![Waterfall High Risk — Xgboost](artifacts/figures/heart_xgboost_shap_waterfall_high_risk.png)
 
 **Local Explanation — Lowest-Risk Patient:**
 
-![Waterfall Low Risk — Xgboost](artifacts/figures/mimic_xgboost_shap_waterfall_low_risk.png)
+![Waterfall Low Risk — Xgboost](artifacts/figures/heart_xgboost_shap_waterfall_low_risk.png)
 
 <!-- AUTO_SHAP_END -->
 
@@ -532,15 +532,15 @@ To maximize discriminative power and clinical reliability, we integrated domain-
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| XGBoost | 0.8533 | 0.8708 | 0.9303 | 0.9423 | 0.1044 | 0.5867 | 0.8867 | 0.6008 | 0.7506 |
-| Hybrid Soft-Voting Ensemble | 0.8261 | 0.8462 | 0.9259 | 0.9415 | 0.1120 | 0.3138 | 0.8684 | 0.6481 | 0.7064 |
-| Hybrid Stacking Ensemble (Ours) | 0.8261 | 0.8476 | 0.9244 | 0.9402 | 0.1158 | 0.2715 | 0.8634 | 0.6494 | 0.6992 |
-| Random Forest | 0.8207 | 0.8421 | 0.9164 | 0.9299 | 0.1205 | 0.4001 | 0.8649 | 0.6528 | 0.6891 |
-| PyTorch MLP | 0.8152 | 0.8333 | 0.9042 | 0.9202 | 0.1259 | 0.2938 | 0.8624 | 0.6457 | 0.6648 |
-| Logistic Regression | 0.8043 | 0.8252 | 0.9034 | 0.9271 | 0.1255 | 0.3926 | 0.8465 | 0.6734 | 0.6891 |
+| Logistic Regression | 0.8033 | 0.8182 | 0.8734 | 0.8924 | 0.1482 | 0.3263 | 0.8451 | 0.3770 | 0.6288 |
+| Random Forest | 0.7705 | 0.7879 | 0.8690 | 0.8847 | 0.1504 | 0.3965 | 0.8286 | 0.4859 | 0.5985 |
+| Hybrid Stacking Ensemble (Ours) | 0.7869 | 0.8000 | 0.8690 | 0.8862 | 0.1616 | 0.1877 | 0.8333 | 0.3590 | 0.5985 |
+| Hybrid Soft-Voting Ensemble | 0.7705 | 0.7879 | 0.8658 | 0.8826 | 0.1566 | 0.4236 | 0.8235 | 0.4236 | 0.5985 |
+| XGBoost | 0.7377 | 0.7576 | 0.8517 | 0.8632 | 0.1793 | 0.1004 | 0.8533 | 0.1004 | 0.6126 |
+| PyTorch MLP | 0.7541 | 0.7692 | 0.8398 | 0.8569 | 0.1893 | 0.1149 | 0.8333 | 0.1149 | 0.5877 |
 
 ### 3) Key Findings (Auto-generated)
-- The top-performing configuration achieves a test ROC-AUC of **0.9303** (XGBoost).
+- The top-performing configuration achieves a test ROC-AUC of **0.8734** (Logistic Regression).
 - The hybrid ensembles deliver robust test PR-AUC (>0.94) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
 <!-- AUTO_ENSEMBLE_END -->
 
@@ -608,17 +608,17 @@ Clinical algorithms must not propagate or amplify historical disparities across 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 184.0000 | 55.4348 | 0.8533 | 0.8708 | 0.9303 | 0.8922 | 0.8049 | 0.1078 | 0.1951 | 0.5815 |
-| Female Patients (sex=0) | 35.0000 | 22.8571 | 0.9143 | 0.8000 | 0.9074 | 0.7500 | 0.9630 | 0.2500 | 0.0370 | 0.2000 |
-| Male Patients (sex=1) | 149.0000 | 63.0872 | 0.8389 | 0.8763 | 0.9217 | 0.9043 | 0.7273 | 0.0957 | 0.2727 | 0.6711 |
-| Younger (<50 yrs) | 59.0000 | 42.3729 | 0.8644 | 0.8182 | 0.9741 | 0.7200 | 0.9706 | 0.2800 | 0.0294 | 0.3220 |
-| Middle-aged (50-64 yrs) | 104.0000 | 57.6923 | 0.8558 | 0.8855 | 0.9193 | 0.9667 | 0.7045 | 0.0333 | 0.2955 | 0.6827 |
-| Senior (>=65 yrs) | 21.0000 | 80.9524 | 0.8095 | 0.8824 | 0.9412 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
+| All Patients | 61.0000 | 54.0984 | 0.7377 | 0.7576 | 0.8517 | 0.7576 | 0.7143 | 0.2424 | 0.2857 | 0.5410 |
+| Female Patients (sex=0) | 18.0000 | 72.2222 | 0.7222 | 0.8000 | 0.8308 | 0.7692 | 0.6000 | 0.2308 | 0.4000 | 0.6667 |
+| Male Patients (sex=1) | 43.0000 | 46.5116 | 0.7442 | 0.7317 | 0.8522 | 0.7500 | 0.7391 | 0.2500 | 0.2609 | 0.4884 |
+| Younger (<50 yrs) | 14.0000 | 85.7143 | 0.7857 | 0.8800 | 0.7917 | 0.9167 | 0.0000 | 0.0833 | 1.0000 | 0.9286 |
+| Middle-aged (50-64 yrs) | 40.0000 | 50.0000 | 0.7250 | 0.7027 | 0.8700 | 0.6500 | 0.8000 | 0.3500 | 0.2000 | 0.4250 |
+| Senior (>=65 yrs) | 7.0000 | 14.2857 | 0.7143 | 0.5000 | 1.0000 | 1.0000 | 0.6667 | 0.0000 | 0.3333 | 0.4286 |
 
 ### 3) Key Demographic Disparity Findings (Auto-generated)
-- **Equal Opportunity Difference (Sex):** `0.1543` (Sensitivity: Male = `90.4%`, Female = `75.0%`).
-- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`25.0%`) compared to male patients (`9.6%`).
-- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.9741`) and senior (>=65 yrs, ROC-AUC `0.9412`) cohorts.
+- **Equal Opportunity Difference (Sex):** `0.0192` (Sensitivity: Male = `75.0%`, Female = `76.9%`).
+- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`23.1%`) compared to male patients (`25.0%`).
+- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.7917`) and senior (>=65 yrs, ROC-AUC `1.0000`) cohorts.
 
 ### 4) Fairness Disparity Visualization (Auto-generated)
 

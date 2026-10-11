@@ -88,7 +88,8 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
         y_t = torch.tensor(y_np, dtype=torch.float32)
 
         dataset = TensorDataset(X_t, y_t)
-        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=False)
+        drop_last = len(dataset) > self.batch_size and (len(dataset) % self.batch_size == 1)
+        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
 
         self.model_ = HeartMLP(
             input_dim=X_np.shape[1],
@@ -105,6 +106,8 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
         self.model_.train()
         for _ in range(self.epochs):
             for xb, yb in loader:
+                if xb.shape[0] == 1 and len(loader) > 1:
+                    continue
                 xb, yb = xb.to(dev), yb.to(dev)
                 optimizer.zero_grad()
                 logits = self.model_(xb)
