@@ -67,23 +67,33 @@ def cohort_summary_mimic(dataset_df: pd.DataFrame) -> dict:
     admissions = int(len(dataset_df))
     mortality_rate = float(dataset_df["hospital_expire_flag"].mean() * 100.0)
 
-    age_mean = float(dataset_df["anchor_age"].mean()) if "anchor_age" in dataset_df.columns else None
-    age_std = float(dataset_df["anchor_age"].std()) if "anchor_age" in dataset_df.columns else None
+    age_col = "age_at_admission" if "age_at_admission" in dataset_df.columns else ("anchor_age" if "anchor_age" in dataset_df.columns else None)
+    age_mean = float(dataset_df[age_col].mean()) if age_col else None
+    age_std = float(dataset_df[age_col].std()) if age_col else None
 
+    los_col = "hosp_los_days" if "hosp_los_days" in dataset_df.columns else ("hospital_los_days" if "hospital_los_days" in dataset_df.columns else None)
     hosp_los_mean = (
-        float(dataset_df["hosp_los_days"].mean()) if "hosp_los_days" in dataset_df.columns else None
+        float(dataset_df[los_col].mean()) if los_col else None
     )
     hosp_los_std = (
-        float(dataset_df["hosp_los_days"].std()) if "hosp_los_days" in dataset_df.columns else None
+        float(dataset_df[los_col].std()) if los_col else None
     )
 
-    icu_rate = float(dataset_df["had_icu"].mean() * 100.0) if "had_icu" in dataset_df.columns else None
+    if "had_icu" in dataset_df.columns:
+        icu_rate = float(dataset_df["had_icu"].mean() * 100.0)
+    elif "has_icu_stay" in dataset_df.columns:
+        icu_rate = float(dataset_df["has_icu_stay"].mean() * 100.0)
+    elif "prior_icu_stay_count" in dataset_df.columns:
+        icu_rate = float((dataset_df["prior_icu_stay_count"] > 0).mean() * 100.0)
+    else:
+        icu_rate = None
 
     return {
         "admissions": admissions,
         "mortality_rate": mortality_rate,
         "age_mean": age_mean,
         "age_std": age_std,
+        "age_col": age_col or "age",
         "hosp_los_mean": hosp_los_mean,
         "hosp_los_std": hosp_los_std,
         "icu_rate": icu_rate,
@@ -109,6 +119,7 @@ def build_mimic_results_block(dataset_df: pd.DataFrame, comparison_df: pd.DataFr
     best_model = str(ranked.loc[0, "model"]) if "model" in ranked.columns and len(ranked) > 0 else "N/A"
     best_metric_value = float(ranked.loc[0, rank_col]) if len(ranked) > 0 else float("nan")
 
+    age_label = summary.get("age_col", "age")
     age_text = (
         f"{summary['age_mean']:.2f} ± {summary['age_std']:.2f}"
         if summary["age_mean"] is not None and summary["age_std"] is not None
@@ -117,7 +128,7 @@ def build_mimic_results_block(dataset_df: pd.DataFrame, comparison_df: pd.DataFr
     los_text = (
         f"{summary['hosp_los_mean']:.2f} ± {summary['hosp_los_std']:.2f} days"
         if summary["hosp_los_mean"] is not None and summary["hosp_los_std"] is not None
-        else "not available"
+        else "N/A (omitted to prevent target leakage; prediction at admission)"
     )
     icu_text = f"{summary['icu_rate']:.2f}%" if summary["icu_rate"] is not None else "not available"
 
@@ -159,7 +170,7 @@ def build_mimic_results_block(dataset_df: pd.DataFrame, comparison_df: pd.DataFr
         "### 1) Cohort Summary (Auto-generated)\n"
         f"- Number of admissions: {summary['admissions']}\n"
         f"- Mortality prevalence: {summary['mortality_rate']:.2f}%\n"
-        f"- Mean age (anchor_age): {age_text}\n"
+        f"- Mean age ({age_label}): {age_text}\n"
         f"- Mean hospital LOS: {los_text}\n"
         f"- ICU utilization rate: {icu_text}\n\n"
         "### 2) Baseline Model Performance (Auto-generated)\n"

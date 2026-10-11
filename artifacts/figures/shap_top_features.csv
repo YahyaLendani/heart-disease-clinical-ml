@@ -1,11 +1,11 @@
 dataset,model,rank,feature,mean_abs_shap
-mimic,xgboost,1,num__hospital_los_days,1.2293037176132202
-mimic,xgboost,2,num__icu_total_los_days,1.1873339414596558
-mimic,xgboost,3,num__diag_count,0.8076715469360352
-mimic,xgboost,4,num__ed_los_hours,0.7365851998329163
-mimic,xgboost,5,num__has_icu_stay,0.6302297115325928
-mimic,random_forest,1,num__icu_total_los_days,0.06287379083523598
-mimic,random_forest,2,num__unique_diag_count,0.036612143011535266
-mimic,random_forest,3,num__icu_stay_count,0.03549167945581604
-mimic,random_forest,4,num__diag_count,0.035258757344777555
-mimic,random_forest,5,num__hospital_los_days,0.03129656488094472
+mimic,xgboost,1,num__age_at_admission,1.6955387592315674
+mimic,xgboost,2,cat__admission_location_EMERGENCY ROOM,0.7331063747406006
+mimic,xgboost,3,cat__race_UNKNOWN,0.6516968607902527
+mimic,xgboost,4,num__ed_los_hours,0.6246649622917175
+mimic,xgboost,5,num__prior_diag_count,0.6179977059364319
+mimic,random_forest,1,num__prior_diag_count,0.05547212739623142
+mimic,random_forest,2,cat__marital_status_MARRIED,0.033241845147003506
+mimic,random_forest,3,cat__admission_location_TRANSFER FROM HOSPITAL,0.03170319348307555
+mimic,random_forest,4,cat__race_UNKNOWN,0.0313262205351946
+mimic,random_forest,5,num__has_ed_visit,0.03002736784015697

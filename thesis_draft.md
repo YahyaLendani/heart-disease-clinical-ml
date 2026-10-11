@@ -20,11 +20,13 @@ The final engineered dataset is stored as mimic_hospital_mortality.csv and inclu
 - 1: patient expired during hospital admission
 - 0: patient survived hospital admission
 
-Feature groups include:
-- Demographics: age proxy (anchor_age), gender
-- Admission context: admission_type, admission_location, insurance, marital_status, race
-- Utilization features: hospital length of stay, emergency department length of stay, ICU stay indicator/count/total ICU LOS, first ICU care unit
-- Diagnosis burden/comorbidity proxies: diagnosis count, unique diagnosis count, and indicator features (circulatory disease, diabetes, CKD)
+Feature groups are defined strictly at admission time ($t_0$) to eliminate target leakage:
+- Demographics: exact age at admission (`age_at_admission`), gender
+- Admission context: `admission_type`, `admission_location`, `insurance`, `marital_status`, `race`
+- Pre-admission Emergency Department utilization: `has_ed_visit`, `ed_los_hours`
+- Prior medical history (derived strictly from hospitalizations preceding the index admission): `prior_admission_count`, `days_since_last_discharge`, `prior_icu_stay_count`, `prior_diag_count`, `prior_circulatory`, `prior_diabetes`, `prior_ckd`
+
+Post-admission and post-discharge variables (such as total in-hospital length of stay, total ICU length of stay during the current stay, and discharge-coded ICD diagnosis counts) are strictly excluded from the prediction feature set to avoid target leakage, as these variables are only determined after admission or following the mortality event.
 
 In the current prepared cohort, the dataset contains 275 admissions with an observed hospital mortality rate of approximately 5.45%, indicating substantial class imbalance.
 
@@ -240,13 +242,13 @@ Raw source tables are merged to create an admission-level modeling dataset:
 - `icu/icustays.csv`
 - `hosp/diagnoses_icd.csv`
 
-Feature engineering includes:
-- demographic features (`anchor_age`, `gender`)
-- administrative context (admission type/location, insurance, marital status, race)
-- utilization features (hospital LOS, ED LOS, ICU stay indicators and LOS)
-- diagnosis-derived burden/comorbidity indicators (diagnosis counts, circulatory/diabetes/CKD flags)
+Feature engineering is conducted strictly relative to admission time ($t_0$):
+- demographic features (`age_at_admission`, `gender`)
+- administrative context (`admission_type`, `admission_location`, `insurance`, `marital_status`, `race`)
+- pre-admission emergency department utilization (`has_ed_visit`, `ed_los_hours`)
+- longitudinal prior medical history (`prior_admission_count`, `days_since_last_discharge`, `prior_icu_stay_count`, `prior_diag_count`, `prior_circulatory`, `prior_diabetes`, `prior_ckd`)
 
-Missing values are imputed by data type (median for numeric, mode for categorical), and one row per admission is retained.
+All concurrent and post-stay variables (hospital LOS, ICU total stay duration, and discharge diagnosis codes) are strictly omitted to guarantee clinical realism and eliminate target leakage. Missing values are imputed within cross-validation folds using median for continuous features and mode for categoricals.
 
 ### 3) Modeling Pipeline
 The baseline models are:
@@ -295,32 +297,32 @@ Generated artifacts:
 ### 1) Cohort Summary (Auto-generated)
 - Number of admissions: 275
 - Mortality prevalence: 5.45%
-- Mean age (anchor_age): 61.04 ± 14.44
-- Mean hospital LOS: not available
-- ICU utilization rate: not available
+- Mean age (age_at_admission): 62.73 ± 14.48
+- Mean hospital LOS: N/A (omitted to prevent target leakage; prediction at admission)
+- ICU utilization rate: 42.91%
 
 ### 2) Baseline Model Performance (Auto-generated)
 **Table X. Baseline performance for hospital mortality prediction on MIMIC-IV demo cohort.**
 
 | model | test_accuracy | test_f1_expired | test_recall_expired | test_precision_expired | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | cv_accuracy_mean | cv_accuracy_std | cv_f1_expired_mean | cv_f1_expired_std | cv_recall_expired_mean | cv_recall_expired_std | cv_precision_expired_mean | cv_precision_expired_std | cv_roc_auc_mean | cv_roc_auc_std | cv_pr_auc_mean | cv_pr_auc_std | cv_brier_mean | cv_brier_std |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.9231 | 0.5000 | 0.6667 | 0.4000 | 0.9456 | 0.5000 | 0.0557 | 0.6933 | 0.6667 | 0.3427 | 0.8776 | 0.9178 | 0.0236 | 0.2467 | 0.2083 | 0.4000 | 0.3742 | 0.1833 | 0.1528 | 0.8187 | 0.1327 | 0.3513 | 0.3288 | 0.0718 | 0.0233 |
-| PyTorch MLP (Ours) | 0.6923 | 0.2000 | 0.6667 | 0.1176 | 0.8027 | 0.2679 | 0.2311 | 0.9730 | 0.4000 | 0.4217 | 0.6531 | 0.7453 | 0.3312 | 0.1714 | 0.1878 | 0.4000 | 0.3742 | 0.1392 | 0.1589 | 0.9007 | 0.0457 | 0.4033 | 0.1821 | 0.2131 | 0.2984 |
-| XGBoost | 0.9231 | 0.0000 | 0.0000 | 0.0000 | 0.7755 | 0.2566 | 0.0595 | 0.4776 | 0.4000 | 0.0113 | 0.6122 | 0.9561 | 0.0132 | 0.1000 | 0.2000 | 0.1000 | 0.2000 | 0.1000 | 0.2000 | 0.8267 | 0.1470 | 0.4028 | 0.2599 | 0.0357 | 0.0052 |
-| Random Forest | 0.9423 | 0.0000 | 0.0000 | 0.0000 | 0.8639 | 0.2452 | 0.0550 | 0.2082 | 0.4000 | 0.1396 | 0.7551 | 0.9617 | 0.0129 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.8408 | 0.0864 | 0.3211 | 0.1867 | 0.0359 | 0.0070 |
+| PyTorch MLP (Ours) | 0.8462 | 0.3333 | 0.6667 | 0.2222 | 0.6531 | 0.1534 | 0.1395 | 0.6228 | 0.3333 | 0.6228 | 0.5238 | 0.5667 | 0.2841 | 0.1411 | 0.1142 | 0.7000 | 0.4000 | 0.0901 | 0.0868 | 0.7629 | 0.1788 | 0.3228 | 0.2955 | 0.3368 | 0.2508 |
+| Logistic Regression | 0.7308 | 0.1250 | 0.3333 | 0.0769 | 0.6463 | 0.1104 | 0.1631 | 0.4671 | 0.2353 | 0.4671 | 0.4218 | 0.8412 | 0.0543 | 0.1200 | 0.1600 | 0.3000 | 0.4000 | 0.0750 | 0.1000 | 0.7116 | 0.1563 | 0.2671 | 0.2115 | 0.1084 | 0.0343 |
+| XGBoost | 0.9038 | 0.0000 | 0.0000 | 0.0000 | 0.6395 | 0.1064 | 0.0867 | 0.0132 | 0.1935 | 0.0132 | 0.4898 | 0.9401 | 0.0251 | 0.0667 | 0.1333 | 0.1000 | 0.2000 | 0.0500 | 0.1000 | 0.7926 | 0.1223 | 0.3680 | 0.2134 | 0.0478 | 0.0119 |
+| Random Forest | 0.8846 | 0.0000 | 0.0000 | 0.0000 | 0.6259 | 0.1040 | 0.0906 | 0.2074 | 0.2353 | 0.2074 | 0.4218 | 0.9450 | 0.0176 | 0.1000 | 0.2000 | 0.1000 | 0.2000 | 0.1000 | 0.2000 | 0.7666 | 0.0970 | 0.2385 | 0.1631 | 0.0530 | 0.0057 |
 
 ### 3) Interpretation of Findings (Auto-generated)
-The best-ranked model by PR-AUC is **Logistic Regression** (PR-AUC=0.5000). This ranking should be interpreted jointly with expired-class recall and F1 to ensure minority-case detection remains clinically useful.
+The best-ranked model by PR-AUC is **PyTorch MLP (Ours)** (PR-AUC=0.1534). This ranking should be interpreted jointly with expired-class recall and F1 to ensure minority-case detection remains clinically useful.
 
 ### 4) Clinical Calibration & Threshold Metrics (Auto-generated)
 **Table X-B. Calibration and threshold tuning metrics for MIMIC mortality prediction.**
 
 | model | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.5000 | 0.0557 | 0.6933 | 0.6667 | 0.3427 | 0.8776 |
-| PyTorch MLP (Ours) | 0.2679 | 0.2311 | 0.9730 | 0.4000 | 0.4217 | 0.6531 |
-| XGBoost | 0.2566 | 0.0595 | 0.4776 | 0.4000 | 0.0113 | 0.6122 |
-| Random Forest | 0.2452 | 0.0550 | 0.2082 | 0.4000 | 0.1396 | 0.7551 |
+| PyTorch MLP (Ours) | 0.1534 | 0.1395 | 0.6228 | 0.3333 | 0.6228 | 0.5238 |
+| Logistic Regression | 0.1104 | 0.1631 | 0.4671 | 0.2353 | 0.4671 | 0.4218 |
+| XGBoost | 0.1064 | 0.0867 | 0.0132 | 0.1935 | 0.0132 | 0.4898 |
+| Random Forest | 0.1040 | 0.0906 | 0.2074 | 0.2353 | 0.2074 | 0.4218 |
 
 **Note:** Brier Score measures calibration quality (lower is better, 0 = perfect). PR-AUC is critical for imbalanced datasets — it summarizes the precision-recall trade-off. Optimal thresholds are computed via F1-maximization and Youden's J statistic.
 
@@ -406,11 +408,11 @@ This section presents feature importance analysis using SHAP (SHapley Additive e
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__icu_total_los_days | 0.0629 |
-| 2 | num__unique_diag_count | 0.0366 |
-| 3 | num__icu_stay_count | 0.0355 |
-| 4 | num__diag_count | 0.0353 |
-| 5 | num__hospital_los_days | 0.0313 |
+| 1 | num__prior_diag_count | 0.0555 |
+| 2 | cat__marital_status_MARRIED | 0.0332 |
+| 3 | cat__admission_location_TRANSFER FROM HOSPITAL | 0.0317 |
+| 4 | cat__race_UNKNOWN | 0.0313 |
+| 5 | num__has_ed_visit | 0.0300 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
@@ -430,11 +432,11 @@ This section presents feature importance analysis using SHAP (SHapley Additive e
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__hospital_los_days | 1.2293 |
-| 2 | num__icu_total_los_days | 1.1873 |
-| 3 | num__diag_count | 0.8077 |
-| 4 | num__ed_los_hours | 0.7366 |
-| 5 | num__has_icu_stay | 0.6302 |
+| 1 | num__age_at_admission | 1.6955 |
+| 2 | cat__admission_location_EMERGENCY ROOM | 0.7331 |
+| 3 | cat__race_UNKNOWN | 0.6517 |
+| 4 | num__ed_los_hours | 0.6247 |
+| 5 | num__prior_diag_count | 0.6180 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
@@ -651,24 +653,23 @@ Our empirical evaluation revealed notable demographic disparities, including hig
 
 ### 7) Empirical Validation of Reading-List Advancements (Table R-1)
 
-To evaluate the practical efficacy of the architectures and methods implemented from the reading list, we conducted a unified benchmark across the clinical cohort:
-
-**Table R-1. Empirical performance of implemented reading-list architectures on holdout evaluation.**
+To evaluate the practical efficacy of the architectures and methods implemented from the reading list,**Table R-1. Empirical performance of implemented reading-list architectures on holdout evaluation.**
 
 | Architecture / Method | Paradigm | Test Accuracy | Test F1 | Test ROC-AUC | Test PR-AUC | Test Brier Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| **GAT (Velickovic et al., 2018)** | Graph Attention Network | 0.8033 | 0.8235 | 0.8647 | 0.8855 | 0.1460 |
-| **TabTransformer (Huang et al., 2020)** | Contextual Transformer Embeddings | 0.8033 | 0.8235 | 0.8550 | 0.8772 | 0.1544 |
-| **GCN (Kipf & Welling, 2017)** | Graph Spectral Convolutions | 0.7705 | 0.7879 | 0.8788 | 0.8985 | 0.1457 |
-| **Multimodal Cross-Attention** | ResNet1D + ViT Fusion | 0.4754 | 0.4667 | 0.5000 | 0.4992 | 0.3222 |
+| **GAT (Velickovic et al., 2018)** | Graph Attention Network | 0.8033 | 0.8235 | 0.9015 | 0.9316 | 0.1309 |
+| **GCN (Kipf & Welling, 2017)** | Graph Spectral Convolutions | 0.7705 | 0.7879 | 0.8680 | 0.8872 | 0.1516 |
+| **TabTransformer (Huang et al., 2020)** | Contextual Transformer Embeddings | 0.7869 | 0.8060 | 0.8528 | 0.8775 | 0.1556 |
+| **Multimodal Cross-Attention** | ResNet1D + ViT Fusion (surrogate 1D signal) | 0.5902 | 0.5098 | 0.5963 | 0.6942 | 0.2666 |
 
 **Key Empirical Findings from Implementation:**
-- **Graph Neural Reasoning (GCN / GAT):** The patient k-NN similarity graph formulation demonstrates strong ranking discrimination (ROC-AUC `0.8788`), validating that patient neighborhood connectivity provides high diagnostic signal.
-- **Contextual Categorical Embeddings (TabTransformer):** TabTransformer achieves `0.8550` ROC-AUC and `0.8772` PR-AUC, demonstrating that self-attention over categorical features matches traditional tree ensemble discrimination while providing end-to-end continuous differentiability.
-- **Temperature Scaling (Guo et al., 2017):** Post-hoc optimization of temperature parameter $T=1.779$ reduced the Expected Calibration Error (ECE) from `0.2368` to `0.1543` (a 34.8% calibration improvement).
-- **Epistemic Uncertainty (Lakshminarayanan et al., 2017):** Deep Ensembles estimated an average predictive variance of `0.0153`, successfully flagging ambiguous patient cases for manual triage.
-- **Causal Disentanglement (Pearl & Mackenzie, 2018):** Demonstrating the Ladder of Causation, the observational risk difference (`-0.4623`) was disentangled from the true causal ATE (`-0.4585`), isolating the confounding bias (`-0.0037`).
-- **Fairness Mitigation (Barocas et al., 2020):** Group-specific threshold tuning eliminated sensitivity disparity across biological sex (unmitigated TPR gap: `0.1488` $\to$ mitigated gap: `0.0000`, a 100% disparity reduction).
+- **Graph Neural Reasoning (GCN / GAT):** Structuring patient cohorts as a k-NN similarity graph yields strong ranking discrimination (GAT ROC-AUC `0.9015`, PR-AUC `0.9316`), demonstrating that relational graph inductive biases capture non-linear patient neighborhoods effectively.
+- **Contextual Categorical Embeddings (TabTransformer):** TabTransformer achieves `0.8528` ROC-AUC and `0.8775` PR-AUC. While competitive and fully differentiable, tree-based gradient boosting (e.g., tuned XGBoost at `0.9286`) maintains superior tabular discrimination, aligning with empirical literature on deep tabular learning (Grinsztajn et al., 2022).
+- **Multimodal Fusion Feasibility:** The cross-attention fusion architecture combining tabular records with a surrogate 1D physiological time series verifies numerical training dynamics and gradient backpropagation (ROC-AUC `0.5963`), though clinical efficacy requires pairing with real synchronized telemetry or imaging.
+- **Post-Hoc Probability Calibration (Guo et al., 2017):** Temperature scaling optimized strictly on a validation holdout split ($T = 1.824$) reduced unseen holdout test Expected Calibration Error (ECE) from `0.1653` to `0.1001` (a 39.4% improvement), establishing that post-hoc recalibration improves clinical reliability without disturbing ranking order.
+- **Epistemic Uncertainty Quantification (Lakshminarayanan et al., 2017):** Deep Ensembles estimated an average predictive variance of `0.0194` across holdout patients, providing a principled metric to identify out-of-distribution or ambiguous cases for physician triage.
+- **Causal Disentanglement (Pearl & Mackenzie, 2018):** In alignment with the Ladder of Causation, the observational risk difference (`-0.4623`) was contrasted with the Inverse Probability Weighted causal Average Treatment Effect (`-0.4585`), isolating a baseline confounding bias of `-0.0037`.
+- **Fairness Mitigation (Barocas et al., 2020):** Group-specific threshold tuning calibrated on the validation split reduced holdout test true positive rate (TPR) disparity between biological sexes from `0.1115` to `0.0000` (100.0% reduction), demonstrating post-hoc Equal Opportunity enforcement while highlighting the necessity of clinical governance over group-specific cutoffs.
 
 ---
 
@@ -690,6 +691,9 @@ To evaluate the practical efficacy of the architectures and methods implemented 
 14. **Pearl, J., & Mackenzie, D. (2018)**. *The Book of Why: The New Science of Cause and Effect*. Basic Books.
 15. **Guo, C., Pleiss, G., Sun, Y., & Weinberger, K. Q. (2017)**. On Calibration of Modern Neural Networks. *Proceedings of the 34th International Conference on Machine Learning (ICML 2017)*, PMLR 70:1321–1330. [arXiv:1706.04599](https://arxiv.org/abs/1706.04599).
 16. **Lakshminarayanan, B., Pritzel, A., & Blundell, C. (2017)**. Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles. *Advances in Neural Information Processing Systems (NeurIPS 2017)*, 30, 6402–6413. [arXiv:1612.01474](https://arxiv.org/abs/1612.01474).
-17. **Marques, G., Agarwal, D., & de la Torre-Díez, I. (2021)**. Automated Medical Diagnosis of Diseases Using Machine Learning and Deep Learning: Past, Present and Future / AI in Healthcare. In *Deep Learning for Medical Applications with Unique Data*, Academic Press. [arXiv:2105.05327](https://arxiv.org/abs/2105.05327).
-18. **Bryson, J. J. (2019)**. The Artificial Intelligence of the Ethics of Artificial Intelligence: An Introductory Overview. In *The Oxford Handbook of Ethics of AI*, Oxford University Press. [doi:10.1093/oxfordhb/9780190067397.013.1](https://doi.org/10.1093/oxfordhb/9780190067397.013.1).
-19. **Patel, N., & Peyton Jones, S. (2013)**. How to Write a Great Research Paper. *Communications of the ACM / MSR Technical Report*. [ACM DL:10.1145/2508862](https://dl.acm.org/doi/10.1145/2508862).
+17. **Marques, G., Agarwal, D., & de la Torre-Díez, I. (2021)**. Automated Medical Diagnosis of Diseases Using Machine Learning and Deep Learning: Past, Present and Future. In *Deep Learning for Medical Applications with Unique Data*, Academic Press, pp. 31–50.
+18. **Bryson, J. J. (2020)**. The Artificial Intelligence of the Ethics of Artificial Intelligence: An Introductory Overview. In M. D. Dubber, F. Pasquale, & S. Das (Eds.), *The Oxford Handbook of Ethics of AI*, Oxford University Press. [doi:10.1093/oxfordhb/9780190067397.013.1](https://doi.org/10.1093/oxfordhb/9780190067397.013.1).
+19. **Peyton Jones, S. (2013)**. How to Write a Great Research Paper. *Microsoft Research Technical Guide*. [Research Guide](https://www.microsoft.com/en-us/research/academic-program/write-great-research-paper/).
+20. **Johnson, A. E. W., Bulgarelli, L., Shen, L., et al. (2023)**. MIMIC-IV, a freely accessible electronic health record dataset. *Scientific Data*, 10, 1. [doi:10.1038/s41597-022-01899-x](https://doi.org/10.1038/s41597-022-01899-x).
+21. **Harutyunyan, H., Khachatrian, H., Kale, D. C., Ver Steeg, G., & Galstyan, A. (2019)**. Multitask learning and benchmarking with clinical time series data. *Scientific Data*, 6, 96. [doi:10.1038/s41597-019-0103-9](https://doi.org/10.1038/s41597-019-0103-9).
+22. **Grinsztajn, L., Oyallon, E., & Varoquaux, G. (2022)**. Why do tree-based models still outperform deep learning on typical tabular data? *Advances in Neural Information Processing Systems (NeurIPS 2022)*, 35, 507–520. [arXiv:2207.08815](https://arxiv.org/abs/2207.08815).
