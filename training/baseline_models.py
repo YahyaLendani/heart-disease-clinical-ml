@@ -28,6 +28,7 @@ try:
         compute_clinical_metrics,
         plot_calibration_curves,
         plot_precision_recall_curves,
+        plot_decision_curve,
     )
 except ModuleNotFoundError:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -36,6 +37,7 @@ except ModuleNotFoundError:
         compute_clinical_metrics,
         plot_calibration_curves,
         plot_precision_recall_curves,
+        plot_decision_curve,
     )
 
 
@@ -686,6 +688,7 @@ def main() -> None:
     if model_probas:
         plot_calibration_curves(y_test, model_probas, "heart", figures_dir)
         plot_precision_recall_curves(y_test, model_probas, "heart", figures_dir)
+        plot_decision_curve(y_test, model_probas, "heart", figures_dir)
 
     summary = pd.DataFrame(results).sort_values(
         by=["test_roc_auc", "test_f1", "test_accuracy"],

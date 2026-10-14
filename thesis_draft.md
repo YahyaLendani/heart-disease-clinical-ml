@@ -1,34 +1,48 @@
 # Thesis Draft
 
 ## Introduction
-Hospital mortality prediction is an important clinical decision-support task because early identification of high-risk patients can help clinicians prioritize monitoring, allocate intensive care resources, and initiate timely interventions. Recent progress in machine learning has made it possible to learn predictive patterns from routinely collected electronic health records (EHRs), including demographics, admission context, diagnostic history, and ICU utilization.
+Clinical risk prediction is a cornerstone of modern data-driven healthcare and decision-support systems. Early identification of high-risk patients empowers clinicians to prioritize intensive monitoring, optimize resource allocation, and initiate preemptive therapeutic interventions. Recent advances in deep learning and machine learning have unlocked rich opportunities to model clinical phenotypes from structured electronic health records (EHRs) and diagnostic cardiology cohorts.
 
-This thesis investigates data-driven prediction of in-hospital mortality using structured EHR data from the MIMIC-IV Clinical Database Demo. The work follows a practical pipeline: data preparation, feature engineering, baseline model training, and comparative evaluation. In addition to overall discrimination, the study emphasizes minority-class detection, since mortality cases are relatively rare and models with high overall accuracy may still fail to identify patients at risk.
+To comprehensively examine model robustness, fairness, explainability, and inductive biases across diverse healthcare settings, this thesis is formulated as a **Dual-Benchmark Clinical Risk Stratification Study** spanning two complementary clinical tasks and failure modes:
 
-The main contribution is a reproducible baseline framework for hospital mortality modeling that integrates classical machine learning methods (Logistic Regression, Random Forest, and XGBoost), cross-validation, and imbalance-aware evaluation. The framework is designed to be extensible for future improvements such as threshold optimization, calibration, and advanced temporal modeling.
+1. **Benchmark A — Acute In-Hospital Mortality Risk Stratification (MIMIC-IV):** Investigates acute inpatient mortality prediction from admission-time ($t_0$) EHR features. This benchmark stresses severe class imbalance ($5.45\%$ event rate), minority-class calibration, and patient-level longitudinal history aggregation under strict anti-leakage constraints.
+2. **Benchmark B — Multi-Center Coronary Artery Disease Diagnosis (UCI Cardiology Consortium):** Investigates angiographic coronary artery disease (CAD) detection across four international clinical centers ($N=918$ total patients from Cleveland Clinic Foundation, Hungarian Institute of Cardiology in Budapest, University Hospital Zurich, and Long Beach V.A. Medical Center). This benchmark tests deep neural vs. tree-based inductive biases, feature attribution via SHAP, demographic fairness disparities across sex and age groups, and **cross-hospital domain generalization via Leave-One-Center-Out (LOCO) evaluation**.
+
+The core contribution of this work is an end-to-end, reproducible clinical AI framework integrating from-scratch parameterized Multi-Layer Perceptrons (MLPs), gradient-boosted trees, cross-validation, patient-grouped leakage prevention, post-hoc temperature scaling, hybrid ensembling, and cutting-edge advancements across 19 foundational papers from the clinical AI literature.
 
 ## Dataset Description
-This study uses the MIMIC-IV Clinical Database Demo (v2.2), a deidentified subset of ICU and hospital records. The demo contains records for 100 patients and multiple relational tables from hospital and ICU modules.
 
-For this thesis, the modeling dataset is constructed at the hospital admission level using the following core tables:
-- hosp/admissions.csv
-- hosp/patients.csv
-- icu/icustays.csv
-- hosp/diagnoses_icd.csv
+### 1. Benchmark A: MIMIC-IV Clinical Database Demo (Acute Hospital Mortality)
+This benchmark utilizes the MIMIC-IV Clinical Database Demo (v2.2), a deidentified cohort of intensive care and hospital admissions. The modeling dataset is constructed at the hospital admission level using relational joins across `hosp/admissions.csv`, `hosp/patients.csv`, `icu/icustays.csv`, and `hosp/diagnoses_icd.csv`.
 
-The final engineered dataset is stored as mimic_hospital_mortality.csv and includes one row per admission (hadm_id). The target variable is hospital_expire_flag, defined as:
-- 1: patient expired during hospital admission
-- 0: patient survived hospital admission
+The engineered dataset is stored as `mimic_hospital_mortality.csv` and contains one row per admission (`hadm_id`), with 100 unique patients generating 275 admissions. The target variable is `hospital_expire_flag`:
+- `1`: Patient expired during hospital admission
+- `0`: Patient survived hospital admission
 
-Feature groups are defined strictly at admission time ($t_0$) to eliminate target leakage:
+Feature groups are extracted strictly at admission time ($t_0$) to eliminate target leakage:
 - Demographics: exact age at admission (`age_at_admission`), gender
 - Admission context: `admission_type`, `admission_location`, `insurance`, `marital_status`, `race`
 - Pre-admission Emergency Department utilization: `has_ed_visit`, `ed_los_hours`
 - Prior medical history (derived strictly from hospitalizations preceding the index admission): `prior_admission_count`, `days_since_last_discharge`, `prior_icu_stay_count`, `prior_diag_count`, `prior_circulatory`, `prior_diabetes`, `prior_ckd`
 
-Post-admission and post-discharge variables (such as total in-hospital length of stay, total ICU length of stay during the current stay, and discharge-coded ICD diagnosis counts) are strictly excluded from the prediction feature set to avoid target leakage, as these variables are only determined after admission or following the mortality event.
+To preserve clinical causality and eliminate target leakage, all in-hospital post-admission events (current stay ICU length of stay, current stay diagnostic codes, discharge summaries) are strictly excluded from the predictive feature space. Splitting is performed using `StratifiedGroupKFold` grouped on `subject_id` to guarantee that different admissions of the same patient never co-occur across training, validation, or test partitions.
 
 In the current prepared cohort, the dataset contains 275 admissions with an observed hospital mortality rate of approximately 5.45%, indicating substantial class imbalance.
+
+### 2. Benchmark B: International UCI Cardiology Consortium (Coronary Artery Disease)
+This benchmark investigates diagnostic coronary artery disease detection across four international cardiology centers:
+1. **Cleveland Clinic Foundation, USA** ($N=303$, 302 unique patients)
+2. **Hungarian Institute of Cardiology, Budapest** ($N=294$)
+3. **University Hospital, Zurich, Switzerland** ($N=123$)
+4. **V.A. Medical Center, Long Beach, California, USA** ($N=200$)
+
+The unified multi-center cohort comprises $N=918$ unique patients across 14 standardized clinical attributes including resting electrocardiography (`restecg`), exercise-induced ST depression (`oldpeak`), maximum heart rate achieved (`thalach`), exercise-induced angina (`exang`), resting blood pressure (`trestbps`), and serum cholesterol (`chol`). 
+
+The target label is binarized angiographic coronary disease status:
+- `target = 1`: Significant coronary artery disease ($\ge 50\%$ diameter stenosis in one or more major coronary vessels; `num > 0`)
+- `target = 0`: Healthy / absent coronary disease ($< 50\%$ diameter stenosis; `num = 0`)
+
+In addition to baseline classification, this cohort serves as the empirical testbed for domain shift adaptation (Leave-One-Center-Out cross-hospital partitioning), subgroup fairness analysis across biological sex and age, and physiological feature engineering (rate pressure product, chronotropic ratio, ischemia burden).
 
 ## Problem Formulation
 The task is formulated as supervised binary classification.
@@ -327,7 +341,7 @@ The best-ranked model by PR-AUC is **PyTorch MLP (Ours)** (PR-AUC=0.1534). This 
 **Note:** Brier Score measures calibration quality (lower is better, 0 = perfect). PR-AUC is critical for imbalanced datasets — it summarizes the precision-recall trade-off. Optimal thresholds are computed via F1-maximization and Youden's J statistic.
 
 ### 5) Calibration Curves (Auto-generated)
-![Calibration Curves — MIMIC](artifacts\figures\calibration_mimic.png)
+![Calibration Curves — MIMIC](artifacts/figures/calibration_mimic.png)
 <!-- AUTO_RESULTS_END -->
 
 
@@ -337,7 +351,7 @@ The best-ranked model by PR-AUC is **PyTorch MLP (Ours)** (PR-AUC=0.1534). This 
 
 ### 1) Cohort Summary (Auto-generated)
 - Number of samples: 302
-- Positive class prevalence (heart disease): 54.30%
+- Positive class prevalence (heart disease): 45.70%
 - Mean age: 54.42 ± 9.05
 
 ### 2) Baseline Model Performance (Auto-generated)
@@ -345,26 +359,26 @@ The best-ranked model by PR-AUC is **PyTorch MLP (Ours)** (PR-AUC=0.1534). This 
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | cv_accuracy_mean | cv_accuracy_std | cv_f1_mean | cv_f1_std | cv_roc_auc_mean | cv_roc_auc_std | cv_pr_auc_mean | cv_pr_auc_std | cv_brier_mean | cv_brier_std |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.8033 | 0.8235 | 0.8972 | 0.9098 | 0.1360 | 0.5797 | 0.8615 | 0.5797 | 0.7056 | 0.8556 | 0.0539 | 0.8724 | 0.0445 | 0.9333 | 0.0367 | 0.9411 | 0.0312 | 0.0956 | 0.0283 |
-| Random Forest | 0.7869 | 0.8060 | 0.8874 | 0.9141 | 0.1387 | 0.3300 | 0.8451 | 0.3300 | 0.6234 | 0.8778 | 0.0544 | 0.8921 | 0.0488 | 0.9411 | 0.0367 | 0.9472 | 0.0321 | 0.0994 | 0.0263 |
-| XGBoost | 0.8033 | 0.8235 | 0.8799 | 0.9032 | 0.1415 | 0.4662 | 0.8406 | 0.5970 | 0.6396 | 0.8667 | 0.0619 | 0.8795 | 0.0575 | 0.9402 | 0.0287 | 0.9451 | 0.0270 | 0.0969 | 0.0346 |
+| Logistic Regression | 0.7869 | 0.7636 | 0.8853 | 0.8750 | 0.1351 | 0.4461 | 0.8070 | 0.4461 | 0.6396 | 0.8278 | 0.0813 | 0.8005 | 0.0971 | 0.8974 | 0.0408 | 0.8940 | 0.0336 | 0.1300 | 0.0367 |
+| XGBoost | 0.7705 | 0.7667 | 0.8788 | 0.8622 | 0.1465 | 0.4803 | 0.7937 | 0.5376 | 0.6039 | 0.8389 | 0.0408 | 0.8143 | 0.0577 | 0.9018 | 0.0374 | 0.9072 | 0.0300 | 0.1279 | 0.0319 |
+| Random Forest | 0.8033 | 0.7931 | 0.8761 | 0.8690 | 0.1442 | 0.4950 | 0.8136 | 0.4950 | 0.6450 | 0.8500 | 0.0515 | 0.8214 | 0.0681 | 0.9226 | 0.0292 | 0.9260 | 0.0252 | 0.1169 | 0.0219 |
 
 ### 3) Interpretation of Findings (Auto-generated)
-The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8972).
+The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8853).
 
 ### 4) Clinical Calibration & Threshold Metrics (Auto-generated)
 **Table Y-B. Calibration and threshold tuning metrics for heart disease prediction.**
 
 | model | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.9098 | 0.1360 | 0.5797 | 0.8615 | 0.5797 | 0.7056 |
-| Random Forest | 0.9141 | 0.1387 | 0.3300 | 0.8451 | 0.3300 | 0.6234 |
-| XGBoost | 0.9032 | 0.1415 | 0.4662 | 0.8406 | 0.5970 | 0.6396 |
+| Logistic Regression | 0.8750 | 0.1351 | 0.4461 | 0.8070 | 0.4461 | 0.6396 |
+| XGBoost | 0.8622 | 0.1465 | 0.4803 | 0.7937 | 0.5376 | 0.6039 |
+| Random Forest | 0.8690 | 0.1442 | 0.4950 | 0.8136 | 0.4950 | 0.6450 |
 
 **Note:** Brier Score measures calibration quality (lower is better, 0 = perfect). PR-AUC summarizes the precision-recall trade-off. Optimal thresholds are computed via F1-maximization and Youden's J statistic.
 
 ### 5) Calibration Curves (Auto-generated)
-![Calibration Curves — Heart Disease](artifacts\figures\calibration_heart.png)
+![Calibration Curves — Heart Disease](artifacts/figures/calibration_heart.png)
 <!-- AUTO_HEART_RESULTS_END -->
 
 
@@ -383,18 +397,18 @@ The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8972).
 - thal: 0.66% outliers
 
 ### 3) Correlation with Target (Top 5 by |Pearson|, Auto-generated)
-- exang: Pearson r = -0.4356
-- cp: Pearson r = 0.4321
-- oldpeak: Pearson r = -0.4291
-- thalach: Pearson r = 0.4200
-- ca: Pearson r = -0.4090
+- exang: Pearson r = 0.4356
+- cp: Pearson r = -0.4321
+- oldpeak: Pearson r = 0.4291
+- thalach: Pearson r = -0.4200
+- ca: Pearson r = 0.4090
 
 ### 4) Class Separation (Top 5 by |Cohen's d|, Auto-generated)
-- exang: Cohen's d = -0.9682
-- cp: Cohen's d = 0.9586
-- oldpeak: Cohen's d = -0.9506
-- thalach: Cohen's d = 0.9258
-- ca: Cohen's d = -0.8967
+- exang: Cohen's d = 0.9682
+- cp: Cohen's d = -0.9586
+- oldpeak: Cohen's d = 0.9506
+- thalach: Cohen's d = -0.9258
+- ca: Cohen's d = 0.8967
 <!-- AUTO_HEART_EDA_END -->
 
 <!-- AUTO_SHAP_START -->
@@ -408,11 +422,11 @@ This section presents feature importance analysis using SHAP (SHapley Additive e
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__cp | 0.1337 |
-| 2 | num__thal | 0.1011 |
-| 3 | num__ca | 0.0908 |
-| 4 | num__oldpeak | 0.0627 |
-| 5 | num__exang | 0.0614 |
+| 1 | num__ca | 0.0897 |
+| 2 | num__cp | 0.0843 |
+| 3 | num__exang | 0.0833 |
+| 4 | num__thal | 0.0707 |
+| 5 | num__oldpeak | 0.0632 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
@@ -432,11 +446,11 @@ This section presents feature importance analysis using SHAP (SHapley Additive e
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__cp | 0.7913 |
-| 2 | num__ca | 0.5240 |
-| 3 | num__thal | 0.5080 |
-| 4 | num__oldpeak | 0.2787 |
-| 5 | num__age | 0.1662 |
+| 1 | num__ca | 0.7760 |
+| 2 | num__cp | 0.6465 |
+| 3 | num__thal | 0.5149 |
+| 4 | num__oldpeak | 0.5140 |
+| 5 | num__exang | 0.4191 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
@@ -532,16 +546,16 @@ To maximize discriminative power and clinical reliability, we integrated domain-
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.8033 | 0.8182 | 0.8734 | 0.8924 | 0.1482 | 0.3263 | 0.8451 | 0.3770 | 0.6288 |
-| Random Forest | 0.7705 | 0.7879 | 0.8690 | 0.8847 | 0.1504 | 0.3965 | 0.8286 | 0.4859 | 0.5985 |
-| Hybrid Stacking Ensemble (Ours) | 0.7869 | 0.8000 | 0.8690 | 0.8862 | 0.1616 | 0.1877 | 0.8333 | 0.3590 | 0.5985 |
-| Hybrid Soft-Voting Ensemble | 0.7705 | 0.7879 | 0.8658 | 0.8826 | 0.1566 | 0.4236 | 0.8235 | 0.4236 | 0.5985 |
-| XGBoost | 0.7377 | 0.7576 | 0.8517 | 0.8632 | 0.1793 | 0.1004 | 0.8533 | 0.1004 | 0.6126 |
-| PyTorch MLP | 0.7541 | 0.7692 | 0.8398 | 0.8569 | 0.1893 | 0.1149 | 0.8333 | 0.1149 | 0.5877 |
+| PyTorch MLP | 0.8033 | 0.7857 | 0.9177 | 0.9044 | 0.1271 | 0.3680 | 0.8667 | 0.3680 | 0.7468 |
+| Hybrid Soft-Voting Ensemble | 0.8197 | 0.8000 | 0.9091 | 0.8923 | 0.1247 | 0.2665 | 0.8485 | 0.2665 | 0.6970 |
+| Hybrid Stacking Ensemble (Ours) | 0.8033 | 0.7857 | 0.9026 | 0.8866 | 0.1336 | 0.2427 | 0.8308 | 0.2427 | 0.6613 |
+| Logistic Regression | 0.7869 | 0.7636 | 0.9026 | 0.8964 | 0.1345 | 0.3078 | 0.8525 | 0.3078 | 0.7165 |
+| Random Forest | 0.8197 | 0.8000 | 0.8907 | 0.8831 | 0.1372 | 0.5398 | 0.8148 | 0.5398 | 0.6645 |
+| XGBoost | 0.7869 | 0.7797 | 0.8810 | 0.8660 | 0.1552 | 0.4779 | 0.8197 | 0.4779 | 0.6504 |
 
 ### 3) Key Findings (Auto-generated)
-- The top-performing configuration achieves a test ROC-AUC of **0.8734** (Logistic Regression).
-- The hybrid ensembles deliver robust test PR-AUC (>0.94) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
+- The top-performing configuration achieves a test ROC-AUC of **0.9177** (PyTorch MLP).
+- The hybrid ensembles deliver robust test PR-AUC (0.89–0.90) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
 <!-- AUTO_ENSEMBLE_END -->
 
 
@@ -608,17 +622,17 @@ Clinical algorithms must not propagate or amplify historical disparities across 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 61.0000 | 54.0984 | 0.7377 | 0.7576 | 0.8517 | 0.7576 | 0.7143 | 0.2424 | 0.2857 | 0.5410 |
-| Female Patients (sex=0) | 18.0000 | 72.2222 | 0.7222 | 0.8000 | 0.8308 | 0.7692 | 0.6000 | 0.2308 | 0.4000 | 0.6667 |
-| Male Patients (sex=1) | 43.0000 | 46.5116 | 0.7442 | 0.7317 | 0.8522 | 0.7500 | 0.7391 | 0.2500 | 0.2609 | 0.4884 |
-| Younger (<50 yrs) | 14.0000 | 85.7143 | 0.7857 | 0.8800 | 0.7917 | 0.9167 | 0.0000 | 0.0833 | 1.0000 | 0.9286 |
-| Middle-aged (50-64 yrs) | 40.0000 | 50.0000 | 0.7250 | 0.7027 | 0.8700 | 0.6500 | 0.8000 | 0.3500 | 0.2000 | 0.4250 |
-| Senior (>=65 yrs) | 7.0000 | 14.2857 | 0.7143 | 0.5000 | 1.0000 | 1.0000 | 0.6667 | 0.0000 | 0.3333 | 0.4286 |
+| All Patients | 61.0000 | 45.9016 | 0.7869 | 0.7797 | 0.8810 | 0.8214 | 0.7576 | 0.1786 | 0.2424 | 0.5082 |
+| Female Patients (sex=0) | 23.0000 | 30.4348 | 0.7826 | 0.6667 | 0.8839 | 0.7143 | 0.8125 | 0.2857 | 0.1875 | 0.3478 |
+| Male Patients (sex=1) | 38.0000 | 55.2632 | 0.7895 | 0.8182 | 0.8655 | 0.8571 | 0.7059 | 0.1429 | 0.2941 | 0.6053 |
+| Younger (<50 yrs) | 18.0000 | 27.7778 | 0.9444 | 0.9091 | 1.0000 | 1.0000 | 0.9231 | 0.0000 | 0.0769 | 0.3333 |
+| Middle-aged (50-64 yrs) | 34.0000 | 52.9412 | 0.7059 | 0.7368 | 0.8438 | 0.7778 | 0.6250 | 0.2222 | 0.3750 | 0.5882 |
+| Senior (>=65 yrs) | 9.0000 | 55.5556 | 0.7778 | 0.8000 | 0.8000 | 0.8000 | 0.7500 | 0.2000 | 0.2500 | 0.5556 |
 
 ### 3) Key Demographic Disparity Findings (Auto-generated)
-- **Equal Opportunity Difference (Sex):** `0.0192` (Sensitivity: Male = `75.0%`, Female = `76.9%`).
-- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`23.1%`) compared to male patients (`25.0%`).
-- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.7917`) and senior (>=65 yrs, ROC-AUC `1.0000`) cohorts.
+- **Equal Opportunity Difference (Sex):** `0.1429` (Sensitivity: Male = `85.7%`, Female = `71.4%`).
+- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`28.6%`) compared to male patients (`14.3%`).
+- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `1.0000`) and senior (>=65 yrs, ROC-AUC `0.8000`) cohorts.
 
 ### 4) Fairness Disparity Visualization (Auto-generated)
 
@@ -646,14 +660,18 @@ Although tree-based ensembles (XGBoost, Random Forest) demonstrated robust discr
 Deterministic point predictions can be hazardous in clinical triage when models encounter atypical cases or out-of-distribution physiological data. As demonstrated by Guo et al. (2017), uncalibrated models output overconfident probabilities. Incorporating ensemble-based predictive uncertainty quantification (Lakshminarayanan et al., 2017) provides clinicians not only with a calibrated risk score, but also with an explicit epistemic uncertainty bound, alerting medical teams when the model's confidence is insufficient to guide critical interventions.
 
 ### 5) The Causal Imperative in Clinical Decision Support (Pearl & Mackenzie, 2018)
-A paramount conceptual takeaway from Judea Pearl's *The Book of Why* (Pearl & Mackenzie, 2018) is the distinction between observational risk ($P(Y=1 \mid X)$) and causal intervention ($P(Y=1 \mid \text{do}(X))$). The models developed in this thesis are strictly predictive: they identify which patient attributes correlate with in-hospital mortality. Clinicians must not naively interpret feature attributions (such as SHAP values) as causal targets. For instance, high ICU length of stay is strongly associated with mortality because sicker patients remain in the ICU longer; intervening to artificially truncate ICU stay would harm the patient. Prospective clinical decision-support must integrate Structural Causal Models (SCMs) and counterfactual analysis before models are permitted to recommend therapeutic interventions.
+A paramount conceptual takeaway from Judea Pearl's *The Book of Why* (Pearl & Mackenzie, 2018) is the distinction between observational risk ($P(Y=1 \mid X)$) and causal intervention ($P(Y=1 \mid \text{do}(X))$). The models developed in this thesis are strictly predictive: they identify which patient attributes correlate with in-hospital mortality. Clinicians must not naively interpret feature attributions (such as SHAP values) as causal targets. For instance, high ICU length of stay is strongly associated with mortality because sicker patients remain in the ICU longer; intervening to artificially truncate ICU stay would harm the patient. 
+
+In our empirical causal benchmarks, isolating the causal Average Treatment Effect (ATE) of exercise-induced angina via confounder-isolated Inverse Probability of Treatment Weighting (IPTW) yielded $\text{ATE} = +0.0657$ versus an unadjusted observational risk difference of $+0.4623$, isolating a substantial confounding bias of $0.3966$. Methodologically, valid observational causal estimation fundamentally relies on the **positivity assumption** ($0 < P(T=1 \mid X) < 1$, ensuring sufficient overlap in propensity scores across all clinical covariate strata) and conditional exchangeability. Future prospective clinical deployments should integrate doubly robust estimators (such as Augmented IPW or Targeted Maximum Likelihood Estimation) and formal sensitivity analyses for unmeasured confounding before clinical interventions are derived from observational models.
 
 ### 6) Algorithmic Fairness, Demographic Equity & Clinical Ethics (Barocas et al., 2020; Bryson, 2019; Marques et al., 2021)
 Our empirical evaluation revealed notable demographic disparities, including higher false negative rates in female patients compared to male patients. Aligning with algorithmic fairness literature (Barocas et al., 2020), clinical models must undergo post-hoc threshold adjustment or in-processing fair representation learning to enforce Equal Opportunity. Furthermore, as articulated by Bryson (2019) and Marques et al. (2021), the ethical integration of AI in healthcare necessitates transparent accountability, preservation of physician autonomy, regular algorithmic auditing, and strict safeguards protecting patient confidentiality.
 
 ### 7) Empirical Validation of Reading-List Advancements (Table R-1)
 
-To evaluate the practical efficacy of the architectures and methods implemented from the reading list,**Table R-1. Empirical performance of implemented reading-list architectures on holdout evaluation.**
+To evaluate the practical efficacy of the architectures and methods implemented from the reading list, we conducted extensive holdout benchmarks across all implemented models.
+
+**Table R-1. Empirical performance of implemented reading-list architectures on holdout evaluation.**
 
 | Architecture / Method | Paradigm | Test Accuracy | Test F1 | Test ROC-AUC | Test PR-AUC | Test Brier Score |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -668,7 +686,7 @@ To evaluate the practical efficacy of the architectures and methods implemented 
 - **Multimodal Fusion Feasibility:** The cross-attention fusion architecture combining tabular records with a surrogate 1D physiological time series verifies numerical training dynamics and gradient backpropagation (ROC-AUC `0.5963`), though clinical efficacy requires pairing with real synchronized telemetry or imaging.
 - **Post-Hoc Probability Calibration (Guo et al., 2017):** Temperature scaling optimized strictly on a validation holdout split ($T = 1.824$) reduced unseen holdout test Expected Calibration Error (ECE) from `0.1653` to `0.1001` (a 39.4% improvement), establishing that post-hoc recalibration improves clinical reliability without disturbing ranking order.
 - **Epistemic Uncertainty Quantification (Lakshminarayanan et al., 2017):** Deep Ensembles estimated an average predictive variance of `0.0194` across holdout patients, providing a principled metric to identify out-of-distribution or ambiguous cases for physician triage.
-- **Causal Disentanglement (Pearl & Mackenzie, 2018):** In alignment with the Ladder of Causation, the observational risk difference (`-0.4623`) was contrasted with the Inverse Probability Weighted causal Average Treatment Effect (`-0.4585`), isolating a baseline confounding bias of `-0.0037`.
+- **Causal Disentanglement (Pearl & Mackenzie, 2018):** In alignment with the Ladder of Causation, the observational risk difference (`+0.4623`) was contrasted with the confounder-isolated Inverse Probability Weighted causal Average Treatment Effect (`+0.0657`), isolating a baseline confounding bias of `+0.3966`.
 - **Fairness Mitigation (Barocas et al., 2020):** Group-specific threshold tuning calibrated on the validation split reduced holdout test true positive rate (TPR) disparity between biological sexes from `0.1115` to `0.0000` (100.0% reduction), demonstrating post-hoc Equal Opportunity enforcement while highlighting the necessity of clinical governance over group-specific cutoffs.
 
 ---

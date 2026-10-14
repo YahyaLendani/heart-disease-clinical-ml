@@ -6,15 +6,15 @@ Evaluates whether the clinical risk model demonstrates parity across biological 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 61 | 54.0984 | 0.7377 | 0.7576 | 0.8517 | 0.7576 | 0.7143 | 0.2424 | 0.2857 | 0.5410 |
-| Female Patients (sex=0) | 18 | 72.2222 | 0.7222 | 0.8000 | 0.8308 | 0.7692 | 0.6000 | 0.2308 | 0.4000 | 0.6667 |
-| Male Patients (sex=1) | 43 | 46.5116 | 0.7442 | 0.7317 | 0.8522 | 0.7500 | 0.7391 | 0.2500 | 0.2609 | 0.4884 |
-| Younger (<50 yrs) | 14 | 85.7143 | 0.7857 | 0.8800 | 0.7917 | 0.9167 | 0.0000 | 0.0833 | 1.0000 | 0.9286 |
-| Middle-aged (50-64 yrs) | 40 | 50.0000 | 0.7250 | 0.7027 | 0.8700 | 0.6500 | 0.8000 | 0.3500 | 0.2000 | 0.4250 |
-| Senior (>=65 yrs) | 7 | 14.2857 | 0.7143 | 0.5000 | 1.0000 | 1.0000 | 0.6667 | 0.0000 | 0.3333 | 0.4286 |
+| All Patients | 61 | 45.9016 | 0.7869 | 0.7797 | 0.8810 | 0.8214 | 0.7576 | 0.1786 | 0.2424 | 0.5082 |
+| Female Patients (sex=0) | 23 | 30.4348 | 0.7826 | 0.6667 | 0.8839 | 0.7143 | 0.8125 | 0.2857 | 0.1875 | 0.3478 |
+| Male Patients (sex=1) | 38 | 55.2632 | 0.7895 | 0.8182 | 0.8655 | 0.8571 | 0.7059 | 0.1429 | 0.2941 | 0.6053 |
+| Younger (<50 yrs) | 18 | 27.7778 | 0.9444 | 0.9091 | 1.0000 | 1.0000 | 0.9231 | 0.0000 | 0.0769 | 0.3333 |
+| Middle-aged (50-64 yrs) | 34 | 52.9412 | 0.7059 | 0.7368 | 0.8438 | 0.7778 | 0.6250 | 0.2222 | 0.3750 | 0.5882 |
+| Senior (>=65 yrs) | 9 | 55.5556 | 0.7778 | 0.8000 | 0.8000 | 0.8000 | 0.7500 | 0.2000 | 0.2500 | 0.5556 |
 
 ### Key Demographic Fairness Findings
 
-- **Equal Opportunity Difference (Sex):** `0.0192`
-- **Disparate Impact Ratio (Female vs. Male):** `1.3651`
-- **Missed Disease Rate (FNR):** Female = `23.1%`, Male = `25.0%`
+- **Equal Opportunity Difference (Sex):** `0.1429`
+- **Disparate Impact Ratio (Female vs. Male):** `0.5747`
+- **Missed Disease Rate (FNR):** Female = `28.6%`, Male = `14.3%`

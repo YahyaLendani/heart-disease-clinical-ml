@@ -109,6 +109,16 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
     if "target" in cleaned.columns:
         cleaned["target"] = pd.to_numeric(cleaned["target"], errors="coerce")
         cleaned["target"] = cleaned["target"].fillna(0).astype(int)
+        # Clinical sanity check: in canonical heart disease data, exercise angina (exang)
+        # and ST depression (oldpeak) correlate positively with disease.
+        # Kaggle heart.csv has an inverted target (1 = healthy, 0 = sick).
+        if "exang" in cleaned.columns:
+            exang_num = pd.to_numeric(cleaned["exang"], errors="coerce")
+            corr = exang_num.corr(cleaned["target"])
+            if pd.notna(corr) and corr < -0.1:
+                print(f"[*] Inverted target detected (exang correlation = {corr:.3f} < -0.1).")
+                print("    Correcting target polarity: 1 = heart disease, 0 = healthy.")
+                cleaned["target"] = 1 - cleaned["target"]
 
     return cleaned
 

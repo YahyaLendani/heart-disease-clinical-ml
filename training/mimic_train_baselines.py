@@ -115,7 +115,14 @@ def make_preprocessor(X: pd.DataFrame):
     return preprocessor
 
 
-def evaluate_holdout(name: str, model: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> tuple[dict, np.ndarray]:
+def evaluate_holdout(
+    name: str,
+    model: Pipeline,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    X_val: pd.DataFrame | None = None,
+    y_val: pd.Series | None = None,
+) -> tuple[dict, np.ndarray]:
     align_xgb_inference_device(model)
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
@@ -127,8 +134,12 @@ def evaluate_holdout(name: str, model: Pipeline, X_test: pd.DataFrame, y_test: p
     roc_auc = roc_auc_score(y_test, y_prob)
     pr_auc = average_precision_score(y_test, y_prob)
 
-    # Clinical metrics
-    clinical = compute_clinical_metrics(y_test, y_prob)
+    # Clinical metrics: tune threshold on validation set when available to prevent test-set threshold leakage
+    if X_val is not None and y_val is not None:
+        y_val_prob = model.predict_proba(X_val)[:, 1]
+        clinical = compute_clinical_metrics(y_test, y_prob, y_val_true=y_val, y_val_prob=y_val_prob)
+    else:
+        clinical = compute_clinical_metrics(y_test, y_prob)
 
     print(f"\n=== {name} ===")
     print(
@@ -244,13 +255,13 @@ def split_train_val_test(
     val_size: float,
     random_state: int = 42,
     groups: pd.Series | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, pd.Series | None]:
     """Split data into train/val/test sets.
 
     When *groups* is provided (e.g. subject_id for MIMIC), splitting is
-    done at the group level using GroupShuffleSplit so that all rows
-    belonging to the same group (patient) stay in the same partition.
-    This prevents patient-level data leakage.
+    done using StratifiedGroupKFold so that all admissions belonging to the
+    same patient stay in the same partition while maintaining class balance.
+    This guarantees zero patient-level data leakage.
     """
     if not (0 < test_size < 1):
         raise ValueError("test_size must be between 0 and 1.")
@@ -260,11 +271,12 @@ def split_train_val_test(
         raise ValueError("test_size + val_size must be < 1.")
 
     if groups is not None:
-        # --- Patient-level (grouped) splitting ---
-        gss_test = GroupShuffleSplit(
-            n_splits=1, test_size=test_size, random_state=random_state
+        # Use StratifiedGroupKFold to ensure BOTH patient isolation and minority-class stratification
+        n_splits_test = max(2, int(round(1.0 / test_size)))
+        sgkf_test = StratifiedGroupKFold(
+            n_splits=n_splits_test, shuffle=True, random_state=random_state
         )
-        train_val_idx, test_idx = next(gss_test.split(X, y, groups=groups))
+        train_val_idx, test_idx = next(sgkf_test.split(X, y, groups=groups))
         X_train_val = X.iloc[train_val_idx]
         X_test = X.iloc[test_idx]
         y_train_val = y.iloc[train_val_idx]
@@ -272,17 +284,26 @@ def split_train_val_test(
         groups_train_val = groups.iloc[train_val_idx]
 
         relative_val_size = val_size / (1 - test_size)
-        gss_val = GroupShuffleSplit(
-            n_splits=1, test_size=relative_val_size, random_state=random_state
+        n_splits_val = max(2, int(round(1.0 / relative_val_size)))
+        sgkf_val = StratifiedGroupKFold(
+            n_splits=n_splits_val, shuffle=True, random_state=random_state
         )
         train_idx, val_idx = next(
-            gss_val.split(X_train_val, y_train_val, groups=groups_train_val)
+            sgkf_val.split(X_train_val, y_train_val, groups=groups_train_val)
         )
         X_train = X_train_val.iloc[train_idx]
         X_val = X_train_val.iloc[val_idx]
         y_train = y_train_val.iloc[train_idx]
         y_val = y_train_val.iloc[val_idx]
         groups_train = groups_train_val.iloc[train_idx]
+
+        # Explicit verification against patient leakage
+        assert set(groups.iloc[train_idx]).isdisjoint(set(groups.iloc[test_idx])), (
+            "CRITICAL LEAKAGE: subject_id overlap between train and test!"
+        )
+        assert set(groups.iloc[val_idx]).isdisjoint(set(groups.iloc[test_idx])), (
+            "CRITICAL LEAKAGE: subject_id overlap between val and test!"
+        )
     else:
         # --- Row-level stratified splitting (no group info) ---
         X_train_val, X_test, y_train_val, y_test = train_test_split(
@@ -425,7 +446,7 @@ def main() -> None:
         )
 
         model.fit(X_train, y_train)
-        holdout_result, y_proba = evaluate_holdout(name, model, X_test, y_test)
+        holdout_result, y_proba = evaluate_holdout(name, model, X_test, y_test, X_val=X_val, y_val=y_val)
         holdout_result.update(cv_result)
         results.append(holdout_result)
         fitted_models[name] = model

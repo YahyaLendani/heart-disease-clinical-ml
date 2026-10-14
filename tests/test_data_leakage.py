@@ -173,3 +173,38 @@ class TestImputerFitOnlyOnTrain:
             f"Imputed value {imputed_value} != train median {train_median}. "
             f"Imputer may be using test-set statistics (data leakage)."
         )
+
+
+class TestTargetPolaritySanity:
+    """Ensure target polarity is clinically and epidemiologically valid (1 = disease, 0 = healthy)."""
+
+    def test_heart_target_correlations(self, heart_dataset):
+        X, y = heart_dataset
+        df = X.copy()
+        df["target"] = y
+
+        # Clinical reality checks in cardiology:
+        # 1. Exercise-induced angina (exang) is positively correlated with disease
+        if "exang" in df.columns:
+            exang_corr = df["exang"].corr(df["target"])
+            assert exang_corr > 0.2, (
+                f"Heart disease target polarity inverted: exang correlation is {exang_corr:.3f} "
+                "(should be positive, indicating exercise angina increases disease risk)"
+            )
+
+        # 2. ST depression (oldpeak) is positively correlated with disease
+        if "oldpeak" in df.columns:
+            oldpeak_corr = df["oldpeak"].corr(df["target"])
+            assert oldpeak_corr > 0.2, (
+                f"Heart disease target polarity inverted: oldpeak correlation is {oldpeak_corr:.3f} "
+                "(should be positive)"
+            )
+
+        # 3. Maximum heart rate achieved (thalach) is negatively correlated with disease
+        if "thalach" in df.columns:
+            thalach_corr = df["thalach"].corr(df["target"])
+            assert thalach_corr < -0.2, (
+                f"Heart disease target polarity inverted: thalach correlation is {thalach_corr:.3f} "
+                "(should be negative, indicating higher max HR reflects cardiac health)"
+            )
+

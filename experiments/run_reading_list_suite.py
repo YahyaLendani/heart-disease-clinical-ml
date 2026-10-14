@@ -1,26 +1,27 @@
 """Experimental Suite executing all implemented methods from the AI Thesis Reading List.
 
-Executes and benchmarks:
-1. TabTransformer (Huang et al., 2020 & Vaswani et al., 2017)
-2. Graph Neural Networks: GCN & GAT on patient graphs (Kipf & Welling, 2017; Veličković et al., 2018)
-3. Multimodal Classifier with ResNet & ViT Fusion (Baltrušaitis et al., 2018; He et al., 2016; Dosovitskiy et al., 2020)
-4. Model Calibration via Temperature Scaling (Guo et al., 2017)
-5. Deep Ensemble Uncertainty Quantification (Lakshminarayanan et al., 2017)
-6. Grad-CAM Interpretability (Selvaraju et al., 2017)
-7. Algorithmic Fairness Mitigation (Barocas et al., 2020)
-8. Causal ATE vs. Observational Association (Pearl & Mackenzie, 2018)
+Refactored for strict methodological rigor (zero preprocessing leakage,
+inductive-aware graph evaluation, proper validation-tuned temperature scaling,
+and confounder-isolated IPTW causal inference).
 """
 
 from __future__ import annotations
+
 import argparse
-import json
 from pathlib import Path
+import random
 import sys
 
-import random
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score, brier_score_loss
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    brier_score_loss,
+    f1_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import torch
@@ -61,41 +62,111 @@ def set_global_seed(seed: int = 42) -> None:
     torch.backends.cudnn.benchmark = False
 
 
+def _prepare_three_way_tabular_splits(
+    df: pd.DataFrame,
+    target_col: str,
+    seed: int = 42,
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray,
+    np.ndarray, np.ndarray, np.ndarray,
+    np.ndarray, np.ndarray, np.ndarray,
+    list[str], pd.DataFrame,
+]:
+    """Split dataframe into 60% train, 20% val, 20% test and fit imputer/scaler strictly on train."""
+    df_clean = df.dropna(subset=[target_col]).reset_index(drop=True).copy()
+    feature_cols = [
+        c for c in df_clean.columns
+        if c != target_col and pd.api.types.is_numeric_dtype(df_clean[c])
+    ]
+    y = df_clean[target_col].values.astype(float)
+    indices = np.arange(len(df_clean))
+
+    train_val_idx, test_idx = train_test_split(
+        indices, test_size=0.20, random_state=seed, stratify=y
+    )
+    train_idx, val_idx = train_test_split(
+        train_val_idx, test_size=0.25, random_state=seed, stratify=y[train_val_idx]
+    )
+
+    X_raw = df_clean[feature_cols].values
+    imputer = SimpleImputer(strategy="median")
+    scaler = StandardScaler()
+
+    X_train = scaler.fit_transform(imputer.fit_transform(X_raw[train_idx]))
+    X_val = scaler.transform(imputer.transform(X_raw[val_idx]))
+    X_test = scaler.transform(imputer.transform(X_raw[test_idx]))
+
+    return (
+        X_train, y[train_idx], train_idx,
+        X_val, y[val_idx], val_idx,
+        X_test, y[test_idx], test_idx,
+        feature_cols, df_clean,
+    )
+
+
 def run_tabtransformer_experiment(
     df: pd.DataFrame,
-    epochs: int = 25,
+    epochs: int = 40,
     device: str = "cpu",
-) -> dict[str, float]:
-    """Train and evaluate TabTransformer."""
-    set_global_seed(42)
-    # Split into categorical and continuous features
-    cat_cols = [c for c in ["sex", "cp", "fbs", "restecg", "exang", "slope", "thal"] if c in df.columns]
+    seed: int = 42,
+) -> dict[str, float | str]:
+    """Train and evaluate TabTransformer with strict train-only preprocessing and early stopping."""
+    set_global_seed(seed)
+    cat_cols = [
+        c for c in ["sex", "cp", "fbs", "restecg", "exang", "slope", "thal"]
+        if c in df.columns
+    ]
     target_col = "target" if "target" in df.columns else "hospital_expire_flag"
-    cont_cols = [c for c in df.columns if c not in cat_cols and c != target_col and pd.api.types.is_numeric_dtype(df[c])]
+    df_clean = df.dropna(subset=[target_col]).reset_index(drop=True).copy()
+    cont_cols = [
+        c for c in df_clean.columns
+        if c not in cat_cols and c != target_col and pd.api.types.is_numeric_dtype(df_clean[c])
+    ]
 
-    # Encode categorical to 0-indexed integers
+    y = df_clean[target_col].values.astype(float)
+    indices = np.arange(len(df_clean))
+    train_val_idx, test_idx = train_test_split(
+        indices, test_size=0.20, random_state=seed, stratify=y
+    )
+    train_idx, val_idx = train_test_split(
+        train_val_idx, test_size=0.25, random_state=seed, stratify=y[train_val_idx]
+    )
+
+    train_df = df_clean.iloc[train_idx].copy()
+    val_df = df_clean.iloc[val_idx].copy()
+    test_df = df_clean.iloc[test_idx].copy()
+
     cat_dims = []
-    df_clean = df.dropna(subset=[target_col]).copy()
     for c in cat_cols:
-        df_clean[c] = df_clean[c].fillna(df_clean[c].mode()[0])
-        # Map values to 0, 1, ...
-        unique_vals = {v: idx for idx, v in enumerate(df_clean[c].unique())}
-        df_clean[c] = df_clean[c].map(unique_vals)
-        cat_dims.append(len(unique_vals))
+        mode_val = train_df[c].mode().iloc[0]
+        train_df[c] = train_df[c].fillna(mode_val)
+        val_df[c] = val_df[c].fillna(mode_val)
+        test_df[c] = test_df[c].fillna(mode_val)
 
-    for c in cont_cols:
-        df_clean[c] = df_clean[c].fillna(df_clean[c].median())
+        unique_vals = {v: idx for idx, v in enumerate(train_df[c].unique())}
+        unk_idx = len(unique_vals)
+        train_df[c] = train_df[c].map(lambda x: unique_vals.get(x, unk_idx)).astype(int)
+        val_df[c] = val_df[c].map(lambda x: unique_vals.get(x, unk_idx)).astype(int)
+        test_df[c] = test_df[c].map(lambda x: unique_vals.get(x, unk_idx)).astype(int)
+        cat_dims.append(len(unique_vals) + 1)
 
-    train_df, test_df = train_test_split(df_clean, test_size=0.2, random_state=42, stratify=df_clean[target_col])
-
-    scaler = StandardScaler()
-    X_cont_train = scaler.fit_transform(train_df[cont_cols].values) if cont_cols else np.empty((len(train_df), 0))
-    X_cont_test = scaler.transform(test_df[cont_cols].values) if cont_cols else np.empty((len(test_df), 0))
+    if cont_cols:
+        cont_imputer = SimpleImputer(strategy="median")
+        scaler = StandardScaler()
+        X_cont_train = scaler.fit_transform(cont_imputer.fit_transform(train_df[cont_cols].values))
+        X_cont_val = scaler.transform(cont_imputer.transform(val_df[cont_cols].values))
+        X_cont_test = scaler.transform(cont_imputer.transform(test_df[cont_cols].values))
+    else:
+        X_cont_train = np.empty((len(train_df), 0))
+        X_cont_val = np.empty((len(val_df), 0))
+        X_cont_test = np.empty((len(test_df), 0))
 
     X_cat_train = train_df[cat_cols].values
+    X_cat_val = val_df[cat_cols].values
     X_cat_test = test_df[cat_cols].values
 
     y_train = train_df[target_col].values.astype(float)
+    y_val = val_df[target_col].values.astype(float)
     y_test = test_df[target_col].values.astype(float)
 
     dev = torch.device(device)
@@ -106,28 +177,44 @@ def run_tabtransformer_experiment(
         num_heads=2,
         num_layers=2,
         mlp_hidden_dims=[32, 16],
-        dropout=0.1,
+        dropout=0.15,
     ).to(dev)
 
-    optimizer = optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=0.003, weight_decay=1e-4)
     criterion = nn.BCEWithLogitsLoss()
 
-    x_cat_t = torch.tensor(X_cat_train, dtype=torch.long).to(dev)
-    x_cont_t = torch.tensor(X_cont_train, dtype=torch.float32).to(dev)
-    y_t = torch.tensor(y_train, dtype=torch.float32).view(-1, 1).to(dev)
+    x_cat_t = torch.tensor(X_cat_train, dtype=torch.long, device=dev)
+    x_cont_t = torch.tensor(X_cont_train, dtype=torch.float32, device=dev)
+    y_t = torch.tensor(y_train, dtype=torch.float32, device=dev).view(-1, 1)
 
-    model.train()
+    val_cat_t = torch.tensor(X_cat_val, dtype=torch.long, device=dev)
+    val_cont_t = torch.tensor(X_cont_val, dtype=torch.float32, device=dev)
+    y_val_t = torch.tensor(y_val, dtype=torch.float32, device=dev).view(-1, 1)
+
+    best_val_loss = float("inf")
+    best_state = None
     for _ in range(epochs):
+        model.train()
         optimizer.zero_grad()
         out = model(x_cat_t, x_cont_t)
         loss = criterion(out, y_t)
         loss.backward()
         optimizer.step()
 
+        model.eval()
+        with torch.no_grad():
+            val_loss = criterion(model(val_cat_t, val_cont_t), y_val_t).item()
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+
+    if best_state is not None:
+        model.load_state_dict({k: v.to(dev) for k, v in best_state.items()})
+
     model.eval()
     with torch.no_grad():
-        test_cat_t = torch.tensor(X_cat_test, dtype=torch.long).to(dev)
-        test_cont_t = torch.tensor(X_cont_test, dtype=torch.float32).to(dev)
+        test_cat_t = torch.tensor(X_cat_test, dtype=torch.long, device=dev)
+        test_cont_t = torch.tensor(X_cont_test, dtype=torch.float32, device=dev)
         logits, _ = model(test_cat_t, test_cont_t, return_attn=True)
         probs = torch.sigmoid(logits).cpu().numpy().flatten()
 
@@ -144,34 +231,45 @@ def run_tabtransformer_experiment(
 
 def run_gnn_experiment(
     df: pd.DataFrame,
-    epochs: int = 30,
+    epochs: int = 40,
     device: str = "cpu",
+    seed: int = 42,
 ) -> list[dict[str, float | str]]:
-    """Train and evaluate GCN and GAT on patient similarity graph."""
-    set_global_seed(42)
+    """Train and evaluate GCN and GAT with strict train-only scaling and inductive-aware graph edges."""
+    set_global_seed(seed)
     target_col = "target" if "target" in df.columns else "hospital_expire_flag"
-    df_clean = df.dropna(subset=[target_col]).copy()
-    feature_cols = [c for c in df_clean.columns if c != target_col and pd.api.types.is_numeric_dtype(df_clean[c])]
+    (
+        X_train, y_train, train_idx,
+        X_val, y_val, val_idx,
+        X_test, y_test, test_idx,
+        feature_cols, df_clean,
+    ) = _prepare_three_way_tabular_splits(df, target_col, seed=seed)
 
-    for c in feature_cols:
-        df_clean[c] = df_clean[c].fillna(df_clean[c].median())
-
-    X = df_clean[feature_cols].values
-    y = df_clean[target_col].values.astype(float)
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Split train/test mask
-    indices = np.arange(len(df_clean))
-    train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42, stratify=y)
+    N = len(df_clean)
+    X_scaled = np.zeros((N, len(feature_cols)), dtype=np.float32)
+    X_scaled[train_idx] = X_train
+    X_scaled[val_idx] = X_val
+    X_scaled[test_idx] = X_test
+    y_all = df_clean[target_col].values.astype(float)
 
     dev = torch.device(device)
-    X_t = torch.tensor(X_scaled, dtype=torch.float32).to(dev)
-    y_t = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(dev)
+    X_t = torch.tensor(X_scaled, dtype=torch.float32, device=dev)
+    y_t = torch.tensor(y_all, dtype=torch.float32, device=dev).view(-1, 1)
 
-    # Build k-NN graph
     adj = build_knn_patient_graph(X_scaled, k=5, metric="cosine").to(dev)
-    norm_adj = normalize_adjacency_gcn(adj).to(dev)
+    test_mask_1d = torch.zeros(N, dtype=torch.bool, device=dev)
+    test_mask_1d[test_idx] = True
+    test_to_test_mask = test_mask_1d.unsqueeze(1) & test_mask_1d.unsqueeze(0)
+    test_to_test_mask.fill_diagonal_(False)
+    adj = adj.masked_fill(test_to_test_mask, 0.0)
+
+    adj_train = adj.clone()
+    adj_train[test_idx, :] = 0.0
+    adj_train[:, test_idx] = 0.0
+    adj_train[test_idx, test_idx] = 1.0
+
+    norm_adj_train = normalize_adjacency_gcn(adj_train).to(dev)
+    norm_adj_eval = normalize_adjacency_gcn(adj).to(dev)
 
     criterion = nn.BCEWithLogitsLoss()
     results = []
@@ -183,17 +281,16 @@ def run_gnn_experiment(
     for _ in range(epochs):
         gcn.train()
         opt_gcn.zero_grad()
-        logits = gcn(X_t, norm_adj)
+        logits = gcn(X_t, norm_adj_train)
         loss = criterion(logits[train_idx], y_t[train_idx])
         loss.backward()
         opt_gcn.step()
 
     gcn.eval()
     with torch.no_grad():
-        test_logits = gcn(X_t, norm_adj)[test_idx]
+        test_logits = gcn(X_t, norm_adj_eval)[test_idx]
         test_probs = torch.sigmoid(test_logits).cpu().numpy().flatten()
         test_preds = (test_probs >= 0.5).astype(int)
-        y_test = y[test_idx]
         results.append({
             "model": "GCN (Kipf & Welling)",
             "test_accuracy": float(accuracy_score(y_test, test_preds)),
@@ -210,7 +307,7 @@ def run_gnn_experiment(
     for _ in range(epochs):
         gat.train()
         opt_gat.zero_grad()
-        logits = gat(X_t, adj)
+        logits = gat(X_t, adj_train)
         loss = criterion(logits[train_idx], y_t[train_idx])
         loss.backward()
         opt_gat.step()
@@ -232,6 +329,20 @@ def run_gnn_experiment(
     return results
 
 
+def _synthesize_physiological_waveform(X_scaled: np.ndarray, seed: int = 42) -> np.ndarray:
+    """Synthesize a 128-step physiological 1D waveform modulated strictly by observed covariates X."""
+    rng = np.random.RandomState(seed)
+    n_samples = X_scaled.shape[0]
+    t = np.linspace(0, 2 * np.pi, 128, dtype=np.float32)
+    signals = np.zeros((n_samples, 128), dtype=np.float32)
+    for i in range(n_samples):
+        freq_mod = 1.0 + 0.25 * float(np.clip(X_scaled[i, 0], -2.0, 2.0))
+        st_shift = 0.20 * float(np.clip(X_scaled[i, min(1, X_scaled.shape[1] - 1)], -2.0, 2.0))
+        noise = rng.normal(0.0, 0.15, size=128).astype(np.float32)
+        signals[i] = np.sin(freq_mod * t) + 0.5 * np.cos(2.0 * freq_mod * t) + st_shift + noise
+    return signals
+
+
 def run_all_advancements(
     heart_csv: str = "cleaned_heart_disease.csv",
     mimic_csv: str = "mimic_hospital_mortality.csv",
@@ -249,6 +360,14 @@ def run_all_advancements(
     if target_df is None:
         raise FileNotFoundError("Neither heart nor MIMIC dataset found.")
 
+    target_col = "target" if "target" in target_df.columns else "hospital_expire_flag"
+    (
+        X_train_t, y_train_t, train_idx,
+        X_val_t, y_val_t, val_idx,
+        X_test_t, y_test_t, test_idx,
+        feature_cols, df_clean,
+    ) = _prepare_three_way_tabular_splits(target_df, target_col, seed=42)
+
     all_benchmarks: list[dict] = []
 
     print(">>> 1. Benchmarking TabTransformer (Huang et al., 2020)...")
@@ -260,22 +379,9 @@ def run_all_advancements(
     all_benchmarks.extend(gnn_res)
 
     print(">>> 3. Benchmarking Multimodal Fusion (ResNet + ViT)...")
-    # Architectural benchmark using tabular data paired with a 1D surrogate physiological signal
-    num_samples = len(target_df)
-    set_global_seed(42)
-    fake_signal = np.random.randn(num_samples, 128).astype(np.float32)
-    feature_cols = [c for c in target_df.columns if c not in ["target", "hospital_expire_flag"] and pd.api.types.is_numeric_dtype(target_df[c])]
-    X_tab = StandardScaler().fit_transform(target_df[feature_cols].fillna(0).values)
-    y = (target_df["target" if "target" in target_df.columns else "hospital_expire_flag"].values).astype(float)
-
-    # 3-way split: 60% train, 20% validation (for tuning calibration T & fairness thresholds), 20% holdout test
-    indices = np.arange(num_samples)
-    train_val_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42, stratify=y)
-    train_idx, val_idx = train_test_split(train_val_idx, test_size=0.25, random_state=42, stratify=y[train_val_idx])
-
-    X_train_t, S_train_t, y_train_t = X_tab[train_idx], fake_signal[train_idx], y[train_idx]
-    X_val_t, S_val_t, y_val_t = X_tab[val_idx], fake_signal[val_idx], y[val_idx]
-    X_test_t, S_test_t, y_test_t = X_tab[test_idx], fake_signal[test_idx], y[test_idx]
+    S_train_t = _synthesize_physiological_waveform(X_train_t, seed=42)
+    S_val_t = _synthesize_physiological_waveform(X_val_t, seed=43)
+    S_test_t = _synthesize_physiological_waveform(X_test_t, seed=44)
 
     mm_model = MultimodalFusionClassifier(
         tabular_dim=len(feature_cols),
@@ -284,83 +390,126 @@ def run_all_advancements(
         embed_dim=32,
         fusion_strategy="cross_attention",
     )
-    mm_opt = optim.Adam(mm_model.parameters(), lr=0.005)
+    mm_opt = optim.Adam(mm_model.parameters(), lr=0.003, weight_decay=1e-4)
     criterion = nn.BCEWithLogitsLoss()
 
-    for _ in range(15):
+    for _ in range(25):
         mm_model.train()
         mm_opt.zero_grad()
-        out = mm_model(torch.tensor(X_train_t, dtype=torch.float32), torch.tensor(S_train_t, dtype=torch.float32))
+        out = mm_model(
+            torch.tensor(X_train_t, dtype=torch.float32),
+            torch.tensor(S_train_t, dtype=torch.float32),
+        )
         loss = criterion(out, torch.tensor(y_train_t, dtype=torch.float32).view(-1, 1))
         loss.backward()
         mm_opt.step()
 
     mm_model.eval()
     with torch.no_grad():
-        val_logits = mm_model(torch.tensor(X_val_t, dtype=torch.float32), torch.tensor(S_val_t, dtype=torch.float32))
-        val_probs = torch.sigmoid(val_logits).cpu().numpy().flatten()
-
-        test_logits = mm_model(torch.tensor(X_test_t, dtype=torch.float32), torch.tensor(S_test_t, dtype=torch.float32))
-        test_probs = torch.sigmoid(test_logits).cpu().numpy().flatten()
-        test_preds = (test_probs >= 0.5).astype(int)
+        mm_test_logits = mm_model(
+            torch.tensor(X_test_t, dtype=torch.float32),
+            torch.tensor(S_test_t, dtype=torch.float32),
+        )
+        mm_test_probs = torch.sigmoid(mm_test_logits).cpu().numpy().flatten()
+        mm_test_preds = (mm_test_probs >= 0.5).astype(int)
 
     all_benchmarks.append({
         "model": "Multimodal Cross-Attention (ResNet/ViT surrogate)",
-        "test_accuracy": float(accuracy_score(y_test_t, test_preds)),
-        "test_f1": float(f1_score(y_test_t, test_preds, zero_division=0)),
-        "test_roc_auc": float(roc_auc_score(y_test_t, test_probs)),
-        "test_pr_auc": float(average_precision_score(y_test_t, test_probs)),
-        "test_brier": float(brier_score_loss(y_test_t, test_probs)),
+        "test_accuracy": float(accuracy_score(y_test_t, mm_test_preds)),
+        "test_f1": float(f1_score(y_test_t, mm_test_preds, zero_division=0)),
+        "test_roc_auc": float(roc_auc_score(y_test_t, mm_test_probs)),
+        "test_pr_auc": float(average_precision_score(y_test_t, mm_test_probs)),
+        "test_brier": float(brier_score_loss(y_test_t, mm_test_probs)),
     })
 
     print(">>> 4. Testing Calibration via Temperature Scaling (Guo et al., 2017)...")
     base_mlp = HeartMLP(input_dim=len(feature_cols), hidden_dims=[32, 16])
+    mlp_opt = optim.Adam(base_mlp.parameters(), lr=0.005, weight_decay=1e-4)
+    x_tr_tensor = torch.tensor(X_train_t, dtype=torch.float32)
+    y_tr_tensor = torch.tensor(y_train_t, dtype=torch.float32)
+    for _ in range(40):
+        base_mlp.train()
+        mlp_opt.zero_grad()
+        mlp_loss = criterion(base_mlp(x_tr_tensor), y_tr_tensor)
+        mlp_loss.backward()
+        mlp_opt.step()
+
+    base_mlp.eval()
+    with torch.no_grad():
+        val_logits = base_mlp(torch.tensor(X_val_t, dtype=torch.float32))
+        val_probs = torch.sigmoid(val_logits).cpu().numpy().flatten()
+        test_logits = base_mlp(torch.tensor(X_test_t, dtype=torch.float32))
+        test_probs = torch.sigmoid(test_logits).cpu().numpy().flatten()
+
     cal_wrapper = ModelWithTemperature(base_mlp)
-    # Rigorous evaluation: Tune temperature scaling strictly on the validation split
-    cal_res = cal_wrapper.calibrate(val_logits.detach(), torch.tensor(y_val_t, dtype=torch.float32).view(-1, 1))
+    cal_res = cal_wrapper.calibrate(
+        val_logits.detach(),
+        torch.tensor(y_val_t, dtype=torch.float32).view(-1, 1),
+    )
     opt_t = cal_res["optimal_temperature"]
 
-    # Evaluate calibration quality on the unseen holdout test split
     ece_test_before = compute_ece(test_probs, y_test_t)
     scaled_test_logits = cal_wrapper.temperature_scale(test_logits.detach())
     calibrated_test_probs = torch.sigmoid(scaled_test_logits).detach().cpu().numpy().flatten()
     ece_test_after = compute_ece(calibrated_test_probs, y_test_t)
 
     print(f"    Validation Optimal Temperature: {opt_t:.3f}")
-    print(f"    Holdout Test ECE: {ece_test_before:.4f} -> {ece_test_after:.4f} (Validation ECE: {cal_res['ece_before']:.4f} -> {cal_res['ece_after']:.4f})")
+    print(
+        f"    Holdout Test ECE: {ece_test_before:.4f} -> {ece_test_after:.4f} "
+        f"(Validation ECE: {cal_res['ece_before']:.4f} -> {cal_res['ece_after']:.4f})"
+    )
 
     print(">>> 5. Testing Deep Ensemble Uncertainty (Lakshminarayanan et al., 2017)...")
-    ensemble = DeepEnsemble(lambda: HeartMLP(input_dim=len(feature_cols), hidden_dims=[32, 16]), num_models=3)
-    ensemble.fit(X_train_t, y_train_t, epochs=10)
+    ensemble = DeepEnsemble(
+        lambda: HeartMLP(input_dim=len(feature_cols), hidden_dims=[32, 16]),
+        num_models=5,
+    )
+    ensemble.fit(X_train_t, y_train_t, epochs=30)
     unc_res = ensemble.predict_with_uncertainty(X_test_t)
-    print(f"    Mean Variance: {unc_res['epistemic_variance'].mean():.4f} | Uncertain Cases: {unc_res['is_uncertain'].sum()} / {len(X_test_t)}")
+    print(
+        f"    Mean Variance: {unc_res['epistemic_variance'].mean():.4f} | "
+        f"Uncertain Cases: {unc_res['is_uncertain'].sum()} / {len(X_test_t)}"
+    )
 
     print(">>> 6. Testing Causal Inference (Pearl & Mackenzie, 2018)...")
-    if "had_icu" in target_df.columns:
-        treatment = target_df["had_icu"].fillna(0).values.astype(int)
+    if "had_icu" in df_clean.columns:
+        treat_col = "had_icu"
         treatment_name = "ICU Admission"
-    elif "exang" in target_df.columns:
-        treatment = target_df["exang"].fillna(0).values.astype(int)
+    elif "exang" in df_clean.columns:
+        treat_col = "exang"
         treatment_name = "Exercise Induced Angina"
-    elif "has_ed_visit" in target_df.columns:
-        treatment = target_df["has_ed_visit"].fillna(0).values.astype(int)
+    elif "has_ed_visit" in df_clean.columns:
+        treat_col = "has_ed_visit"
         treatment_name = "ED Visit Prior to Admission"
     else:
-        treatment = (X_tab[:, 0] > 0).astype(int)
-        treatment_name = "Feature_0 Intervention"
+        treat_col = feature_cols[0]
+        treatment_name = f"{treat_col} Intervention"
 
-    causal_res = compare_observational_vs_causal(X_tab, treatment, y, treatment_name=treatment_name)
-    print(f"    Observational Diff: {causal_res['observational_risk_difference']:.4f} vs Causal ATE: {causal_res['causal_ate_iptw']:.4f}")
+    treatment = (df_clean[treat_col].fillna(0).values > 0).astype(int)
+    # Exclude treatment variable itself from confounders matrix
+    confounder_cols = [c for c in feature_cols if c != treat_col]
+    X_conf_raw = df_clean[confounder_cols].values
+    X_confounders = StandardScaler().fit_transform(
+        SimpleImputer(strategy="median").fit_transform(X_conf_raw)
+    )
+    y_all = df_clean[target_col].values.astype(float)
+
+    causal_res = compare_observational_vs_causal(
+        X_confounders, treatment, y_all, treatment_name=treatment_name
+    )
+    print(
+        f"    Observational Diff: {causal_res['observational_risk_difference']:.4f} "
+        f"vs Causal ATE: {causal_res['causal_ate_iptw']:.4f}"
+    )
 
     print(">>> 7. Testing Algorithmic Fairness Mitigation (Barocas et al., 2020)...")
-    if "sex" in target_df.columns:
-        sex_group = target_df["sex"].fillna(0).values.astype(int)
-    elif "gender" in target_df.columns:
-        sex_group = (target_df["gender"].astype(str).str.upper() == "M").astype(int)
+    if "sex" in df_clean.columns:
+        sex_group = df_clean["sex"].fillna(0).values.astype(int)
+    elif "gender" in df_clean.columns:
+        sex_group = (df_clean["gender"].astype(str).str.upper() == "M").astype(int)
     else:
-        sex_group = np.random.RandomState(42).randint(0, 2, len(y))
+        sex_group = np.random.RandomState(42).randint(0, 2, len(y_all))
 
-    # Rigorous evaluation: Tune Equal Opportunity thresholds on validation set, evaluate on holdout test set
     val_sex = sex_group[val_idx]
     test_sex = sex_group[test_idx]
 
@@ -368,10 +517,9 @@ def run_all_advancements(
     t0 = val_fair_res["optimal_threshold_group_0"]
     t1 = val_fair_res["optimal_threshold_group_1"]
 
-    # Evaluate disparity on the unseen test set
-    def compute_subgroup_tpr(labels, preds, group, group_val):
-        mask = (group == group_val)
-        pos = (labels[mask] == 1)
+    def compute_subgroup_tpr(labels: np.ndarray, preds: np.ndarray, group: np.ndarray, group_val: int) -> float:
+        mask = group == group_val
+        pos = labels[mask] == 1
         if np.sum(pos) == 0:
             return 0.0
         return float(np.sum((preds[mask] == 1) & pos) / np.sum(pos))
@@ -387,11 +535,15 @@ def run_all_advancements(
     test_mit_tpr0 = compute_subgroup_tpr(y_test_t, test_mit_preds, test_sex, 0)
     test_mit_tpr1 = compute_subgroup_tpr(y_test_t, test_mit_preds, test_sex, 1)
     test_mit_diff = abs(test_mit_tpr0 - test_mit_tpr1)
-    test_disparity_reduction = max(0.0, (test_unmit_diff - test_mit_diff) / max(test_unmit_diff, 1e-6) * 100.0)
+    test_disparity_reduction = max(
+        0.0, (test_unmit_diff - test_mit_diff) / max(test_unmit_diff, 1e-6) * 100.0
+    )
 
-    print(f"    Holdout Test TPR Disparity: {test_unmit_diff:.4f} -> {test_mit_diff:.4f} ({test_disparity_reduction:.1f}% reduction; Validation tuned thresholds t0={t0:.3f}, t1={t1:.3f})")
+    print(
+        f"    Holdout Test TPR Disparity: {test_unmit_diff:.4f} -> {test_mit_diff:.4f} "
+        f"({test_disparity_reduction:.1f}% reduction; Validation tuned thresholds t0={t0:.3f}, t1={t1:.3f})"
+    )
 
-    # Export Benchmarks Table
     benchmarks_df = pd.DataFrame(all_benchmarks)
     benchmarks_df.to_csv(out_path / "reading_list_advancements_summary.csv", index=False)
 
@@ -407,15 +559,16 @@ def run_all_advancements(
     ]
     for _, row in benchmarks_df.iterrows():
         md_lines.append(
-            f"| {row['model']} | {row['test_accuracy']:.4f} | {row['test_f1']:.4f} | {row['test_roc_auc']:.4f} | {row['test_pr_auc']:.4f} | {row['test_brier']:.4f} |"
+            f"| {row['model']} | {row['test_accuracy']:.4f} | {row['test_f1']:.4f} | "
+            f"{row['test_roc_auc']:.4f} | {row['test_pr_auc']:.4f} | {row['test_brier']:.4f} |"
         )
 
     md_lines.extend([
         "",
         "## 2. Methodology & Rigor Summary",
-        f"- **Temperature Scaling (Guo et al., 2017):** Validation-tuned optimal T `{opt_t:.3f}` reduced holdout test ECE from `{ece_test_before:.4f}` to `{ece_test_after:.4f}` (Validation ECE: `{cal_res['ece_before']:.4f}` -> `{cal_res['ece_after']:.4f}`).",
+        f"- **Temperature Scaling (Guo et al., 2017):** Validation-tuned optimal T `{opt_t:.3f}` on trained `HeartMLP` reduced holdout test ECE from `{ece_test_before:.4f}` to `{ece_test_after:.4f}` (Validation ECE: `{cal_res['ece_before']:.4f}` -> `{cal_res['ece_after']:.4f}`).",
         f"- **Deep Ensembles (Lakshminarayanan et al., 2017):** Average epistemic predictive variance is `{unc_res['epistemic_variance'].mean():.4f}` across {len(X_test_t)} holdout patients.",
-        f"- **Causal Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
+        f"- **Causal Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
         f"- **Algorithmic Fairness (Barocas et al., 2020):** Validation-tuned Equal Opportunity thresholds (t0={t0:.3f}, t1={t1:.3f}) reduced holdout test TPR disparity from `{test_unmit_diff:.4f}` to `{test_mit_diff:.4f}` ({test_disparity_reduction:.1f}% reduction).",
     ])
 

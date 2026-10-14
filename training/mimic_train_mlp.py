@@ -128,8 +128,9 @@ def split_data(
     val_size: float = 0.2,
     seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, pd.Series]:
-    gss_test = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
-    train_val_idx, test_idx = next(gss_test.split(X, y, groups=subject_ids))
+    n_splits_test = max(2, int(round(1.0 / test_size)))
+    sgkf_test = StratifiedGroupKFold(n_splits=n_splits_test, shuffle=True, random_state=seed)
+    train_val_idx, test_idx = next(sgkf_test.split(X, y, groups=subject_ids))
 
     X_train_val = X.iloc[train_val_idx]
     y_train_val = y.iloc[train_val_idx]
@@ -139,8 +140,9 @@ def split_data(
     y_test = y.iloc[test_idx]
 
     relative_val = val_size / (1.0 - test_size)
-    gss_val = GroupShuffleSplit(n_splits=1, test_size=relative_val, random_state=seed)
-    train_idx, val_idx = next(gss_val.split(X_train_val, y_train_val, groups=groups_train_val))
+    n_splits_val = max(2, int(round(1.0 / relative_val)))
+    sgkf_val = StratifiedGroupKFold(n_splits=n_splits_val, shuffle=True, random_state=seed)
+    train_idx, val_idx = next(sgkf_val.split(X_train_val, y_train_val, groups=groups_train_val))
 
     X_train = X_train_val.iloc[train_idx]
     y_train = y_train_val.iloc[train_idx]
@@ -148,6 +150,13 @@ def split_data(
 
     X_val = X_train_val.iloc[val_idx]
     y_val = y_train_val.iloc[val_idx]
+
+    assert set(subject_ids.iloc[train_idx]).isdisjoint(set(subject_ids.iloc[test_idx])), (
+        "CRITICAL LEAKAGE: subject_id overlap between train and test!"
+    )
+    assert set(subject_ids.iloc[val_idx]).isdisjoint(set(subject_ids.iloc[test_idx])), (
+        "CRITICAL LEAKAGE: subject_id overlap between val and test!"
+    )
 
     return X_train, X_val, X_test, y_train, y_val, y_test, groups_train
 
@@ -382,11 +391,16 @@ def main() -> None:
     if best_state is not None:
         model.load_state_dict(best_state)
 
+    # Evaluate on validation split for out-of-sample threshold tuning
+    _, _, _, y_val_prob, y_val_true = evaluate_model(model, val_loader, criterion, device)
+
     # Test set evaluation
     t_loss, t_roc, t_pr, y_test_prob, y_test_true = evaluate_model(model, test_loader, criterion, device)
     y_test_pred = (y_test_prob >= 0.5).astype(int)
 
-    clinical = compute_clinical_metrics(pd.Series(y_test_true), y_test_prob)
+    clinical = compute_clinical_metrics(
+        pd.Series(y_test_true), y_test_prob, y_val_true=y_val_true, y_val_prob=y_val_prob
+    )
 
     holdout_results = {
         "model": "PyTorch MLP (Ours)",
