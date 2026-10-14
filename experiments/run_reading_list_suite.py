@@ -33,8 +33,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluation import (
+    ClinicalCounterfactualGenerator,
     GradCAM,
+    SplitConformalClassifier,
     compare_observational_vs_causal,
+    compute_doubly_robust_aipw,
     find_equal_opportunity_thresholds,
 )
 from models import (
@@ -471,6 +474,17 @@ def run_all_advancements(
         f"Uncertain Cases: {unc_res['is_uncertain'].sum()} / {len(X_test_t)}"
     )
 
+    print(">>> 5b. Testing Split & Mondrian Conformal Prediction (Angelopoulos & Bates, 2021)...")
+    conformal = SplitConformalClassifier(alpha=0.10, mondrian=True)
+    conformal.fit(y_val_t, val_probs)
+    conf_res = conformal.evaluate(y_test_t, calibrated_test_probs)
+    print(
+        f"    Target Coverage (90%): Empirical={conf_res['empirical_coverage']:.4f} "
+        f"(Pos={conf_res['positive_class_coverage']:.4f}, Neg={conf_res['negative_class_coverage']:.4f}) | "
+        f"Avg Set Size={conf_res['average_set_size']:.3f} | "
+        f"Ambiguous Deferral={conf_res['ambiguous_abstention_rate']:.3f}"
+    )
+
     print(">>> 6. Testing Causal Inference (Pearl & Mackenzie, 2018)...")
     if "had_icu" in df_clean.columns:
         treat_col = "had_icu"
@@ -500,6 +514,16 @@ def run_all_advancements(
     print(
         f"    Observational Diff: {causal_res['observational_risk_difference']:.4f} "
         f"vs Causal ATE: {causal_res['causal_ate_iptw']:.4f}"
+    )
+
+    print(">>> 6b. Testing Doubly Robust Cross-Fitted AIPW & E-Value (VanderWeele & Ding, 2017)...")
+    dr_res = compute_doubly_robust_aipw(
+        X_confounders, treatment, y_all, treatment_name=treatment_name, seed=42
+    )
+    print(
+        f"    Doubly Robust AIPW ATE: {dr_res['causal_ate_aipw']:.4f} "
+        f"(95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]) | "
+        f"VanderWeele E-Value: {dr_res['e_value_point']:.3f} (CI E-Value: {dr_res['e_value_ci']:.3f})"
     )
 
     print(">>> 7. Testing Algorithmic Fairness Mitigation (Barocas et al., 2020)...")
@@ -544,6 +568,21 @@ def run_all_advancements(
         f"({test_disparity_reduction:.1f}% reduction; Validation tuned thresholds t0={t0:.3f}, t1={t1:.3f})"
     )
 
+    print(">>> 8. Testing Actionable Clinical Counterfactual Recourse (Wachter et al.; Ustun et al.)...")
+    cf_gen = ClinicalCounterfactualGenerator(
+        model=base_mlp,
+        feature_names=feature_cols,
+        immutable_features=("age", "sex", "gender", "fbs", "had_icu", "has_ed_visit"),
+        target_probability=0.30,
+    ).fit(X_train_t)
+    cf_metrics = cf_gen.evaluate_cohort_recourse(X_test_t, high_risk_threshold=0.50)
+    print(
+        f"    Recourse Validity Rate: {cf_metrics['recourse_validity_rate'] * 100:.1f}% | "
+        f"Mean Features Modified: {cf_metrics['mean_features_modified']:.2f} | "
+        f"Mean Risk Reduction: -{cf_metrics['mean_probability_reduction']:.3f} | "
+        f"Max Immutable Violation: {cf_metrics['max_immutable_violation']:.6f}"
+    )
+
     benchmarks_df = pd.DataFrame(all_benchmarks)
     benchmarks_df.to_csv(out_path / "reading_list_advancements_summary.csv", index=False)
 
@@ -568,8 +607,11 @@ def run_all_advancements(
         "## 2. Methodology & Rigor Summary",
         f"- **Temperature Scaling (Guo et al., 2017):** Validation-tuned optimal T `{opt_t:.3f}` on trained `HeartMLP` reduced holdout test ECE from `{ece_test_before:.4f}` to `{ece_test_after:.4f}` (Validation ECE: `{cal_res['ece_before']:.4f}` -> `{cal_res['ece_after']:.4f}`).",
         f"- **Deep Ensembles (Lakshminarayanan et al., 2017):** Average epistemic predictive variance is `{unc_res['epistemic_variance'].mean():.4f}` across {len(X_test_t)} holdout patients.",
-        f"- **Causal Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
+        f"- **Split & Mondrian Conformal Prediction (Angelopoulos & Bates, 2021):** Guaranteed 90% finite-sample coverage achieved `{conf_res['empirical_coverage']:.4f}` empirical coverage (Case: `{conf_res['positive_class_coverage']:.4f}`, Control: `{conf_res['negative_class_coverage']:.4f}`) with average set size `{conf_res['average_set_size']:.3f}` and `{conf_res['ambiguous_abstention_rate']:.3f}` clinical abstention rate.",
+        f"- **Causal IPTW Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
+        f"- **Doubly Robust AIPW & E-Value (Chernozhukov et al., 2018; VanderWeele & Ding, 2017):** Cross-fitted AIPW estimated causal ATE of `{dr_res['causal_ate_aipw']:.4f}` (95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]). The causal Risk Ratio is `{dr_res['causal_risk_ratio']:.3f}` with point E-value `{dr_res['e_value_point']:.3f}` and CI E-value `{dr_res['e_value_ci']:.3f}`, confirming robust resistance against unmeasured confounding.",
         f"- **Algorithmic Fairness (Barocas et al., 2020):** Validation-tuned Equal Opportunity thresholds (t0={t0:.3f}, t1={t1:.3f}) reduced holdout test TPR disparity from `{test_unmit_diff:.4f}` to `{test_mit_diff:.4f}` ({test_disparity_reduction:.1f}% reduction).",
+        f"- **Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `{cf_metrics['recourse_validity_rate'] * 100:.1f}%` recourse validity across high-risk test patients with `{cf_metrics['mean_features_modified']:.2f}` average features modified, reducing mean predicted mortality risk by `{-cf_metrics['mean_probability_reduction']:.3f}` while strictly maintaining `{cf_metrics['max_immutable_violation']:.6f}` immutable demographic violation.",
     ])
 
     with open(out_path / "reading_list_advancements_summary.md", "w", encoding="utf-8") as f:
