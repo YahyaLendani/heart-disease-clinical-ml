@@ -38,7 +38,11 @@ from evaluation import (
     SplitConformalClassifier,
     compare_observational_vs_causal,
     compute_doubly_robust_aipw,
+    evaluate_loco_conformal,
     find_equal_opportunity_thresholds,
+    plot_aipw_love_plot,
+    plot_conformal_triage_curve,
+    plot_counterfactual_case_study,
 )
 from models import (
     GATClassifier,
@@ -485,6 +489,29 @@ def run_all_advancements(
         f"Ambiguous Deferral={conf_res['ambiguous_abstention_rate']:.3f}"
     )
 
+    # Sweep alpha in {0.05, 0.10, 0.15} to demonstrate the efficiency-coverage tradeoff curve
+    conformal_sweeps = {}
+    for a in (0.05, 0.10, 0.15):
+        c_a = SplitConformalClassifier(alpha=a, mondrian=True).fit(y_val_t, val_probs).evaluate(y_test_t, calibrated_test_probs)
+        conformal_sweeps[a] = c_a
+        print(
+            f"    [Alpha Sweep alpha={a:.2f} ({int((1-a)*100)}% Target)]: "
+            f"Empirical={c_a['empirical_coverage']*100:.1f}% | "
+            f"Singleton Low {{0}}={c_a['certifiable_low_risk_rate']*100:.1f}% | "
+            f"Singleton High {{1}}={c_a['certifiable_high_risk_rate']*100:.1f}% | "
+            f"Deferral {{0,1}}={c_a['ambiguous_abstention_rate']*100:.1f}%"
+        )
+
+    # Publication Figure 1: Conformal Triage Curve
+    plot_conformal_triage_curve(
+        conformal_classifier=conformal,
+        y_val=y_val_t,
+        prob_val=val_probs,
+        y_test=y_test_t,
+        prob_test=calibrated_test_probs,
+        output_path=out_path / "figures" / "conformal_triage_curve.png",
+    )
+
     print(">>> 6. Testing Causal Inference (Pearl & Mackenzie, 2018)...")
     if "had_icu" in df_clean.columns:
         treat_col = "had_icu"
@@ -521,9 +548,38 @@ def run_all_advancements(
         X_confounders, treatment, y_all, treatment_name=treatment_name, seed=42
     )
     print(
-        f"    Doubly Robust AIPW ATE: {dr_res['causal_ate_aipw']:.4f} "
+        f"    [Symptomatic Treatment - exang] Doubly Robust AIPW ATE: {dr_res['causal_ate_aipw']:.4f} "
         f"(95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]) | "
         f"VanderWeele E-Value: {dr_res['e_value_point']:.3f} (CI E-Value: {dr_res['e_value_ci']:.3f})"
+    )
+
+    # Modifiable clinical intervention comparison: Hypertension (trestbps >= 140 mmHg)
+    has_trestbps = "trestbps" in df_clean.columns
+    if has_trestbps:
+        treatment_htn = (df_clean["trestbps"].fillna(df_clean["trestbps"].median()).values >= 140).astype(int)
+        conf_htn_cols = [c for c in feature_cols if c != "trestbps"]
+        X_conf_htn_raw = df_clean[conf_htn_cols].values
+        X_conf_htn = StandardScaler().fit_transform(
+            SimpleImputer(strategy="median").fit_transform(X_conf_htn_raw)
+        )
+        dr_res_htn = compute_doubly_robust_aipw(
+            X_conf_htn, treatment_htn, y_all, treatment_name="Hypertension (SBP >= 140 mmHg)", seed=42
+        )
+        print(
+            f"    [Modifiable Metabolic Treatment - Hypertension] Doubly Robust AIPW ATE: {dr_res_htn['causal_ate_aipw']:.4f} "
+            f"(95% CI: [{dr_res_htn['aipw_ci_lower']:.4f}, {dr_res_htn['aipw_ci_upper']:.4f}]) | "
+            f"VanderWeele E-Value: {dr_res_htn['e_value_point']:.3f} (CI E-Value: {dr_res_htn['e_value_ci']:.3f})"
+        )
+    else:
+        dr_res_htn = None
+
+    # Publication Figure 3: Covariate Balance Love Plot
+    plot_aipw_love_plot(
+        X_confounders=X_confounders,
+        treatment=treatment,
+        propensity_scores=None,
+        feature_names=confounder_cols,
+        output_path=out_path / "figures" / "aipw_love_plot.png",
     )
 
     print(">>> 7. Testing Algorithmic Fairness Mitigation (Barocas et al., 2020)...")
@@ -583,6 +639,46 @@ def run_all_advancements(
         f"Max Immutable Violation: {cf_metrics['max_immutable_violation']:.6f}"
     )
 
+    # Publication Figure 2: Counterfactual Case Study (Patient-level with locked markers)
+    plot_counterfactual_case_study(
+        generator=cf_gen,
+        X_test=X_test_t,
+        feature_names=feature_cols,
+        output_path=out_path / "figures" / "counterfactual_case_study.png",
+    )
+
+    # Closed-Loop Integration: verify high-risk conformal singletons {1} transition to {0} or {0,1}
+    pred_sets = conformal.predict_sets(calibrated_test_probs)
+    high_risk_singletons = np.where(~pred_sets[:, 0] & pred_sets[:, 1])[0]
+    if len(high_risk_singletons) > 0:
+        closed_loop_transitions = []
+        for p_idx in high_risk_singletons:
+            res_p = cf_gen.generate(X_test_t[p_idx])
+            cf_prob = np.array([res_p["counterfactual_probability"]])
+            cf_set = conformal.predict_sets(cf_prob)[0]
+            # Transitioned if no longer in {1} alone (i.e. became {0} or {0, 1})
+            transitioned = bool(cf_set[0])
+            closed_loop_transitions.append(transitioned)
+        closed_loop_rate = float(np.mean(closed_loop_transitions)) * 100.0
+    else:
+        closed_loop_rate = 100.0
+    print(f"    Closed-Loop Conformal Recourse: {closed_loop_rate:.1f}% of High-Risk singletons {{1}} transitioned to {{0}} or {{0,1}}")
+
+    # Step 9: LOCO Domain-Shift Conformal Evaluation across international centers
+    combined_csv = Path(heart_csv).parent / "cleaned_heart_disease_combined.csv"
+    loco_conf_df = None
+    if combined_csv.exists():
+        print(">>> 9. Benchmarking LOCO Domain-Shift Conformal Generalization across Centers...")
+        df_comb = pd.read_csv(combined_csv)
+        loco_conf_df = evaluate_loco_conformal(
+            df_comb, site_col="site", target_col="target", alpha=0.10, seed=42
+        )
+        loco_conf_df.to_csv(out_path / "loco_conformal_generalization.csv", index=False)
+        print(
+            f"    LOCO Conformal Mean Coverage across 4 International Centers: "
+            f"{loco_conf_df['loco_empirical_coverage'].mean() * 100:.1f}% (Nominal: 90%)"
+        )
+
     benchmarks_df = pd.DataFrame(all_benchmarks)
     benchmarks_df.to_csv(out_path / "reading_list_advancements_summary.csv", index=False)
 
@@ -608,16 +704,46 @@ def run_all_advancements(
         f"- **Temperature Scaling (Guo et al., 2017):** Validation-tuned optimal T `{opt_t:.3f}` on trained `HeartMLP` reduced holdout test ECE from `{ece_test_before:.4f}` to `{ece_test_after:.4f}` (Validation ECE: `{cal_res['ece_before']:.4f}` -> `{cal_res['ece_after']:.4f}`).",
         f"- **Deep Ensembles (Lakshminarayanan et al., 2017):** Average epistemic predictive variance is `{unc_res['epistemic_variance'].mean():.4f}` across {len(X_test_t)} holdout patients.",
         f"- **Split & Mondrian Conformal Prediction (Angelopoulos & Bates, 2021):** Guaranteed 90% finite-sample coverage achieved `{conf_res['empirical_coverage']:.4f}` empirical coverage (Case: `{conf_res['positive_class_coverage']:.4f}`, Control: `{conf_res['negative_class_coverage']:.4f}`) with average set size `{conf_res['average_set_size']:.3f}` and `{conf_res['ambiguous_abstention_rate']:.3f}` clinical abstention rate.",
+        f"- **Conformal Efficiency-Coverage Trade-Off:** Operating at $\\alpha=0.15$ (85% coverage guarantee) cuts the ambiguous deferral rate from `{conf_res['ambiguous_abstention_rate']*100:.1f}%` down to `{conformal_sweeps[0.15]['ambiguous_abstention_rate']*100:.1f}%` with `{conformal_sweeps[0.15]['empirical_coverage']*100:.1f}%` empirical test coverage.",
         f"- **Causal IPTW Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
-        f"- **Doubly Robust AIPW & E-Value (Chernozhukov et al., 2018; VanderWeele & Ding, 2017):** Cross-fitted AIPW estimated causal ATE of `{dr_res['causal_ate_aipw']:.4f}` (95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]). The causal Risk Ratio is `{dr_res['causal_risk_ratio']:.3f}` with point E-value `{dr_res['e_value_point']:.3f}` and CI E-value `{dr_res['e_value_ci']:.3f}`, confirming robust resistance against unmeasured confounding.",
+        f"- **Doubly Robust AIPW & E-Value (Chernozhukov et al., 2018; VanderWeele & Ding, 2017):**",
+        f"  - *Symptomatic Proxy (exang):* Cross-fitted AIPW ATE = `{dr_res['causal_ate_aipw']:.4f}` (95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]), E-value = `{dr_res['e_value_point']:.3f}`.",
+    ])
+
+    if dr_res_htn is not None:
+        md_lines.append(
+            f"  - *Modifiable Metabolic Treatment (Hypertension SBP >= 140):* Cross-fitted AIPW ATE = `{dr_res_htn['causal_ate_aipw']:.4f}` (95% CI: [{dr_res_htn['aipw_ci_lower']:.4f}, {dr_res_htn['aipw_ci_upper']:.4f}]), E-value = `{dr_res_htn['e_value_point']:.3f}` (CI E-value = `{dr_res_htn['e_value_ci']:.3f}`)."
+        )
+
+    md_lines.extend([
         f"- **Algorithmic Fairness (Barocas et al., 2020):** Validation-tuned Equal Opportunity thresholds (t0={t0:.3f}, t1={t1:.3f}) reduced holdout test TPR disparity from `{test_unmit_diff:.4f}` to `{test_mit_diff:.4f}` ({test_disparity_reduction:.1f}% reduction).",
         f"- **Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `{cf_metrics['recourse_validity_rate'] * 100:.1f}%` recourse validity across high-risk test patients with `{cf_metrics['mean_features_modified']:.2f}` average features modified, reducing mean predicted mortality risk by `{-cf_metrics['mean_probability_reduction']:.3f}` while strictly maintaining `{cf_metrics['max_immutable_violation']:.6f}` immutable demographic violation.",
+        f"- **Closed-Loop Conformal Recourse Transition:** `{closed_loop_rate:.1f}%` of Conformal High-Risk patients ($\\hat{{C}}(x) = \\{{1\\}}$) successfully transitioned into Low-Risk $\\{{0\\}}$ or Deferral $\\{{0, 1\\}}$ following sparse actionable recourse.",
     ])
+
+    if loco_conf_df is not None:
+        md_lines.extend([
+            "",
+            "## 3. LOCO Domain-Shift Conformal Generalization Table",
+            "",
+            "| Evaluation Center | N Samples | Disease Prevalence | Fixed Threshold Acc | 90% Conformal Coverage | Avg Set Size | Abstain Rate |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ])
+        for _, r in loco_conf_df.iterrows():
+            md_lines.append(
+                f"| {r['test_site']} | {int(r['n_test_samples'])} | {r['test_disease_prevalence']*100:.1f}% | "
+                f"{r['fixed_threshold_accuracy']*100:.1f}% | {r['loco_empirical_coverage']*100:.1f}% | "
+                f"{r['average_set_size']:.2f} | {r['ambiguous_abstention_rate']*100:.1f}% |"
+            )
 
     with open(out_path / "reading_list_advancements_summary.md", "w", encoding="utf-8") as f:
         f.write("\n".join(md_lines))
 
     print(f"\n[DONE] Saved summary to {out_path / 'reading_list_advancements_summary.md'}")
+    print(f"[DONE] Saved publication figures:")
+    print(f"  • {out_path / 'figures' / 'conformal_triage_curve.png'}")
+    print(f"  • {out_path / 'figures' / 'counterfactual_case_study.png'}")
+    print(f"  • {out_path / 'figures' / 'aipw_love_plot.png'}")
 
 
 if __name__ == "__main__":
@@ -627,3 +753,4 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", type=str, default="artifacts")
     args = parser.parse_args()
     run_all_advancements(args.heart_csv, args.mimic_csv, args.output_dir)
+

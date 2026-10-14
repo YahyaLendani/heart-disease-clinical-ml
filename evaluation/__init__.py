@@ -11,6 +11,10 @@ from .advanced_methodology import (
     SplitConformalClassifier,
     compute_doubly_robust_aipw,
     compute_e_value,
+    evaluate_loco_conformal,
+    plot_aipw_love_plot,
+    plot_conformal_triage_curve,
+    plot_counterfactual_case_study,
 )
 from .clinical_metrics import compute_clinical_metrics, find_optimal_threshold
 from .fair_mitigation import find_equal_opportunity_thresholds
@@ -23,6 +27,10 @@ __all__ = [
     "SplitConformalClassifier",
     "compute_doubly_robust_aipw",
     "compute_e_value",
+    "evaluate_loco_conformal",
+    "plot_aipw_love_plot",
+    "plot_conformal_triage_curve",
+    "plot_counterfactual_case_study",
     "find_equal_opportunity_thresholds",
     "compare_observational_vs_causal",
     "compute_iptw_ate",
@@ -32,3 +40,4 @@ __all__ = [
     "find_optimal_threshold",
     "compute_subgroup_metrics",
 ]
+
