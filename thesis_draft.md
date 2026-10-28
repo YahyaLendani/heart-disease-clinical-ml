@@ -565,7 +565,7 @@ To maximize discriminative power and clinical reliability, we integrated domain-
 
 ### 3) Key Findings (Auto-generated)
 - The top-performing configuration achieves a test ROC-AUC of **0.9177** (PyTorch MLP).
-- The hybrid ensembles deliver robust test PR-AUC (0.89–0.90) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
+- The hybrid ensembles deliver robust test PR-AUC (>0.94) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
 <!-- AUTO_ENSEMBLE_END -->
 
 
@@ -632,17 +632,17 @@ Clinical algorithms must not propagate or amplify historical disparities across 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 61.0000 | 45.9016 | 0.7869 | 0.7797 | 0.8810 | 0.8214 | 0.7576 | 0.1786 | 0.2424 | 0.5082 |
-| Female Patients (sex=0) | 23.0000 | 30.4348 | 0.7826 | 0.6667 | 0.8839 | 0.7143 | 0.8125 | 0.2857 | 0.1875 | 0.3478 |
-| Male Patients (sex=1) | 38.0000 | 55.2632 | 0.7895 | 0.8182 | 0.8655 | 0.8571 | 0.7059 | 0.1429 | 0.2941 | 0.6053 |
-| Younger (<50 yrs) | 18.0000 | 27.7778 | 0.9444 | 0.9091 | 1.0000 | 1.0000 | 0.9231 | 0.0000 | 0.0769 | 0.3333 |
-| Middle-aged (50-64 yrs) | 34.0000 | 52.9412 | 0.7059 | 0.7368 | 0.8438 | 0.7778 | 0.6250 | 0.2222 | 0.3750 | 0.5882 |
-| Senior (>=65 yrs) | 9.0000 | 55.5556 | 0.7778 | 0.8000 | 0.8000 | 0.8000 | 0.7500 | 0.2000 | 0.2500 | 0.5556 |
+| All Patients | 184.0000 | 55.4348 | 0.8533 | 0.8708 | 0.9303 | 0.8922 | 0.8049 | 0.1078 | 0.1951 | 0.5815 |
+| Female Patients (sex=0) | 35.0000 | 22.8571 | 0.9143 | 0.8000 | 0.9074 | 0.7500 | 0.9630 | 0.2500 | 0.0370 | 0.2000 |
+| Male Patients (sex=1) | 149.0000 | 63.0872 | 0.8389 | 0.8763 | 0.9217 | 0.9043 | 0.7273 | 0.0957 | 0.2727 | 0.6711 |
+| Younger (<50 yrs) | 59.0000 | 42.3729 | 0.8644 | 0.8182 | 0.9741 | 0.7200 | 0.9706 | 0.2800 | 0.0294 | 0.3220 |
+| Middle-aged (50-64 yrs) | 104.0000 | 57.6923 | 0.8558 | 0.8855 | 0.9193 | 0.9667 | 0.7045 | 0.0333 | 0.2955 | 0.6827 |
+| Senior (>=65 yrs) | 21.0000 | 80.9524 | 0.8095 | 0.8824 | 0.9412 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
 
 ### 3) Key Demographic Disparity Findings (Auto-generated)
-- **Equal Opportunity Difference (Sex):** `0.1429` (Sensitivity: Male = `85.7%`, Female = `71.4%`).
-- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`28.6%`) compared to male patients (`14.3%`).
-- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `1.0000`) and senior (>=65 yrs, ROC-AUC `0.8000`) cohorts.
+- **Equal Opportunity Difference (Sex):** `0.1543` (Sensitivity: Male = `90.4%`, Female = `75.0%`).
+- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`25.0%`) compared to male patients (`9.6%`).
+- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.9741`) and senior (>=65 yrs, ROC-AUC `0.9412`) cohorts.
 
 ### 4) Fairness Disparity Visualization (Auto-generated)
 
@@ -772,7 +772,8 @@ To ensure rigorous scientific transparency and guide clinical translation, sever
 1. **Positivity Overlap and Finite-Sample Variance in Observational Causal Inference:**
    While Cross-Fitted Doubly Robust AIPW protects against marginal model misspecification and achieved strict covariate balance ($|\text{SMD}| < 0.10$) across observed confounders, observational causal inference remains bounded by sample size ($N=302$ in the complete-case Cleveland cohort) and imperfect propensity overlap in extreme physiological strata. Consequently, the $95\%$ confidence intervals for both `exang` ($[-0.1844, +0.1724]$) and modifiable Stage 2 systolic hypertension `trestbps >= 140` ($[-0.0420, +0.1845]$) span zero, yielding a lower-bound confidence interval $E$-value of $1.000$. Furthermore, dichotomous thresholding of continuous blood pressure (`trestbps >= 140` mmHg) coarsens physiological severity and may violate strict consistency (SUTVA) if blood pressure reductions are achieved via disparate pharmacological mechanisms (e.g., beta-blockers vs. ACE inhibitors). These causal estimates serve as methodological demonstrations of confounding bias isolation rather than substitutes for randomized controlled trials (RCTs).
 2. **Sample Size Constraints and Post-Hoc Generalization Variance:**
-   Benchmark A utilizes the publicly accessible MIMIC-IV Clinical Database Demo ($N=275$ admissions across $100$ unique patients, with $15$ positive mortality events at a $5.45\%$ prevalence), and Benchmark B's holdout test partition comprises $N=61$ patients ($23$ female, $38$ male). In such finite-sample regimes, post-hoc calibration parameters optimized on validation splits—specifically single-parameter Temperature Scaling ($T = 1.500$, where test ECE shifted from $0.1072$ to $0.1198$) and group-specific Equal Opportunity thresholds ($t_0 = 0.614, t_1 = 0.095$, where test TPR disparity shifted from $0.0952$ to $0.1429$)—exhibit noticeable variance between validation and test partitions. Scaling this pipeline to the full credentialed MIMIC-IV repository ($>400,000$ hospitalizations) is a primary priority to stabilize minority-class calibration and subgroup threshold estimation.
+   Benchmark A utilizes the publicly accessible MIMIC-IV Clinical Database Demo ($N=275$ admissions across $100$ unique patients, with $15$ positive mortality events at a $5.45\%$ prevalence). In single-center evaluations (e.g., Cleveland holdout $N=61$), demographic subgroup sizes become acutely constrained ($N=18$ younger patients with only $5$ positive disease cases), inducing small-sample artifacts such as an apparent $0\%$ false negative rate ($100\%$ sensitivity). Scaling the fairness audit to the full multi-center consortium ($N=918$, with holdout test $N=184$ comprising $59$ younger, $35$ female, and $149$ male patients) eliminated this artifact, exposing a realistic $28.0\%$ missed disease rate in younger patients ($<50$ yrs) and a $25.0\%$ missed disease rate in females. Similarly, post-hoc calibration parameters optimized on validation splits (specifically single-parameter Temperature Scaling $T = 1.500$ and group-specific Equal Opportunity thresholds) exhibit finite-sample variance between validation and test partitions. Scaling this pipeline to the full credentialed MIMIC-IV repository ($>400,000$ hospitalizations) is a primary priority to stabilize minority-class calibration and subgroup threshold estimation.
+
 3. **Exchangeability Violations Under Extreme Cross-Hospital Shift:**
    Standard split and Mondrian conformal prediction guarantees ($P(Y \in \mathcal{C}_{1-\alpha}(X)) \ge 1 - \alpha$) mathematically assume exchangeability between the calibration and test distributions. In our Leave-One-Center-Out (LOCO) evaluation (Table R-2), unseen hospitals violate exchangeability due to severe label shift (e.g., Zurich's $93.5\%$ CAD prevalence vs. Budapest's $36.2\%$) and systematic missingness in non-invasive testing (`ca` and `thal`). Although Mondrian class-conditional calibration substantially buffered this shift—maintaining $82.1\%\text{--}93.2\%$ coverage across all four centers by dynamically elevating the abstention rate—incorporating importance-weighted or covariate-shift-adapted conformal prediction (Tibshirani et al., 2019) would be required to guarantee exact finite-sample coverage under arbitrary hospital distribution shifts.
 4. **Surrogate Multimodal Signals and Static Similarity Graphs:**
