@@ -14,6 +14,30 @@ Beyond standard discriminative benchmarking, this repository operationalizes **1
 
 ---
 
+## Table of Contents
+
+- [Clinical Context & Motivation](#clinical-context--motivation)
+- [System Architecture](#system-architecture)
+- [Empirical Benchmark Results](#empirical-benchmark-results)
+  - [1. Holdout Test & 5-Fold Cross-Validation Model Comparison](#1-holdout-test--5-fold-cross-validation-model-comparison)
+  - [2. Leave-One-Center-Out (LOCO) Multi-Center Generalization & Conformal Triage](#2-leave-one-center-out-loco-multi-center-generalization--conformal-triage)
+  - [3. Uncertainty, Conformal Triage, Causality & Recourse Highlights](#3-uncertainty-conformal-triage-causality--recourse-highlights)
+- [Visual Diagnostic Gallery & Clinical Interpretations](#visual-diagnostic-gallery--clinical-interpretations)
+  - [1. Clinical Decision Curve Analysis (DCA) & Net Benefit](#1-clinical-decision-curve-analysis-dca--net-benefit)
+  - [2. Model Explainability & Patient-Level Attribution (SHAP)](#2-model-explainability--patient-level-attribution-shap)
+  - [3. Distribution-Free Conformal Triage & Uncertainty Calibration](#3-distribution-free-conformal-triage--uncertainty-calibration)
+  - [4. Algorithmic Fairness & Demographic Parity](#4-algorithmic-fairness--demographic-parity)
+  - [5. Deconfounded Causal Inference & Actionable Recourse](#5-deconfounded-causal-inference--actionable-recourse)
+  - [6. Training Dynamics & Optimization Convergence](#6-training-dynamics--optimization-convergence)
+- [Repository Structure](#repository-structure)
+- [Quick Start & Installation](#quick-start--installation)
+- [Step-by-Step Replication Guide](#step-by-step-replication-guide)
+- [Theoretical Foundations & Reading List Mapping](#theoretical-foundations--reading-list-mapping)
+- [Citation](#citation)
+- [License](#license)
+
+---
+
 ## Clinical Context & Motivation
 
 Deploying machine learning in high-stakes cardiology and critical care requires far more than maximizing point-estimate ROC-AUC on an i.i.d. holdout split:
@@ -30,43 +54,58 @@ This repository addresses each barrier through an integrated, test-verified pipe
 ## System Architecture
 
 ```mermaid
-flowchart TD
+flowchart TB
+    classDef data fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef prep fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef model fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100
+    classDef trust fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#4a148c
+    classDef out fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
+
     subgraph Data["1. Multi-Center Clinical Cohorts"]
-        A1["UCI / Multi-Center Heart Disease\n(Cleveland, Hungarian, Switzerland, VA Long Beach)"]
-        A2["MIMIC-IV Demo\n(Admissions, ICU Stays, Labs, Diagnoses)"]
+        direction LR
+        A1["UCI Multi-Center CVD Cohorts\nCleveland (N=303) | Hungarian (N=293)\nSwitzerland (N=123) | VA Long Beach (N=199)"]:::data
+        A2["MIMIC-IV Critical Care Cohort\nAdmissions, ICU Stays, Labs & ICD Diagnoses\nIn-Hospital Mortality Endpoint"]:::data
     end
 
-    subgraph Prep["2. Leak-Free Preprocessing & EDA"]
-        B1["clean_data.py & mimic_prepare_dataset.py\nImputation, Feature Engineering, Schema Validation"]
-        B2["eda.py\nDistributions, Missingness, Class Stratification"]
-        B3["Train / Val / Holdout Split + 5-Fold Stratified CV\nStandardScaler + OneHotEncoder (Fit on Train Only)"]
+    subgraph Prep["2. Leak-Free Preprocessing & Cohort Stratification"]
+        direction LR
+        B1["Schema Validation & Imputation\nclean_data.py | mimic_prepare_dataset.py"]:::prep
+        B2["Automated Clinical EDA\neda.py: Missingness & Stratified Moments"]:::prep
+        B3["Strict Train / Val / Holdout + 5-Fold CV\nStandardScaler + OneHotEncoder (Fit on Train Only)"]:::prep
+        B1 --> B2 --> B3
     end
 
-    subgraph Models["3. Model Zoo (Classical + Deep + Relational)"]
-        C1["Classical Baselines\nLogReg | Random Forest | XGBoost (Early Stopping)"]
-        C2["Feedforward Deep Learning\nPyTorch HeartMLP (SGD vs Adam, Dropout, Weight Decay)"]
-        C3["Contextual & Relational Deep Architectures\nTabTransformer | Patient-Graph GCN & GAT | Multimodal Surrogate"]
-        C4["Hybrid Ensembles & Deep Ensembles\nSoft/Stacking Ensembles & Epistemic Variance"]
+    subgraph Models["3. Multi-Paradigm Clinical Model Zoo"]
+        direction LR
+        C1["Classical Tabular Baselines\nLogReg | Random Forest | Early-Stopped XGBoost"]:::model
+        C2["Deep Feedforward Networks\nPyTorch HeartMLP (SGD vs Adam, Dropout, L2)"]:::model
+        C3["Contextual & Relational Deep Architectures\nTabTransformer | Patient-Graph GCN & GAT | Multimodal"]:::model
+        C4["Hybrid & Epistemic Ensembles\nSoft/Stacked Voting & 5-Member Deep Ensembles"]:::model
     end
 
-    subgraph Trust["4. Clinical Safety, Causality & Trustworthiness"]
-        D1["Calibration & Conformal Triage\nTemperature Scaling (Guo) + Split/Mondrian Conformal Sets"]
-        D2["LOCO Cross-Center Generalization\nLeave-One-Center-Out Domain Shift & Deferral Analysis"]
-        D3["Causal Inference Engine\nPropensity IPTW + Cross-Fitted AIPW ATE + VanderWeele E-Values"]
-        D4["Fairness & Explainability\nSHAP Attribution + Equal Opportunity Threshold Optimization"]
-        D5["Closed-Loop Counterfactual Recourse\nSparse Actionable Interventions -> Conformal Risk Transition"]
+    subgraph Trust["4. Clinical Safety, Causality & Trustworthiness Layer"]
+        direction LR
+        D1["Post-Hoc Calibration & DCA\nGuo Temperature Scaling (T*=1.50)\nNet Benefit Decision Curves"]:::trust
+        D2["Split & Mondrian Conformal Triage\nFinite-Sample Coverage (1 - α)\nLOCO Cross-Center Shift Deferral"]:::trust
+        D3["Deconfounded Causal Inference\nPropensity IPTW & Cross-Fitted AIPW\nVanderWeele E-Value Sensitivity"]:::trust
+        D4["Explainability & Fairness\nGlobal/Local SHAP Attribution\nEqual Opportunity Subgroup Parity"]:::trust
+        D5["Closed-Loop Counterfactual Recourse\nProjected Gradient Mutable Interventions\nVerified Conformal Risk Transition"]:::trust
+        D1 --> D2 --> D5
+        D3 --> D5
+        D4 --> D5
     end
 
-    subgraph Output["5. Automated Reproducible Reporting"]
-        E1["pytest Validation Suite (tests/)"]
-        E2["Artifacts & Diagnostic Plots (artifacts/)"]
-        E3["update_thesis_results.py -> Manuscript Synchronization"]
+    subgraph Output["5. Automated Verification & Reproducible Reporting"]
+        direction LR
+        E1["48/48 Pytest Verification Suite\ntests/ Unit & Integrity Checks"]:::out
+        E2["25+ Publication Diagnostic Figures\nartifacts/figures/ & Checkpoints"]:::out
+        E3["Automated Manuscript Synchronization\nupdate_thesis_results.py"]:::out
     end
 
-    A1 & A2 --> B1 --> B2 --> B3
-    B3 --> C1 & C2 & C3 & C4
-    C1 & C2 & C3 & C4 --> D1 & D2 & D3 & D4 & D5
-    D1 & D2 & D3 & D4 & D5 --> E1 & E2 & E3
+    Data --> Prep
+    Prep --> Models
+    Models --> Trust
+    Trust --> Output
 ```
 
 ---
@@ -129,48 +168,217 @@ To evaluate real-world external validity across geographically and demographical
 
 ---
 
+## Visual Diagnostic Gallery & Clinical Interpretations
+
+All diagnostic visualizations are automatically generated and versioned in `artifacts/figures/` and `artifacts/` to provide transparent, clinician-auditable verification across every stage of the pipeline.
+
+### 1. Clinical Decision Curve Analysis (DCA) & Net Benefit
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/dca_curve_heart.png" alt="Clinical Decision Curve Analysis (DCA)" width="100%"/>
+      <br/>
+      <em><b>Figure 1A:</b> Clinical Decision Curve Analysis (DCA) comparing model-guided Net Benefit against "Treat All" and "Treat None" policies across decision threshold probabilities.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/pr_curve_heart.png" alt="Precision-Recall Curve and Optimal Operating Points" width="100%"/>
+      <br/>
+      <em><b>Figure 1B:</b> Holdout Precision-Recall trajectories annotated with F1-optimal operating thresholds and positive predictive value (PPV) trade-offs.</em>
+    </td>
+  </tr>
+</table>
+
+**Clinical Interpretation:**
+- **Decision Curve Analysis (Vickers & Elkin, 2006):** Discrimination metrics (ROC-AUC) ignore the clinical consequences of false positives (unnecessary invasive coronary angiography) versus false negatives (missed myocardial ischemia). As shown in **Figure 1A**, our calibrated models deliver strictly higher **Net Benefit** than both default clinical heuristics (*"Treat All"* and *"Treat None"*) across the entire clinically relevant threshold probability range ($p_t \in [0.10, 0.75]$).
+- **Precision-Recall Operating Point Selection:** **Figure 1B** demonstrates strong precision preservation across high-sensitivity regimes (PR-AUC up to **0.8757** on holdout and **0.9260** in 5-fold CV), enabling clinicians to select operating thresholds tailored to outpatient screening (high sensitivity) or catheterization referral (high PPV).
+
+---
+
+### 2. Model Explainability & Patient-Level Attribution (SHAP)
+
+#### Global Feature Attribution Across Model Paradigms
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/heart_mlp_adam_shap_summary.png" alt="HeartMLP Adam SHAP Beeswarm Summary" width="100%"/>
+      <br/>
+      <em><b>Figure 2A:</b> Global SHAP beeswarm summary for the Deep Neural Network (<code>HeartMLP-Adam</code>), capturing continuous non-linear feature interactions.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/heart_xgboost_shap_summary.png" alt="XGBoost SHAP Beeswarm Summary" width="100%"/>
+      <br/>
+      <em><b>Figure 2B:</b> Global TreeSHAP beeswarm summary for early-stopped <code>XGBoost</code>, confirming cross-architecture clinical biomarker consensus.</em>
+    </td>
+  </tr>
+</table>
+
+#### Local Patient-Level Risk Decomposition (High-Risk vs. Low-Risk Case Studies)
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/heart_mlp_adam_shap_waterfall_high_risk.png" alt="SHAP Waterfall High Risk Patient" width="100%"/>
+      <br/>
+      <em><b>Figure 2C:</b> Patient-level SHAP waterfall plot for a <b>High-Risk CVD Patient</b>, illustrating additive risk contributions pushing log-odds above baseline $E[f(X)]$.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/heart_mlp_adam_shap_waterfall_low_risk.png" alt="SHAP Waterfall Low Risk Patient" width="100%"/>
+      <br/>
+      <em><b>Figure 2D:</b> Patient-level SHAP waterfall plot for a <b>Low-Risk Control Patient</b>, where protective exercise heart rate and absence of fluoroscopic vessel narrowing suppress risk.</em>
+    </td>
+  </tr>
+</table>
+
+**Clinical Interpretation:**
+- **Cross-Model Biomarker Consensus:** Both deep neural attribution (**Figure 2A**) and gradient-boosted tree attribution (**Figure 2B**) converge on physiologically established drivers of coronary artery disease: number of major vessels colored by fluoroscopy (`ca`), reversible/fixed thallium perfusion defects (`thal`), asymptomatic/anginal chest pain presentation (`cp`), exercise-induced ST depression (`oldpeak`), and maximum achieved heart rate (`thalach`).
+- **Auditable Bedside Explanations:** Rather than presenting a black-box probability, the patient-level waterfall plots (**Figures 2C–2D**) decompose each individual prediction into exact additive Shapley contributions ($\phi_i$), allowing cardiologists to verify whether an elevated risk score is driven by acute ischemic signs (`oldpeak`, `ca`) or baseline demographics.
+
+---
+
+### 3. Distribution-Free Conformal Triage & Uncertainty Calibration
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/conformal_triage_curve.png" alt="Mondrian Conformal Triage Curve" width="100%"/>
+      <br/>
+      <em><b>Figure 3A:</b> Conformal Triage Efficiency-Coverage trade-off curve showing empirical coverage vs. clinical deferral (abstention) rate across miscoverage levels $\alpha$.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/calibration_heart.png" alt="Probability Calibration and Reliability Diagram" width="100%"/>
+      <br/>
+      <em><b>Figure 3B:</b> Reliability diagram comparing uncalibrated vs. Temperature-Scaled ($T^* = 1.500$) probability calibration against the ideal diagonal.</em>
+    </td>
+  </tr>
+</table>
+
+**Clinical Interpretation:**
+- **Finite-Sample Guaranteed Safe Deferral:** Standard point classifiers force a binary decision even on ambiguous or out-of-distribution patients. Using **Split & Mondrian Conformal Prediction** (**Figure 3A**), the model outputs prediction sets $\hat{C}_{1-\alpha}(x) \subseteq \{0, 1\}$. Singleton sets $\{0\}$ (*Rule-Out*) and $\{1\}$ (*Rule-In*) enable confident automated triage, while doubleton sets $\{0, 1\}$ explicitly flag uncertain cases for **secondary specialist review / diagnostic deferral**. Tuning $\alpha$ from $0.10 \to 0.15$ halves the clinical deferral rate (**57.4% $\to$ 27.9%**) while preserving **91.8%** empirical coverage.
+- **Post-Hoc Reliability:** As shown in **Figure 3B** (and `artifacts/figures/calibration_heart_mlp.png`), validation-tuned Temperature Scaling corrects neural overconfidence in the extreme probability bins, ensuring that a predicted 80% risk corresponds to an true ~80% empirical disease incidence.
+
+---
+
+### 4. Algorithmic Fairness & Demographic Parity
+
+<div align="center">
+  <img src="artifacts/figures/fairness_disparities.png" alt="Algorithmic Fairness and Subgroup Disparities Across Sex and Age" width="85%"/>
+  <br/>
+  <em><b>Figure 4:</b> Subgroup diagnostic audit evaluating Sensitivity (True Positive Rate), Specificity, and Missed-Disease Rate (False Negative Rate) across biological sex (Female vs. Male) and age strata (&lt;50 vs. 50–64 vs. &ge;65 years).</em>
+</div>
+
+**Clinical Interpretation:**
+- **Mitigating Historical Under-Diagnosis in Women & Young Adults:** Cardiovascular disease in female and younger patients frequently presents with atypical angina or non-obstructive coronary disease, historically resulting in elevated false-negative (missed disease) rates under uniform probability cutoffs.
+- **Equal Opportunity Calibration:** **Figure 4** audits subgroup error rates across sex and age cohorts on the representative multi-center cohort ($N=918$). By applying **Equal Opportunity post-processing** (`evaluation/fairness_analysis.py`), group-specific operating thresholds equalize True Positive Rates (Sensitivity) across demographic subgroups—preventing systematic under-triage in female and younger patient cohorts without sacrificing overall cohort discrimination.
+
+---
+
+### 5. Deconfounded Causal Inference & Actionable Recourse
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/aipw_love_plot.png" alt="AIPW Covariate Balance Love Plot" width="100%"/>
+      <br/>
+      <em><b>Figure 5A:</b> Causal Covariate Balance (Love Plot) demonstrating reduction of Absolute Standardized Mean Differences (SMD) below the $0.10$ threshold after Propensity Score / AIPW weighting.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/figures/counterfactual_case_study.png" alt="Actionable Counterfactual Recourse Case Study" width="100%"/>
+      <br/>
+      <em><b>Figure 5B:</b> Projected Gradient Counterfactual Recourse trajectory showing sparse, physiologically plausible biomarker modifications while strictly locking immutable attributes (<code>age</code>, <code>sex</code>).</em>
+    </td>
+  </tr>
+</table>
+
+**Clinical Interpretation:**
+- **Deconfounding Observational Bias (Love Plot):** In observational clinical registries, treated/exposed patients systematically differ from controls in age, sex, and comorbidities. **Figure 5A** illustrates that unadjusted covariate imbalances (SMD $> 0.40$) are successfully neutralized below the strict clinical balance threshold ($\text{SMD} < 0.10$) via **Inverse Probability of Treatment Weighting (IPTW)** and **Cross-Fitted Doubly Robust AIPW**, isolating true modifiable causal effects from demographic confounding (**0.3966** bias removed).
+- **Closed-Loop Actionable Patient Recourse:** **Figure 5B** visualizes a patient-level counterfactual intervention trajectory. By strictly locking immutable attributes (`age`, `sex`, congenital defect history) and applying $L_1$-sparse projected gradient descent exclusively to modifiable physiological targets (e.g., reducing resting systolic blood pressure `trestbps`, mitigating ST depression `oldpeak`, and improving peak exercise capacity `thalach`), **100.0%** of high-risk patients achieve recourse validity and transition out of the Conformal High-Risk regime $\hat{C}(x) = \{1\}$.
+
+---
+
+### 6. Training Dynamics & Optimization Convergence
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="artifacts/training_curves_adam.png" alt="PyTorch HeartMLP Adam Training Convergence" width="100%"/>
+      <br/>
+      <em><b>Figure 6A:</b> PyTorch <code>HeartMLP</code> (Adam optimizer) training and validation loss/accuracy trajectories with dropout ($p=0.25$), $L_2$ weight decay, and patience-based early stopping.</em>
+    </td>
+    <td width="50%" align="center">
+      <img src="artifacts/xgb_learning_curve.png" alt="XGBoost Early Stopping Learning Curve" width="100%"/>
+      <br/>
+      <em><b>Figure 6B:</b> Gradient-boosted decision tree (<code>XGBoost</code>) validation log-loss trajectory illustrating automated early-stopping regularization prior to tabular overfitting.</em>
+    </td>
+  </tr>
+</table>
+
+**Clinical Interpretation:**
+- **Preventing Small-Cohort Memorization:** Clinical tabular datasets are highly susceptible to over-parameterized memorization and noisy gradient updates. **Figure 6A** (alongside `artifacts/training_curves_sgd.png`) and **Figure 6B** verify that explicit regularization—combining weighted binary cross-entropy, dropout, $L_2$ weight decay, and validation-monitored early stopping—halts optimization at the generalization peak before validation loss diverges.
+
+---
+
 ## Repository Structure
 
 ```text
 heart-disease-clinical-ml/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
-│   │   ├── bug_report.md                 # Structured bug & reproducibility issue template
-│   │   └── feature_request.md            # Architectural / clinical feature proposal template
+│   │   ├── bug_report.md                        # Structured bug & reproducibility issue template
+│   │   └── feature_request.md                   # Architectural / clinical feature proposal template
 │   ├── workflows/
-│   │   └── ci.yml                        # GitHub Actions matrix CI (Python 3.10 - 3.13)
-│   └── pull_request_template.md          # Scientific & engineering PR checklist
-├── artifacts/                            # Generated metrics, curves, checkpoints & markdown tables
-│   ├── baseline_comparison.md            # Holdout & 5-fold CV baseline benchmark table
-│   └── reading_list_advancements_summary.md # Deep architectures, conformal, causal & LOCO report
+│   │   └── ci.yml                               # GitHub Actions matrix CI (Python 3.10 - 3.13)
+│   └── pull_request_template.md                 # Scientific & engineering PR checklist
+├── artifacts/                                   # Generated metrics, checkpoints, curves & tables
+│   ├── figures/                                 # 25+ publication-grade diagnostic visualizations
+│   │   ├── aipw_love_plot.png                   # Causal propensity covariate balance (Love plot)
+│   │   ├── calibration_heart.png                # Baseline & post-hoc reliability curves
+│   │   ├── calibration_heart_mlp.png            # Neural Temperature Scaling calibration curve
+│   │   ├── conformal_triage_curve.png           # Mondrian conformal coverage vs. deferral curve
+│   │   ├── counterfactual_case_study.png        # Actionable recourse trajectory with locked features
+│   │   ├── dca_curve_heart.png                  # Clinical Decision Curve Analysis (Net Benefit)
+│   │   ├── fairness_disparities.png             # Sex & age sensitivity/specificity parity audit
+│   │   ├── heart_mlp_adam_shap_summary.png      # Deep neural global SHAP beeswarm plot
+│   │   ├── heart_mlp_adam_shap_waterfall_*.png  # High-risk & low-risk patient SHAP waterfalls
+│   │   ├── heart_xgboost_shap_summary.png       # TreeSHAP global feature attribution plot
+│   │   └── pr_curve_heart.png                   # Precision-Recall curves & F1-optimal thresholds
+│   ├── baseline_comparison.md                   # Holdout & 5-fold CV baseline benchmark table
+│   ├── reading_list_advancements_summary.md     # Deep architectures, conformal, causal & LOCO report
+│   ├── training_curves_adam.png                 # PyTorch HeartMLP (Adam) convergence diagnostics
+│   ├── training_curves_sgd.png                  # PyTorch HeartMLP (SGD) convergence diagnostics
+│   └── xgb_learning_curve.png                   # XGBoost early-stopping learning curve
 ├── configs/
-│   └── requirements.txt                  # Core scientific Python dependencies
+│   └── requirements.txt                         # Core scientific Python dependencies
+├── docs/
+│   ├── CLINICAL_ML_VERIFICATION_REPORT.md       # Independent system certification audit report
+│   └── explanations/                            # In-depth architectural & line-by-line guides
 ├── evaluation/
-│   ├── compare_separate_runs.py          # Aggregator for isolated model training runs
-│   ├── fairness_analysis.py              # Demographic parity & Equal Opportunity calibration
-│   └── update_thesis_results.py          # Automated manuscript table & metric synchronizer
+│   ├── compare_separate_runs.py                 # Aggregator for isolated model training runs
+│   ├── fairness_analysis.py                     # Demographic parity & Equal Opportunity calibration
+│   └── update_thesis_results.py                 # Automated manuscript table & metric synchronizer
 ├── experiments/
-│   ├── analyze_overfitting_network_size.py # Capacity vs. generalization ablation study
-│   ├── cross_center_generalization.py    # Leave-One-Center-Out (LOCO) & conformal domain shift
-│   ├── run_reading_list_suite.py         # Full 19-paper reading list benchmark suite
-│   └── tune_train_model.py               # Hyperparameter sweep (LR, dropout, grad clip, smoothing)
+│   ├── analyze_overfitting_network_size.py      # Capacity vs. generalization ablation study
+│   ├── cross_center_generalization.py           # Leave-One-Center-Out (LOCO) & conformal domain shift
+│   ├── run_reading_list_suite.py                # Full 19-paper reading list benchmark suite
+│   └── tune_train_model.py                      # Hyperparameter sweep (LR, dropout, grad clip, smoothing)
 ├── models/
-│   └── heart_mlp.py                      # Modular PyTorch MLP & custom tabular architectures
-├── tests/                                # Automated pytest unit & pipeline integrity suite
+│   └── heart_mlp.py                             # Modular PyTorch MLP & custom tabular architectures
+├── tests/                                       # Automated pytest unit & pipeline integrity suite
 ├── training/
-│   ├── baseline_models.py                # LogReg, Random Forest & XGBoost with early stopping
-│   ├── ensemble_models.py                # Hybrid voting/stacking & Deep Ensembles
-│   ├── mimic_train_baselines.py          # MIMIC-IV in-hospital mortality training suite
-│   └── train_model.py                    # PyTorch autograd training loop (SGD vs Adam, CV)
-├── clean_data.py                         # Dataset ingestion, cleaning & schema standardization
-├── eda.py                                # Automated Exploratory Data Analysis & cohort stats
-├── mimic_prepare_dataset.py              # MIMIC-IV relational table join & cohort builder
-├── run_pipeline.py                       # Unified master CLI orchestrator (heart-pipeline)
-├── CITATION.cff                          # GitHub academic citation metadata
-├── CONTRIBUTING.md                       # Developer & scientific contribution guidelines
-├── LICENSE                               # MIT License
-├── pyproject.toml                        # PEP 621 package configuration & tool settings
-└── README.md                             # Project documentation
+│   ├── baseline_models.py                       # LogReg, Random Forest & XGBoost with early stopping
+│   ├── ensemble_models.py                       # Hybrid voting/stacking & Deep Ensembles
+│   ├── mimic_train_baselines.py                 # MIMIC-IV in-hospital mortality training suite
+│   └── train_model.py                           # PyTorch autograd training loop (SGD vs Adam, CV)
+├── clean_data.py                                # Dataset ingestion, cleaning & schema standardization
+├── eda.py                                       # Automated Exploratory Data Analysis & cohort stats
+├── mimic_prepare_dataset.py                     # MIMIC-IV relational table join & cohort builder
+├── run_pipeline.py                              # Unified master CLI orchestrator (heart-pipeline)
+├── CITATION.cff                                 # GitHub academic citation metadata
+├── CONTRIBUTING.md                              # Developer & scientific contribution guidelines
+├── LICENSE                                      # MIT License
+├── pyproject.toml                               # PEP 621 package configuration & tool settings
+└── README.md                                    # Project documentation
 ```
 
 ---
@@ -267,7 +475,7 @@ python run_reading_list_suite.py
 # Or via the master orchestrator:
 python run_pipeline.py --run-reading-list
 ```
-Executes and logs benchmarks into `artifacts/reading_list_advancements_summary.md`:
+Executes and logs benchmarks into `artifacts/reading_list_advancements_summary.md` and `artifacts/figures/`:
 1. **TabTransformer** (`Huang et al., 2020`) with multi-head contextual self-attention (`Vaswani et al., 2017`).
 2. **Patient-Similarity Graph Neural Networks:** **GCN** (`Kipf & Welling, 2017`) and **GAT** (`Veličković et al., 2018`).
 3. **Multimodal Cross-Attention Surrogate** (`Baltrušaitis et al., 2018`; `He et al., 2016`; `Dosovitskiy et al., 2020`).
@@ -301,17 +509,18 @@ python mimic_train_baselines.py --cv-folds 5 --output-dir artifacts --update-the
 
 ## Theoretical Foundations & Reading List Mapping
 
-| Research Domain | Seminal References Implemented | Module / Script |
-| :--- | :--- | :--- |
-| **Deep Learning & Optimization** | Goodfellow, Bengio, & Courville (2016); Kingma & Ba (2015) *Adam* | `models/heart_mlp.py`, `training/train_model.py` |
-| **Contextual Tabular Attention** | Vaswani et al. (2017) *Transformer*; Huang et al. (2020) *TabTransformer* | `experiments/run_reading_list_suite.py` |
-| **Graph Representation Learning** | Kipf & Welling (2017) *GCN*; Veličković et al. (2018) *GAT*; Zhang et al. (2020) *Graph-BERT* | `experiments/run_reading_list_suite.py` |
-| **Multimodal Fusion & Vision** | Baltrušaitis et al. (2018); He et al. (2016) *ResNet*; Dosovitskiy et al. (2020) *ViT* | `experiments/run_reading_list_suite.py` |
-| **Explainable AI (XAI)** | Lundberg & Lee (2017) *SHAP*; Selvaraju et al. (2017) *Grad-CAM* | `training/train_model.py`, `training/baseline_models.py` |
-| **Calibration & Ensembles** | Guo et al. (2017) *Temperature Scaling*; Lakshminarayanan et al. (2017) *Deep Ensembles* | `training/ensemble_models.py`, `experiments/run_reading_list_suite.py` |
-| **Conformal Prediction & Shift** | Angelopoulos & Bates (2021) *Split & Mondrian Conformal Prediction* | `experiments/cross_center_generalization.py` |
-| **Causality & Recourse** | Pearl & Mackenzie (2018); Chernozhukov et al. (2018) *AIPW*; Wachter et al. (2017) | `experiments/run_reading_list_suite.py` |
-| **Algorithmic Fairness & Ethics** | Barocas, Hardt, & Narayanan (2020); Bryson (2019); Marques et al. (2021) | `evaluation/fairness_analysis.py` |
+| Research Domain | Seminal References Implemented | Module / Script | Diagnostic Visual Artifact |
+| :--- | :--- | :--- | :--- |
+| **Deep Learning & Optimization** | Goodfellow, Bengio, & Courville (2016); Kingma & Ba (2015) *Adam* | `models/heart_mlp.py`, `training/train_model.py` | `artifacts/training_curves_adam.png` |
+| **Contextual Tabular Attention** | Vaswani et al. (2017) *Transformer*; Huang et al. (2020) *TabTransformer* | `experiments/run_reading_list_suite.py` | `artifacts/reading_list_advancements_summary.md` |
+| **Graph Representation Learning** | Kipf & Welling (2017) *GCN*; Veličković et al. (2018) *GAT*; Zhang et al. (2020) *Graph-BERT* | `experiments/run_reading_list_suite.py` | `artifacts/reading_list_advancements_summary.md` |
+| **Multimodal Fusion & Vision** | Baltrušaitis et al. (2018); He et al. (2016) *ResNet*; Dosovitskiy et al. (2020) *ViT* | `experiments/run_reading_list_suite.py` | `artifacts/reading_list_advancements_summary.md` |
+| **Explainable AI (XAI)** | Lundberg & Lee (2017) *SHAP*; Selvaraju et al. (2017) *Grad-CAM* | `training/train_model.py`, `training/baseline_models.py` | `artifacts/figures/heart_mlp_adam_shap_summary.png` |
+| **Calibration & Ensembles** | Guo et al. (2017) *Temperature Scaling*; Lakshminarayanan et al. (2017) *Deep Ensembles* | `training/ensemble_models.py`, `experiments/run_reading_list_suite.py` | `artifacts/figures/calibration_heart.png` |
+| **Clinical Utility & Decision Curves** | Vickers & Elkin (2006) *Decision Curve Analysis (DCA)* | `training/baseline_models.py`, `experiments/run_reading_list_suite.py` | `artifacts/figures/dca_curve_heart.png` |
+| **Conformal Prediction & Shift** | Angelopoulos & Bates (2021) *Split & Mondrian Conformal Prediction* | `experiments/cross_center_generalization.py` | `artifacts/figures/conformal_triage_curve.png` |
+| **Causality & Recourse** | Pearl & Mackenzie (2018); Chernozhukov et al. (2018) *AIPW*; Wachter et al. (2017) | `experiments/run_reading_list_suite.py` | `artifacts/figures/aipw_love_plot.png`, `counterfactual_case_study.png` |
+| **Algorithmic Fairness & Ethics** | Barocas, Hardt, & Narayanan (2020); Bryson (2019); Marques et al. (2021) | `evaluation/fairness_analysis.py` | `artifacts/figures/fairness_disparities.png` |
 
 ---
 
