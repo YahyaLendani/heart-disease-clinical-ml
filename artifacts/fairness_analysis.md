@@ -6,15 +6,15 @@ Evaluates whether the clinical risk model demonstrates parity across biological 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 61 | 45.9016 | 0.7869 | 0.7797 | 0.8810 | 0.8214 | 0.7576 | 0.1786 | 0.2424 | 0.5082 |
-| Female Patients (sex=0) | 23 | 30.4348 | 0.7826 | 0.6667 | 0.8839 | 0.7143 | 0.8125 | 0.2857 | 0.1875 | 0.3478 |
-| Male Patients (sex=1) | 38 | 55.2632 | 0.7895 | 0.8182 | 0.8655 | 0.8571 | 0.7059 | 0.1429 | 0.2941 | 0.6053 |
-| Younger (<50 yrs) | 18 | 27.7778 | 0.9444 | 0.9091 | 1.0000 | 1.0000 | 0.9231 | 0.0000 | 0.0769 | 0.3333 |
-| Middle-aged (50-64 yrs) | 34 | 52.9412 | 0.7059 | 0.7368 | 0.8438 | 0.7778 | 0.6250 | 0.2222 | 0.3750 | 0.5882 |
-| Senior (>=65 yrs) | 9 | 55.5556 | 0.7778 | 0.8000 | 0.8000 | 0.8000 | 0.7500 | 0.2000 | 0.2500 | 0.5556 |
+| All Patients | 184 | 55.4348 | 0.8533 | 0.8708 | 0.9303 | 0.8922 | 0.8049 | 0.1078 | 0.1951 | 0.5815 |
+| Female Patients (sex=0) | 35 | 22.8571 | 0.9143 | 0.8000 | 0.9074 | 0.7500 | 0.9630 | 0.2500 | 0.0370 | 0.2000 |
+| Male Patients (sex=1) | 149 | 63.0872 | 0.8389 | 0.8763 | 0.9217 | 0.9043 | 0.7273 | 0.0957 | 0.2727 | 0.6711 |
+| Younger (<50 yrs) | 59 | 42.3729 | 0.8644 | 0.8182 | 0.9741 | 0.7200 | 0.9706 | 0.2800 | 0.0294 | 0.3220 |
+| Middle-aged (50-64 yrs) | 104 | 57.6923 | 0.8558 | 0.8855 | 0.9193 | 0.9667 | 0.7045 | 0.0333 | 0.2955 | 0.6827 |
+| Senior (>=65 yrs) | 21 | 80.9524 | 0.8095 | 0.8824 | 0.9412 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
 
 ### Key Demographic Fairness Findings
 
-- **Equal Opportunity Difference (Sex):** `0.1429`
-- **Disparate Impact Ratio (Female vs. Male):** `0.5747`
-- **Missed Disease Rate (FNR):** Female = `28.6%`, Male = `14.3%`
+- **Equal Opportunity Difference (Sex):** `0.1543`
+- **Disparate Impact Ratio (Female vs. Male):** `0.2980`
+- **Missed Disease Rate (FNR):** Female = `25.0%`, Male = `9.6%`
