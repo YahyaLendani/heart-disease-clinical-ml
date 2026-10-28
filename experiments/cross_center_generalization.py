@@ -16,6 +16,7 @@ For each hospital S:
 
 from __future__ import annotations
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -36,7 +37,8 @@ from clean_data import build_preprocessing_pipeline
 from models import add_cardiovascular_features
 
 
-def get_models(seed: int = 42) -> dict[str, callable]:
+def get_models(seed: int = 42, n_jobs: int = -1) -> dict[str, callable]:
+    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
     return {
         "Logistic Regression": lambda pre: Pipeline([
             ("pre", pre),
@@ -44,11 +46,11 @@ def get_models(seed: int = 42) -> dict[str, callable]:
         ]),
         "Random Forest": lambda pre: Pipeline([
             ("pre", pre),
-            ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=1)),
+            ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=effective_jobs)),
         ]),
         "XGBoost": lambda pre: Pipeline([
             ("pre", pre),
-            ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=1, eval_metric="logloss")),
+            ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=effective_jobs, eval_metric="logloss")),
         ]),
     }
 
@@ -67,6 +69,7 @@ def evaluate_split(y_true: np.ndarray, y_proba: np.ndarray) -> dict[str, float]:
 def run_cross_center_study(
     dataset_path: str = "cleaned_heart_disease_combined.csv",
     seed: int = 42,
+    n_jobs: int = -1,
     output_dir: str = "artifacts",
 ) -> pd.DataFrame:
     print("=" * 70)
@@ -115,7 +118,7 @@ def run_cross_center_study(
         pre_scaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=True)
         pre_unscaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=False)
 
-        model_factories = get_models(seed=seed)
+        model_factories = get_models(seed=seed, n_jobs=n_jobs)
         center_test_probas = []
 
         for m_name, factory in model_factories.items():
@@ -197,10 +200,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run cross-center LOCO generalization experiment.")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     args = parser.parse_args()
 
-    run_cross_center_study(dataset_path=args.dataset, seed=args.seed, output_dir=args.output_dir)
+    run_cross_center_study(dataset_path=args.dataset, seed=args.seed, n_jobs=args.n_jobs, output_dir=args.output_dir)
 
 
 if __name__ == "__main__":

@@ -161,8 +161,25 @@ def evaluate_model(name: str, model: Pipeline, X_test: pd.DataFrame, y_test: pd.
     }, y_proba
 
 
+def _resolve_cv_n_jobs(model: Pipeline, requested_n_jobs: int) -> int:
+    """Avoid nested oversubscription and CUDA multiprocessing contention."""
+    clf = model.named_steps.get("classifier") if isinstance(model, Pipeline) else model
+    if isinstance(clf, XGBClassifier) and clf.get_xgb_params().get("device") == "cuda":
+        return 1  # Keep GPU execution in main process
+    clf_jobs = getattr(clf, "n_jobs", 1)
+    if clf_jobs is not None and clf_jobs != 1:
+        return 1  # Estimator already parallelizes internally across all cores
+    return requested_n_jobs
+
+
 def cross_validate_model(
-    name: str, model: Pipeline, X: pd.DataFrame, y: pd.Series, cv_folds: int, seed: int = 42
+    name: str,
+    model: Pipeline,
+    X: pd.DataFrame,
+    y: pd.Series,
+    cv_folds: int,
+    seed: int = 42,
+    n_jobs: int = -1,
 ) -> dict:
     def _score_accuracy(estimator, X_batch, y_batch):
         align_xgb_inference_device(estimator)
@@ -185,6 +202,7 @@ def cross_validate_model(
         return brier_score_loss(y_batch, estimator.predict_proba(X_batch)[:, 1])
 
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=seed)
+    cv_jobs = _resolve_cv_n_jobs(model, n_jobs)
     scores = cross_validate(
         model,
         X,
@@ -197,7 +215,7 @@ def cross_validate_model(
             "pr_auc": _score_pr_auc,
             "brier": _score_brier,
         },
-        n_jobs=1,
+        n_jobs=cv_jobs,
     )
 
     acc_mean = float(np.mean(scores["test_accuracy"]))
@@ -289,6 +307,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save-run-metrics", action="store_true")
     parser.add_argument("--comparison-file", type=str, default="artifacts/separate_model_runs.csv")
     parser.add_argument("--run-xai", action="store_true", help="Run SHAP explainability analysis after training.")
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers for parallel CV and grid search (-1 = all cores).")
     return parser
 
 
@@ -550,7 +569,7 @@ def main() -> None:
     cv_lookup: dict[str, dict] = {}
     for name, cv_model in cv_models:
         cv_lookup[name] = cross_validate_model(
-            name, cv_model, X_train, y_train, args.cv_folds, seed=args.seed
+            name, cv_model, X_train, y_train, args.cv_folds, seed=args.seed, n_jobs=args.n_jobs
         )
 
     model_probas: dict[str, np.ndarray] = {}

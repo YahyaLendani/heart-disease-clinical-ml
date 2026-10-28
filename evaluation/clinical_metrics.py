@@ -115,45 +115,53 @@ def compute_net_benefit(
     y_prob,
     thresholds: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Compute Decision Curve Analysis (DCA) Net Benefit across threshold probabilities.
+    """Compute Decision Curve Analysis (DCA) Net Benefit via 2D NumPy broadcasting.
 
     Net Benefit(pt) = TP/N - FP/N * (pt / (1 - pt))
     """
-    y_true = np.asarray(y_true, dtype=int)
-    y_prob = np.asarray(y_prob, dtype=float)
+    y_true = np.asarray(y_true, dtype=int).ravel()
+    y_prob = np.asarray(y_prob, dtype=float).ravel()
     N = len(y_true)
 
     if thresholds is None:
         thresholds = np.linspace(0.01, 0.99, 99)
+    else:
+        thresholds = np.asarray(thresholds, dtype=float).ravel()
 
+    if N == 0:
+        zeros = np.zeros_like(thresholds)
+        return {
+            "thresholds": thresholds,
+            "net_benefit_model": zeros,
+            "net_benefit_all": zeros.copy(),
+            "net_benefit_none": zeros.copy(),
+        }
+
+    # 2D broadcast: (N, 1) >= (1, T) -> (N, T) boolean matrix
+    preds = y_prob[:, None] >= thresholds[None, :]
+    y_pos = (y_true == 1)[:, None]
+
+    tp = np.sum(preds & y_pos, axis=0, dtype=float)
+    fp = np.sum(preds & (~y_pos), axis=0, dtype=float)
+
+    w = thresholds / np.clip(1.0 - thresholds, 1e-12, None)
     prevalence = float(np.mean(y_true))
-    net_benefit_model = []
-    net_benefit_all = []
 
-    for pt in thresholds:
-        w = pt / (1.0 - pt)
-        y_pred = (y_prob >= pt).astype(int)
-        tp = np.sum((y_pred == 1) & (y_true == 1))
-        fp = np.sum((y_pred == 1) & (y_true == 0))
-
-        nb_model = (tp / N) - (fp / N) * w
-        nb_all = prevalence - (1.0 - prevalence) * w
-
-        net_benefit_model.append(nb_model)
-        net_benefit_all.append(nb_all)
+    net_benefit_model = (tp / N) - (fp / N) * w
+    net_benefit_all = prevalence - (1.0 - prevalence) * w
 
     return {
         "thresholds": thresholds,
-        "net_benefit_model": np.array(net_benefit_model),
-        "net_benefit_all": np.array(net_benefit_all),
+        "net_benefit_model": net_benefit_model,
+        "net_benefit_all": net_benefit_all,
         "net_benefit_none": np.zeros_like(thresholds),
     }
 
 
 def find_optimal_threshold(y_true, y_prob, method: str = "f1") -> tuple[float, float]:
-    """Find the optimal decision threshold for binary classification."""
-    y_true = np.asarray(y_true, dtype=int)
-    y_prob = np.asarray(y_prob, dtype=float)
+    """Find the optimal decision threshold for binary classification (fully vectorized)."""
+    y_true = np.asarray(y_true, dtype=int).ravel()
+    y_prob = np.asarray(y_prob, dtype=float).ravel()
 
     precisions, recalls, thresholds_pr = precision_recall_curve(y_true, y_prob)
 
@@ -173,17 +181,27 @@ def find_optimal_threshold(y_true, y_prob, method: str = "f1") -> tuple[float, f
 
     if method == "youden":
         thresholds = np.unique(y_prob)
+        if len(thresholds) == 0:
+            return 0.5, 0.0
         if len(thresholds) > 500:
-            thresholds = np.linspace(y_prob.min(), y_prob.max(), 500)
+            thresholds = np.linspace(float(y_prob.min()), float(y_prob.max()), 500)
 
-        best_j = -1.0
-        best_t = 0.5
-        for t in thresholds:
-            j = _youden_j_at_threshold(y_true, y_prob, float(t))
-            if j > best_j:
-                best_j = j
-                best_t = float(t)
-        return float(best_t), float(best_j)
+        # Vectorized Youden's J across all candidate thresholds: (N, T)
+        preds = y_prob[:, None] >= thresholds[None, :]
+        y_pos = (y_true == 1)[:, None]
+        y_neg = ~y_pos
+
+        tp = np.sum(preds & y_pos, axis=0, dtype=float)
+        fn = np.sum((~preds) & y_pos, axis=0, dtype=float)
+        tn = np.sum((~preds) & y_neg, axis=0, dtype=float)
+        fp = np.sum(preds & y_neg, axis=0, dtype=float)
+
+        sensitivity = tp / np.maximum(tp + fn, 1.0)
+        specificity = tn / np.maximum(tn + fp, 1.0)
+        j_scores = sensitivity + specificity - 1.0
+
+        best_idx = int(np.argmax(j_scores))
+        return float(thresholds[best_idx]), float(j_scores[best_idx])
 
     raise ValueError(f"Unsupported method: {method}. Use 'f1' or 'youden'.")
 

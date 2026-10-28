@@ -96,6 +96,24 @@ class TestSoftVotingEnsemble:
         expected = (p1 + p2) / 2.0
         assert np.allclose(result, expected)
 
+    def test_simplex_weight_optimization(self):
+        """Verify Nelder-Mead simplex optimization converges on probability simplex."""
+        y_true = np.array([0, 0, 1, 1, 0, 1])
+        p1 = np.array([0.05, 0.10, 0.90, 0.95, 0.15, 0.85])
+        p2 = np.array([0.55, 0.52, 0.48, 0.51, 0.49, 0.50])
+        oof_probas = np.column_stack([p1, p2])
+
+        models = [
+            ("m1", self.MockModel(np.column_stack([1 - p1, p1]))),
+            ("m2", self.MockModel(np.column_stack([1 - p2, p2]))),
+        ]
+        ensemble = SoftVotingEnsemble(models)
+        ensemble.fit_weights(oof_probas, y_true, metric="logloss")
+
+        assert np.isclose(np.sum(ensemble.weights), 1.0)
+        assert np.all(ensemble.weights >= 0.0)
+        assert ensemble.weights[0] > ensemble.weights[1]
+
 
 class TestFairnessMetrics:
     """Verify clinical fairness calculations (TPR, TNR, FPR, FNR)."""

@@ -27,7 +27,7 @@ def build_knn_patient_graph(
     metric: str = "cosine",
     include_self_loops: bool = True,
 ) -> torch.Tensor:
-    """Build a k-Nearest Neighbors patient similarity adjacency matrix.
+    """Build a vectorized k-Nearest Neighbors patient similarity adjacency matrix.
 
     Parameters
     ----------
@@ -46,43 +46,45 @@ def build_knn_patient_graph(
         X = features.float()
 
     num_nodes = X.size(0)
-    adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+    device = X.device
+
+    if num_nodes == 0:
+        return torch.empty((0, 0), dtype=torch.float32, device=device)
 
     if metric == "cosine":
-        norms = torch.norm(X, p=2, dim=1, keepdim=True).clamp(min=1e-8)
-        normed_X = X / norms
+        normed_X = F.normalize(X, p=2, dim=1, eps=1e-8)
         sim = torch.mm(normed_X, normed_X.t())
-        # Top-k largest similarities
-        topk_vals, topk_indices = torch.topk(sim, k=min(k + 1, num_nodes), dim=1)
-        for i in range(num_nodes):
-            for idx in topk_indices[i]:
-                adj[i, idx] = 1.0
-                adj[idx, i] = 1.0  # undirected
+    elif metric == "euclidean":
+        sim = -torch.cdist(X, X, p=2.0)
     else:
-        # Negative Euclidean distance
-        dist = torch.cdist(X, X)
-        topk_vals, topk_indices = torch.topk(-dist, k=min(k + 1, num_nodes), dim=1)
-        for i in range(num_nodes):
-            for idx in topk_indices[i]:
-                adj[i, idx] = 1.0
-                adj[idx, i] = 1.0
+        raise ValueError(f"Unsupported metric '{metric}'. Expected 'cosine' or 'euclidean'.")
+
+    adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32, device=device)
+
+    if k > 0 and num_nodes > 1:
+        # Mask self-similarity so topk selects strictly k distinct neighbors
+        sim.fill_diagonal_(-float("inf"))
+        k_eff = min(k, num_nodes - 1)
+        _, topk_indices = torch.topk(sim, k=k_eff, dim=1)
+
+        # Vectorized scatter along rows + undirected symmetrization
+        adj.scatter_(1, topk_indices, 1.0)
+        adj = torch.maximum(adj, adj.t())
 
     if include_self_loops:
         adj.fill_diagonal_(1.0)
+    else:
+        adj.fill_diagonal_(0.0)
 
     return adj
 
 
 def normalize_adjacency_gcn(adj: torch.Tensor) -> torch.Tensor:
-    """Compute symmetric normalized Laplacian: D^{-1/2} A D^{-1/2}.
-
-    Formula from Kipf & Welling (2017).
-    """
+    """Compute symmetric normalized Laplacian: D^{-1/2} A D^{-1/2} in O(N^2) via broadcasting."""
     deg = torch.sum(adj, dim=1)
     deg_inv_sqrt = torch.pow(deg.clamp(min=1e-8), -0.5)
-    deg_inv_sqrt[torch.isinf(deg_inv_sqrt)] = 0.0
-    D_mat = torch.diag(deg_inv_sqrt)
-    return torch.mm(torch.mm(D_mat, adj), D_mat)
+    deg_inv_sqrt = torch.masked_fill(deg_inv_sqrt, torch.isinf(deg_inv_sqrt), 0.0)
+    return deg_inv_sqrt.unsqueeze(1) * adj * deg_inv_sqrt.unsqueeze(0)
 
 
 class GraphConvolution(nn.Module):
@@ -149,18 +151,16 @@ class GraphAttentionLayer(nn.Module):
 
     def forward(self, h: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
         Wh = torch.mm(h, self.W)  # (N, out_features)
-        N = Wh.size(0)
 
-        # Broadcast combinations: [Wh_i || Wh_j] for all pairs
-        Wh1 = Wh.repeat_interleave(N, dim=0)
-        Wh2 = Wh.repeat(N, 1)
-        all_combinations = torch.cat([Wh1, Wh2], dim=1)  # (N*N, 2*out_features)
-
-        e = self.leaky_relu(torch.mm(all_combinations, self.a)).view(N, N)
+        # Decompose a^T [Wh_i || Wh_j] = (Wh_i) a_src + (Wh_j) a_dst in O(N * F + N^2)
+        a_src = self.a[: self.out_features, :]  # (out_features, 1)
+        a_dst = self.a[self.out_features :, :]  # (out_features, 1)
+        e_src = torch.mm(Wh, a_src)             # (N, 1)
+        e_dst = torch.mm(Wh, a_dst)             # (N, 1)
+        e = self.leaky_relu(e_src + e_dst.t())  # (N, N)
 
         # Mask non-edges: zero attention for non-neighbors
-        zero_vec = -9e15 * torch.ones_like(e)
-        attention = torch.where(adj > 0, e, zero_vec)
+        attention = torch.where(adj > 0, e, torch.full_like(e, -9e15))
         attention = F.softmax(attention, dim=1)
         attention = F.dropout(attention, p=self.dropout, training=self.training)
 

@@ -19,6 +19,7 @@ Clinical Fairness Metrics computed:
 
 from __future__ import annotations
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -114,11 +115,14 @@ def plot_fairness_figures(fairness_df: pd.DataFrame, output_path: Path) -> None:
 def run_fairness_study(
     dataset_path: str = "cleaned_heart_disease_combined.csv",
     seed: int = 42,
+    n_jobs: int = -1,
     output_dir: str = "artifacts",
 ) -> tuple[pd.DataFrame, dict]:
     print("=" * 70)
     print("ALGORITHMIC FAIRNESS & CLINICAL DISPARITY STUDY (Sex & Age)")
     print("=" * 70)
+
+    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
 
     path = Path(dataset_path)
     if not path.is_absolute():
@@ -145,7 +149,7 @@ def run_fairness_study(
         max_depth=3,
         learning_rate=0.05,
         random_state=seed,
-        n_jobs=1,
+        n_jobs=effective_jobs,
         eval_metric="logloss",
     )
     from sklearn.pipeline import Pipeline
@@ -243,10 +247,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run demographic fairness study.")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     args = parser.parse_args()
 
-    run_fairness_study(dataset_path=args.dataset, seed=args.seed, output_dir=args.output_dir)
+    run_fairness_study(dataset_path=args.dataset, seed=args.seed, n_jobs=args.n_jobs, output_dir=args.output_dir)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
 [![Logistic Regression](https://img.shields.io/badge/Logistic%20Regression-Linear%20Model-0288d1.svg)](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Verification: Certified](https://img.shields.io/badge/Verification-Certified%2048%2F48-success.svg)](docs/CLINICAL_ML_VERIFICATION_REPORT.md)
+[![Verification: Certified](https://img.shields.io/badge/Verification-Certified%2049%2F49-success.svg)](docs/CLINICAL_ML_VERIFICATION_REPORT.md)
 
 A publication-grade, end-to-end **Clinical Machine Learning and Trustworthy AI Framework** for **Cardiovascular Disease (CVD) Diagnosis** across multi-center international cohorts (*Cleveland, Hungarian, Switzerland, VA Long Beach*) and **In-Hospital Mortality Prediction** on **MIMIC-IV**.
 
@@ -100,7 +100,7 @@ flowchart TB
 
     subgraph Output["5. Automated Verification & Reproducible Reporting"]
         direction LR
-        E1["48/48 Pytest Verification Suite\ntests/ Unit & Integrity Checks"]:::out
+        E1["49/49 Pytest Verification Suite\ntests/ Unit & Integrity Checks"]:::out
         E2["25+ Publication Diagnostic Figures\nartifacts/figures/ & Checkpoints"]:::out
         E3["Automated Manuscript Synchronization\nupdate_thesis_results.py"]:::out
     end

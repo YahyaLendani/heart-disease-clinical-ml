@@ -13,11 +13,15 @@ Ensemble strategies evaluated:
 
 from __future__ import annotations
 import argparse
+import copy
+import os
 from pathlib import Path
 import sys
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
+from scipy.special import softmax
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -27,6 +31,7 @@ from sklearn.metrics import (
     brier_score_loss,
     classification_report,
     f1_score,
+    log_loss,
     roc_auc_score,
 )
 from sklearn.model_selection import StratifiedKFold, train_test_split
@@ -118,14 +123,14 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
 
         return self
 
+    @torch.inference_mode()
     def predict_proba(self, X: np.ndarray | pd.DataFrame) -> np.ndarray:
         dev = self._get_device()
         self.model_.eval()
         X_np = np.asarray(X, dtype=np.float32)
-        X_t = torch.tensor(X_np, dtype=torch.float32).to(dev)
-        with torch.no_grad():
-            logits = self.model_(X_t)
-            probs_pos = torch.sigmoid(logits).cpu().numpy()
+        X_t = torch.from_numpy(X_np).to(dev)
+        logits = self.model_(X_t)
+        probs_pos = torch.sigmoid(logits).cpu().numpy()
         probs_pos = np.clip(probs_pos, 1e-7, 1 - 1e-7)
         probs_neg = 1.0 - probs_pos
         return np.column_stack([probs_neg, probs_pos])
@@ -135,22 +140,92 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
         return (proba >= 0.5).astype(int)
 
 
-class SoftVotingEnsemble:
-    """Combines predicted probabilities via weighted averaging."""
+def generate_oof_and_fit_base_models(
+    base_specs: list[tuple[str, any]],
+    X: pd.DataFrame,
+    y: pd.Series,
+    cv_folds: int = 5,
+    random_state: int = 42,
+) -> tuple[np.ndarray, list[tuple[str, any]]]:
+    """Compute leak-free Out-Of-Fold (OOF) probabilities and fit full base models once."""
+    skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    oof_preds = np.zeros((len(X), len(base_specs)), dtype=np.float64)
 
-    def __init__(self, models: list[tuple[str, any]], weights: list[float] | None = None) -> None:
+    for train_idx, val_idx in skf.split(X, y):
+        X_train_f, X_val_f = X.iloc[train_idx], X.iloc[val_idx]
+        y_train_f = y.iloc[train_idx]
+
+        for m_idx, (_, model_proto) in enumerate(base_specs):
+            fold_model = copy.deepcopy(model_proto)
+            fold_model.fit(X_train_f, y_train_f)
+            oof_preds[val_idx, m_idx] = fold_model.predict_proba(X_val_f)[:, 1]
+
+    fitted_base_models = []
+    for name, model_proto in base_specs:
+        full_model = copy.deepcopy(model_proto)
+        full_model.fit(X, y)
+        fitted_base_models.append((name, full_model))
+
+    return oof_preds, fitted_base_models
+
+
+class SoftVotingEnsemble:
+    """Combines predicted probabilities via simplex-optimized or custom weights."""
+
+    def __init__(
+        self,
+        models: list[tuple[str, any]],
+        weights: list[float] | np.ndarray | None = None,
+        metric: str = "roc_auc",
+    ) -> None:
         self.models = models
+        self.metric = metric
         if weights is None:
-            self.weights = np.ones(len(models)) / len(models)
+            self.weights = np.ones(len(models), dtype=np.float64) / len(models)
         else:
-            w = np.array(weights, dtype=float)
-            self.weights = w / w.sum()
+            w = np.asarray(weights, dtype=np.float64)
+            w = np.clip(w, 0.0, None)
+            self.weights = w / w.sum() if w.sum() > 0 else np.ones(len(models), dtype=np.float64) / len(models)
+
+    def fit_weights(
+        self,
+        oof_probas: np.ndarray,
+        y_true: np.ndarray | pd.Series,
+        metric: str | None = None,
+        maxiter: int = 1000,
+    ) -> SoftVotingEnsemble:
+        """Optimize ensemble weights on the probability simplex via Nelder-Mead."""
+        target_metric = (metric or self.metric).lower()
+        y_arr = np.asarray(y_true, dtype=int).ravel()
+        P = np.clip(np.asarray(oof_probas, dtype=np.float64), 1e-7, 1.0 - 1e-7)
+        n_models = P.shape[1]
+
+        def _objective(theta: np.ndarray) -> float:
+            w = softmax(theta)
+            blended = np.clip(P @ w, 1e-7, 1.0 - 1e-7)
+            if target_metric == "roc_auc":
+                return -float(roc_auc_score(y_arr, blended)) + 1e-3 * float(log_loss(y_arr, blended))
+            if target_metric == "logloss":
+                return float(log_loss(y_arr, blended))
+            if target_metric == "brier":
+                return float(brier_score_loss(y_arr, blended))
+            raise ValueError(f"Unsupported optimization metric: {target_metric}")
+
+        theta0 = np.zeros(n_models, dtype=np.float64)
+        res = minimize(
+            _objective,
+            theta0,
+            method="Nelder-Mead",
+            options={"maxiter": maxiter, "xatol": 1e-5, "fatol": 1e-6, "adaptive": True},
+        )
+        self.weights = softmax(res.x)
+        return self
 
     def predict_proba(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
-        probas = np.zeros((len(X), 2))
+        probas = np.zeros((len(X), 2), dtype=np.float64)
         for weight, (_, model) in zip(self.weights, self.models):
-            p = model.predict_proba(X)
-            probas += weight * p
+            if weight > 0:
+                probas += weight * model.predict_proba(X)
         return probas
 
     def predict(self, X: pd.DataFrame | np.ndarray, threshold: float = 0.5) -> np.ndarray:
@@ -167,32 +242,23 @@ class StackingEnsemble:
         self.meta_learner = LogisticRegression(C=1.0, random_state=random_state)
         self.fitted_base_models = []
 
-    def fit(self, X: pd.DataFrame, y: pd.Series, cv_folds: int = 5) -> StackingEnsemble:
-        skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=self.random_state)
-        oof_preds = np.zeros((len(X), len(self.base_models)))
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        cv_folds: int = 5,
+        precomputed_oof: np.ndarray | None = None,
+        precomputed_fitted_models: list[tuple[str, any]] | None = None,
+    ) -> StackingEnsemble:
+        if precomputed_oof is not None and precomputed_fitted_models is not None:
+            oof_preds = precomputed_oof
+            self.fitted_base_models = precomputed_fitted_models
+        else:
+            oof_preds, self.fitted_base_models = generate_oof_and_fit_base_models(
+                self.base_models, X, y, cv_folds=cv_folds, random_state=self.random_state
+            )
 
-        # 1. Generate clean out-of-fold predictions
-        for train_idx, val_idx in skf.split(X, y):
-            X_train_f, X_val_f = X.iloc[train_idx], X.iloc[val_idx]
-            y_train_f, _ = y.iloc[train_idx], y.iloc[val_idx]
-
-            for m_idx, (_, model_proto) in enumerate(self.base_models):
-                import copy
-                fold_model = copy.deepcopy(model_proto)
-                fold_model.fit(X_train_f, y_train_f)
-                oof_preds[val_idx, m_idx] = fold_model.predict_proba(X_val_f)[:, 1]
-
-        # 2. Train meta-learner on OOF predictions
         self.meta_learner.fit(oof_preds, y)
-
-        # 3. Fit full base models on entire training set
-        self.fitted_base_models = []
-        for name, model_proto in self.base_models:
-            import copy
-            full_model = copy.deepcopy(model_proto)
-            full_model.fit(X, y)
-            self.fitted_base_models.append((name, full_model))
-
         return self
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
@@ -236,11 +302,14 @@ def run_ensemble_benchmark(
     use_feature_engineering: bool = True,
     cv_folds: int = 5,
     seed: int = 42,
+    n_jobs: int = -1,
     output_dir: str = "artifacts",
 ) -> tuple[pd.DataFrame, dict]:
     print("=" * 70)
     print("HYBRID CLINICAL ENSEMBLE BENCHMARK (PyTorch MLP + XGBoost + RF + LogReg)")
     print("=" * 70)
+
+    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
 
     path = Path(dataset_path)
     if not path.is_absolute():
@@ -275,14 +344,14 @@ def run_ensemble_benchmark(
             "Random Forest",
             Pipeline([
                 ("pre", pre_unscaled),
-                ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=1)),
+                ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=effective_jobs)),
             ]),
         ),
         (
             "XGBoost",
             Pipeline([
                 ("pre", pre_unscaled),
-                ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=1, eval_metric="logloss")),
+                ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=effective_jobs, eval_metric="logloss")),
             ]),
         ),
         (
@@ -294,39 +363,48 @@ def run_ensemble_benchmark(
         ),
     ]
 
-    results = []
-    trained_base = []
-    base_test_probas = {}
+    print(f"\nGenerating {cv_folds}-fold OOF predictions and fitting base models (multi-core n_jobs={effective_jobs})...")
+    oof_preds, trained_base = generate_oof_and_fit_base_models(
+        base_specs, X_train, y_train, cv_folds=cv_folds, random_state=seed
+    )
 
-    for name, pipe in base_specs:
-        print(f"\nFitting base model: {name}...")
-        pipe.fit(X_train, y_train)
-        trained_base.append((name, pipe))
+    results = []
+    for m_idx, (name, pipe) in enumerate(trained_base):
         proba = pipe.predict_proba(X_test)[:, 1]
-        base_test_probas[name] = proba
         row = evaluate_predictions(name, y_test.values, proba)
         results.append(row)
         print(
-            f"  -> Accuracy: {row['test_accuracy']:.4f} | F1: {row['test_f1']:.4f} | "
+            f"  -> {name:<20} | Accuracy: {row['test_accuracy']:.4f} | F1: {row['test_f1']:.4f} | "
             f"ROC-AUC: {row['test_roc_auc']:.4f} | PR-AUC: {row['test_pr_auc']:.4f}"
         )
 
-    # 1. Soft-Voting Ensemble (weighted by test/CV ROC-AUC)
-    weights = [r["test_roc_auc"] for r in results]
-    soft_voting = SoftVotingEnsemble(trained_base, weights=weights)
+    # 1. Simplex-Optimized Soft-Voting Ensemble (weights learned strictly on OOF predictions)
+    soft_voting = SoftVotingEnsemble(trained_base, metric="roc_auc")
+    soft_voting.fit_weights(oof_preds, y_train.values, metric="roc_auc")
+    weight_str = ", ".join(
+        f"{name}: {w:.3f}" for (name, _), w in zip(trained_base, soft_voting.weights)
+    )
+    print(f"\n[Nelder-Mead Simplex Weights] {weight_str}")
+
     sv_proba = soft_voting.predict_proba(X_test)[:, 1]
     sv_row = evaluate_predictions("Hybrid Soft-Voting Ensemble", y_test.values, sv_proba)
     results.append(sv_row)
     print(
-        f"\n[Hybrid Soft-Voting] Accuracy: {sv_row['test_accuracy']:.4f} | "
+        f"[Hybrid Soft-Voting] Accuracy: {sv_row['test_accuracy']:.4f} | "
         f"F1: {sv_row['test_f1']:.4f} | ROC-AUC: {sv_row['test_roc_auc']:.4f} | "
         f"PR-AUC: {sv_row['test_pr_auc']:.4f}"
     )
 
-    # 2. Stacking Ensemble
+    # 2. Stacking Ensemble (reuses precomputed OOF matrix and fitted base models)
     print("\nFitting Stacking Classifier (Two-Stage Meta-Learning)...")
     stacking = StackingEnsemble(base_specs, random_state=seed)
-    stacking.fit(X_train, y_train, cv_folds=cv_folds)
+    stacking.fit(
+        X_train,
+        y_train,
+        cv_folds=cv_folds,
+        precomputed_oof=oof_preds,
+        precomputed_fitted_models=trained_base,
+    )
     st_proba = stacking.predict_proba(X_test)[:, 1]
     st_row = evaluate_predictions("Hybrid Stacking Ensemble (Ours)", y_test.values, st_proba)
     results.append(st_row)
@@ -367,6 +445,7 @@ def main() -> None:
     parser.add_argument("--no-fe", action="store_true", help="Disable clinical feature engineering.")
     parser.add_argument("--cv-folds", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Number of parallel CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     args = parser.parse_args()
 
@@ -375,6 +454,7 @@ def main() -> None:
         use_feature_engineering=not args.no_fe,
         cv_folds=args.cv_folds,
         seed=args.seed,
+        n_jobs=args.n_jobs,
         output_dir=args.output_dir,
     )
 

@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -59,6 +60,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--update-thesis", action="store_true")
     parser.add_argument("--xgb-device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--run-xai", action="store_true", help="Run SHAP explainability analysis after training.")
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers for parallel CV (-1 = all cores).")
     return parser
 
 
@@ -178,6 +180,7 @@ def evaluate_cv(
     y: pd.Series,
     folds: int,
     groups: pd.Series | None = None,
+    n_jobs: int = -1,
 ) -> dict:
     def _score_accuracy(estimator, X_batch, y_batch):
         align_xgb_inference_device(estimator)
@@ -212,6 +215,9 @@ def evaluate_cv(
     else:
         cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
 
+    clf = model.named_steps.get("classifier") if isinstance(model, Pipeline) else model
+    cv_jobs = 1 if getattr(clf, "n_jobs", 1) not in (None, 1) else (os.cpu_count() or 1 if n_jobs == -1 else n_jobs)
+
     scores = cross_validate(
         model,
         X,
@@ -227,7 +233,7 @@ def evaluate_cv(
             "average_precision": _score_average_precision,
             "brier": _score_brier,
         },
-        n_jobs=1,
+        n_jobs=cv_jobs,
     )
 
     return {
@@ -435,7 +441,7 @@ def main() -> None:
     model_probas: dict[str, np.ndarray] = {}
     print(f"\n=== MIMIC Cross-Validation ({args.cv_folds}-fold) ===")
     for name, model in models:
-        cv_result = evaluate_cv(name, model, X_train, y_train, args.cv_folds, groups=groups_train)
+        cv_result = evaluate_cv(name, model, X_train, y_train, args.cv_folds, groups=groups_train, n_jobs=args.n_jobs)
         print(
             f"{name}: Accuracy={cv_result['cv_accuracy_mean']:.4f}±{cv_result['cv_accuracy_std']:.4f}, "
             f"F1(expired)={cv_result['cv_f1_expired_mean']:.4f}±{cv_result['cv_f1_expired_std']:.4f}, "
