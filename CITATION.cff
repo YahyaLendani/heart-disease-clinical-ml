@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+title: "Heart Disease & Clinical Mortality ML Pipeline: Trustworthy Tabular Deep Learning, Graph Neural Networks, Conformal Triage, and Causal Counterfactual Recourse"
+message: "If you use this codebase, empirical benchmarks, or methodological implementations in your research, please cite it using the metadata below."
+type: software
+authors:
+  - family-names: "Yahya"
+    given-names: ""
+version: 1.0.0
+date-released: "2026-03-01"
+license: MIT
+repository-code: "https://github.com/yahya/heart-disease-clinical-ml"
+keywords:
+  - cardiovascular disease prediction
+  - clinical machine learning
+  - TabTransformer
+  - Graph Attention Networks
+  - conformal prediction
+  - uncertainty quantification
+  - causal inference
+  - counterfactual recourse
+  - algorithmic fairness
+  - MIMIC-IV mortality
+abstract: >-
+  A comprehensive, publication-grade clinical machine learning framework evaluating deep tabular
+  architectures (HeartMLP, TabTransformer), patient-similarity Graph Neural Networks (GCN, GAT),
+  and gradient-boosted baselines across multi-center cardiovascular disease cohorts (Cleveland,
+  Hungarian, Switzerland, VA Long Beach) and MIMIC-IV ICU hospital mortality. Integrates post-hoc
+  Temperature Scaling, Deep Ensembles, Split and Mondrian Conformal Prediction for finite-sample
+  coverage guarantees under domain shift, Doubly Robust Causal Inference (IPTW/AIPW with sensitivity
+  E-values), Equal Opportunity demographic fairness calibration, and closed-loop actionable
+  counterfactual recourse.
+preferred-citation:
+  type: thesis
+  authors:
+    - family-names: "Yahya"
+      given-names: ""
+  title: "Trustworthy Deep Learning and Uncertainty-Aware Clinical Decision Support for Cardiovascular Risk and Hospital Mortality Prediction"
+  year: 2026
+  thesis-type: "Master's / Research Thesis"
+

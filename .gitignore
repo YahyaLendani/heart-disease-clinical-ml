@@ -1,14 +1,98 @@
-# Python
+# =============================================================================
+# Python Bytecode & Packaging
+# =============================================================================
 __pycache__/
-*.pyc
-.pytest_cache/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =============================================================================
+# Virtual Environments
+# =============================================================================
 .venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv-gpu/
 
-# Model checkpoints (large, regenerable)
+# =============================================================================
+# PyTorch Checkpoints & Large Model Weights
+# =============================================================================
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+*.h5
+*.joblib
+*.pkl
+
+# =============================================================================
+# Experiment Logs, Temporary Outputs & Regenerable Artifacts
+# =============================================================================
+artifacts/overfit_*/
 artifacts/*.pt
+artifacts/*.pth
+wandb/
+mlruns/
+lightning_logs/
+runs/
+*.log
 
-# OS / editor
-.DS_Store
-Thumbs.db
+# =============================================================================
+# Testing, Coverage & Linter Caches
+# =============================================================================
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# =============================================================================
+# Jupyter Notebooks & IDE Settings
+# =============================================================================
+.ipynb_checkpoints
+*.ipynb_checkpoints/
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# OS-Specific Files
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini

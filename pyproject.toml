@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heart-disease-clinical-ml"
+version = "1.0.0"
+description = "Trustworthy Deep Learning, Graph Neural Networks, Conformal Triage, and Causal Recourse for Cardiovascular Risk & MIMIC-IV Mortality Prediction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Yahya" }
+]
+keywords = [
+    "cardiovascular-risk-prediction",
+    "clinical-machine-learning",
+    "tabtransformer",
+    "graph-neural-networks",
+    "conformal-prediction",
+    "causal-inference",
+    "counterfactual-recourse",
+    "algorithmic-fairness",
+    "shap-explainability",
+    "mimic-iv"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Medical Science Apps."
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "torch>=2.0.0",
+    "xgboost>=2.0.0",
+    "shap>=0.43.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+heart-pipeline = "run_pipeline:main"
+
+[project.urls]
+Homepage = "https://github.com/yahya/heart-disease-clinical-ml"
+Repository = "https://github.com/yahya/heart-disease-clinical-ml.git"
+Issues = "https://github.com/yahya/heart-disease-clinical-ml/issues"
+
+[tool.setuptools]
+py-modules = [
+    "run_pipeline",
+    "clean_data",
+    "eda",
+    "train_model",
+    "baseline_models",
+    "mimic_prepare_dataset",
+    "mimic_train_baselines",
+    "update_thesis_results",
+    "run_reading_list_suite",
+    "tune_train_model",
+    "compare_separate_runs",
+    "analyze_overfitting_network_size",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["models*", "training*", "evaluation*", "experiments*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "artifacts",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501", # line length handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["models", "training", "evaluation", "experiments"]
+
