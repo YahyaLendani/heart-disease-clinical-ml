@@ -3,7 +3,10 @@
 [![CI Pipeline](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
+[![Random Forest](https://img.shields.io/badge/Random%20Forest-Ensemble-2e7d32.svg)](https://scikit-learn.org/stable/modules/ensemble.html#forests-of-randomized-trees)
+[![Logistic Regression](https://img.shields.io/badge/Logistic%20Regression-Linear%20Model-0288d1.svg)](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Verification: Certified](https://img.shields.io/badge/Verification-Certified%2048%2F48-success.svg)](docs/CLINICAL_ML_VERIFICATION_REPORT.md)
@@ -197,43 +200,52 @@ All diagnostic visualizations are automatically generated and versioned in `arti
 
 ### 2. Model Explainability & Patient-Level Attribution (SHAP)
 
-#### Global Feature Attribution Across Model Paradigms
+#### Global Feature Attribution Across Model Paradigms (Neural Network, Random Forest, XGBoost)
 
 <table>
   <tr>
-    <td width="50%" align="center">
+    <td width="33%" align="center">
       <img src="artifacts/figures/heart_mlp_adam_shap_summary.png" alt="HeartMLP Adam SHAP Beeswarm Summary" width="100%"/>
       <br/>
-      <em><b>Figure 2A:</b> Global SHAP beeswarm summary for the Deep Neural Network (<code>HeartMLP-Adam</code>), capturing continuous non-linear feature interactions.</em>
+      <em><b>Figure 2A:</b> Global SHAP beeswarm summary for the Deep Neural Network (<code>HeartMLP-Adam</code>).</em>
     </td>
-    <td width="50%" align="center">
+    <td width="33%" align="center">
+      <img src="artifacts/figures/heart_random_forest_shap_summary.png" alt="Random Forest SHAP Beeswarm Summary" width="100%"/>
+      <br/>
+      <em><b>Figure 2B:</b> Global TreeSHAP beeswarm summary for <code>Random Forest</code> (bagged ensemble).</em>
+    </td>
+    <td width="33%" align="center">
       <img src="artifacts/figures/heart_xgboost_shap_summary.png" alt="XGBoost SHAP Beeswarm Summary" width="100%"/>
       <br/>
-      <em><b>Figure 2B:</b> Global TreeSHAP beeswarm summary for early-stopped <code>XGBoost</code>, confirming cross-architecture clinical biomarker consensus.</em>
+      <em><b>Figure 2C:</b> Global TreeSHAP beeswarm summary for early-stopped <code>XGBoost</code>.</em>
     </td>
   </tr>
 </table>
 
-#### Local Patient-Level Risk Decomposition (High-Risk vs. Low-Risk Case Studies)
+#### Local Patient-Level Risk Decomposition (Neural Network vs. Random Forest)
 
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="artifacts/figures/heart_mlp_adam_shap_waterfall_high_risk.png" alt="SHAP Waterfall High Risk Patient" width="100%"/>
+      <img src="artifacts/figures/heart_mlp_adam_shap_waterfall_high_risk.png" alt="HeartMLP SHAP Waterfall High Risk Patient" width="100%"/>
       <br/>
-      <em><b>Figure 2C:</b> Patient-level SHAP waterfall plot for a <b>High-Risk CVD Patient</b>, illustrating additive risk contributions pushing log-odds above baseline $E[f(X)]$.</em>
+      <em><b>Figure 2D:</b> Patient-level SHAP waterfall plot for <code>HeartMLP</code> on a <b>High-Risk Patient</b>, decomposing additive non-linear neural activations.</em>
     </td>
     <td width="50%" align="center">
-      <img src="artifacts/figures/heart_mlp_adam_shap_waterfall_low_risk.png" alt="SHAP Waterfall Low Risk Patient" width="100%"/>
+      <img src="artifacts/figures/heart_random_forest_shap_waterfall_high_risk.png" alt="Random Forest SHAP Waterfall High Risk Patient" width="100%"/>
       <br/>
-      <em><b>Figure 2D:</b> Patient-level SHAP waterfall plot for a <b>Low-Risk Control Patient</b>, where protective exercise heart rate and absence of fluoroscopic vessel narrowing suppress risk.</em>
+      <em><b>Figure 2E:</b> Patient-level SHAP waterfall plot for <code>Random Forest</code> on a <b>High-Risk Patient</b>, confirming concordant tree ensemble attribution.</em>
     </td>
   </tr>
 </table>
 
-**Clinical Interpretation:**
-- **Cross-Model Biomarker Consensus:** Both deep neural attribution (**Figure 2A**) and gradient-boosted tree attribution (**Figure 2B**) converge on physiologically established drivers of coronary artery disease: number of major vessels colored by fluoroscopy (`ca`), reversible/fixed thallium perfusion defects (`thal`), asymptomatic/anginal chest pain presentation (`cp`), exercise-induced ST depression (`oldpeak`), and maximum achieved heart rate (`thalach`).
-- **Auditable Bedside Explanations:** Rather than presenting a black-box probability, the patient-level waterfall plots (**Figures 2C–2D**) decompose each individual prediction into exact additive Shapley contributions ($\phi_i$), allowing cardiologists to verify whether an elevated risk score is driven by acute ischemic signs (`oldpeak`, `ca`) or baseline demographics.
+**Clinical & Methodological Interpretation:**
+- **Cross-Model Biomarker Consensus (Neural vs. Trees vs. Linear):** All three model paradigms—**Deep Neural Network (`HeartMLP`)**, **Random Forest**, and **XGBoost**—converge on the same physiologically validated triad of coronary artery disease:
+  1. **Anatomical Vessel Narrowing (`ca`):** Number of major vessels (0–3) visualized under fluoroscopy.
+  2. **Myocardial Perfusion Defects (`thal`):** Reversible/fixed ischemia on nuclear stress testing.
+  3. **Exercise-Induced Ischemia (`oldpeak` & `cp`):** ST depression $\ge 1.0\text{ mm}$ during stress and typical/atypical anginal symptoms.
+- **The Role of Random Forest:** As an ensemble of decorrelated bagged decision trees, **Random Forest** achieves the lowest variance and strongest 5-fold cross-validation performance (**ROC-AUC = `0.9226 ± 0.0292`**, **Brier Score = `0.1169`**), outperforming individual neural networks by resisting tabular overfitting on smaller splits.
+- **The Role of Logistic Regression:** Logistic Regression serves as the foundational **clinical standard of reference** (**ROC-AUC = `0.8974 ± 0.0408`**, **Optimal $F_1 = 0.8070$**). Its linear log-odds formulation ($\log\frac{p}{1-p} = \beta_0 + \sum \beta_j X_j$) provides directly interpretable Odds Ratios ($e^{\beta_j}$), verifying that non-linear deep models preserve the true directional sign of established clinical risk factors while capturing higher-order physiological interactions.
 
 ---
 
