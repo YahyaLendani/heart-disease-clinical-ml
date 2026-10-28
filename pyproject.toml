@@ -59,9 +59,9 @@ dev = [
 heart-pipeline = "run_pipeline:main"
 
 [project.urls]
-Homepage = "https://github.com/yahya/heart-disease-clinical-ml"
-Repository = "https://github.com/yahya/heart-disease-clinical-ml.git"
-Issues = "https://github.com/yahya/heart-disease-clinical-ml/issues"
+Homepage = "https://github.com/YahyaLendani/heart-disease-clinical-ml"
+Repository = "https://github.com/YahyaLendani/heart-disease-clinical-ml.git"
+Issues = "https://github.com/YahyaLendani/heart-disease-clinical-ml/issues"
 
 [tool.setuptools]
 py-modules = [

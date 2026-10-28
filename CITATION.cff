@@ -3,12 +3,12 @@ title: "Heart Disease & Clinical Mortality ML Pipeline: Trustworthy Tabular Deep
 message: "If you use this codebase, empirical benchmarks, or methodological implementations in your research, please cite it using the metadata below."
 type: software
 authors:
-  - family-names: "Yahya"
-    given-names: ""
+  - family-names: "Lendani"
+    given-names: "Yahya"
 version: 1.0.0
 date-released: "2026-03-01"
 license: MIT
-repository-code: "https://github.com/yahya/heart-disease-clinical-ml"
+repository-code: "https://github.com/YahyaLendani/heart-disease-clinical-ml"
 keywords:
   - cardiovascular disease prediction
   - clinical machine learning
@@ -32,8 +32,8 @@ abstract: >-
 preferred-citation:
   type: thesis
   authors:
-    - family-names: "Yahya"
-      given-names: ""
+    - family-names: "Lendani"
+      given-names: "Yahya"
   title: "Trustworthy Deep Learning and Uncertainty-Aware Clinical Decision Support for Cardiovascular Risk and Hospital Mortality Prediction"
   year: 2026
   thesis-type: "Master's / Research Thesis"

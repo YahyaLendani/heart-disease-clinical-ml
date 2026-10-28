@@ -1,6 +1,6 @@
 # Trustworthy Cardiovascular & ICU Clinical ML Pipeline
 
-[![CI Pipeline](https://github.com/yahya/heart-disease-clinical-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/yahya/heart-disease-clinical-ml/actions/workflows/ci.yml)
+[![CI Pipeline](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
@@ -179,7 +179,7 @@ heart-disease-clinical-ml/
 ### 1. Clone and Set Up Environment
 
 ```bash
-git clone https://github.com/yahya/heart-disease-clinical-ml.git
+git clone https://github.com/YahyaLendani/heart-disease-clinical-ml.git
 cd heart-disease-clinical-ml
 
 # Create virtual environment
@@ -320,11 +320,11 @@ If you find this repository or its empirical benchmarks useful in your research,
 
 ```bibtex
 @mastersthesis{yahya2026trustworthy,
-  author       = {Yahya},
+  author       = {Yahya Lendani},
   title        = {Trustworthy Deep Learning and Uncertainty-Aware Clinical Decision Support for Cardiovascular Risk and Hospital Mortality Prediction},
   school       = {Department of Computer Science and Artificial Intelligence},
   year         = {2026},
-  url          = {https://github.com/yahya/heart-disease-clinical-ml}
+  url          = {https://github.com/YahyaLendani/heart-disease-clinical-ml}
 }
 ```
 

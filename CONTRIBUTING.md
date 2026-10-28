@@ -17,7 +17,7 @@ To preserve scientific rigor, clinical safety invariants, and deterministic repr
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/yahya/heart-disease-clinical-ml.git
+   git clone https://github.com/YahyaLendani/heart-disease-clinical-ml.git
    cd heart-disease-clinical-ml
    ```
 
