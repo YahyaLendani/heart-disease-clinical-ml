@@ -61,7 +61,7 @@ from models import (
     compute_ece,
     normalize_adjacency_gcn,
 )
-from project_paths import resolve_data_path, resolve_output_dir
+from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
 from training import DeepEnsemble
 from training.device_utils import DEVICE_CHOICES, resolve_torch_device
 from training.torch_utils import clone_state, set_seed, single_thread
@@ -153,11 +153,17 @@ def _prepare_three_way_tabular_splits(
     )
 
 
-def _result_row(name: str, y_test: np.ndarray, probs: np.ndarray, seed: int, with_ci: bool) -> dict:
+def _result_row(
+    name: str, y_test: np.ndarray, probs: np.ndarray, seed: int, with_ci: bool, test_idx: np.ndarray
+) -> dict:
+    """Metrics row; holdout rows (``with_ci``) also carry predictions for paired tests."""
     metrics = binary_metrics(y_test, probs)
     row: dict = {"model": name, **{TEST_COLUMNS[k]: v for k, v in metrics.items()}}
     if with_ci:
         add_bootstrap_cis(row, y_test, probs, seed=seed, name_map=TEST_COLUMNS)
+        row["_probs"] = np.asarray(probs, dtype=float)
+        row["_test_idx"] = np.asarray(test_idx)
+        row["_y_test"] = np.asarray(y_test, dtype=int)
     return row
 
 
@@ -271,7 +277,7 @@ def run_tabtransformer_experiment(
         probs = torch.sigmoid(logits).cpu().numpy().flatten()
 
     y_test = test_df[target_col].values.astype(float)
-    return _result_row("TabTransformer", y_test, probs, seed, with_ci)
+    return _result_row("TabTransformer", y_test, probs, seed, with_ci, test_idx)
 
 
 def run_gnn_experiment(
@@ -331,7 +337,7 @@ def run_gnn_experiment(
     )
     with torch.no_grad():
         test_probs = torch.sigmoid(gcn(X_t, norm_adj_eval)[test_idx]).cpu().numpy().flatten()
-    results.append(_result_row("GCN (Kipf & Welling)", y_test, test_probs, seed, with_ci))
+    results.append(_result_row("GCN (Kipf & Welling)", y_test, test_probs, seed, with_ci, test_idx))
 
     gat = GATClassifier(in_features=len(feature_cols), hidden_dim=16, num_heads=2, out_features=1).to(dev)
     _train_full_batch_with_val_selection(
@@ -343,7 +349,7 @@ def run_gnn_experiment(
     )
     with torch.no_grad():
         test_probs = torch.sigmoid(gat(X_t, adj)[test_idx]).cpu().numpy().flatten()
-    results.append(_result_row("GAT (Velickovic et al.)", y_test, test_probs, seed, with_ci))
+    results.append(_result_row("GAT (Velickovic et al.)", y_test, test_probs, seed, with_ci, test_idx))
 
     return results
 
@@ -375,7 +381,7 @@ def run_multimodal_experiment(
     (
         X_train, y_train, _,
         X_val, y_val, _,
-        X_test, y_test, _,
+        X_test, y_test, test_idx,
         feature_cols, _,
     ) = _prepare_three_way_tabular_splits(df, target_col, seed=seed, splits=splits)
     dev = torch.device(device)
@@ -403,7 +409,7 @@ def run_multimodal_experiment(
     )
     with torch.no_grad():
         probs = torch.sigmoid(model(X_te, S_test)).cpu().numpy().flatten()
-    row = _result_row(MULTIMODAL_DEMO_NAME, y_test, probs, seed, with_ci)
+    row = _result_row(MULTIMODAL_DEMO_NAME, y_test, probs, seed, with_ci, test_idx)
     row["is_synthetic_demo"] = True
     return row
 
@@ -463,7 +469,7 @@ def run_architecture_cv(
 
 
 def run_all_advancements(
-    heart_csv: str = "cleaned_heart_disease.csv",
+    heart_csv: str = PRIMARY_HEART_DATASET,
     mimic_csv: str = "mimic_hospital_mortality.csv",
     output_dir: str = "artifacts",
     seed: int = 42,
@@ -665,12 +671,19 @@ def run_all_advancements(
         dr_res_htn = None
 
     # Publication Figure 3: Covariate Balance Love Plot
-    plot_aipw_love_plot(
+    balance = plot_aipw_love_plot(
         X_confounders=X_confounders,
         treatment=treatment,
         propensity_scores=None,
         feature_names=confounder_cols,
         output_path=out_path / "figures" / "aipw_love_plot.png",
+    )
+    smd_after = {k: abs(v) for k, v in balance["smd_iptw"].items()}
+    smd_before = {k: abs(v) for k, v in balance["smd_unadjusted"].items()}
+    imbalanced = sorted(k for k, v in smd_after.items() if v >= 0.10)
+    print(
+        f"    Covariate balance (|SMD|): max {max(smd_before.values()):.3f} before -> {max(smd_after.values()):.3f} after IPTW; "
+        f"{len(imbalanced)} of {len(smd_after)} covariates remain >= 0.10 ({', '.join(imbalanced) or 'none'})"
     )
 
     print(">>> 7. Testing Algorithmic Fairness Mitigation (Barocas et al., 2020)...")
@@ -729,8 +742,8 @@ def run_all_advancements(
         f"    Cost of parity on test: false-positive rate {fair_cost['fpr_before']:.3f} -> {fair_cost['fpr_after']:.3f}, "
         f"accuracy {fair_cost['acc_before']:.3f} -> {fair_cost['acc_after']:.3f}"
     )
-    if max(t0, t1) <= 0.10:
-        print("    WARNING: both thresholds are near 0, so parity is reached by flagging almost every patient.")
+    if min(t0, t1) <= 0.10:
+        print("    WARNING: a group threshold is near 0, so parity is reached by flagging almost every patient in that group.")
 
     print(">>> 8. Testing Actionable Clinical Counterfactual Recourse (Wachter et al.; Ustun et al.)...")
     cf_gen = ClinicalCounterfactualGenerator(
@@ -783,6 +796,21 @@ def run_all_advancements(
             f"{loco_conf_df['loco_empirical_coverage'].mean() * 100:.1f}% (Nominal: 90%)"
         )
 
+    # Per-patient holdout predictions for the paired DeLong comparison.
+    from evaluation.model_comparison import save_test_predictions
+
+    original_rows = target_df.dropna(subset=[target_col]).index.to_numpy()
+    holdout = [row for row in all_benchmarks if "_probs" in row]
+    if holdout:
+        save_test_predictions(
+            out_path, "reading_list", heart_path if heart_df is not None else mimic_path,
+            original_rows[holdout[0]["_test_idx"]], holdout[0]["_y_test"],
+            {row["model"]: row["_probs"] for row in holdout},
+        )
+    for row in all_benchmarks:
+        for key in ("_probs", "_test_idx", "_y_test"):
+            row.pop(key, None)
+
     benchmarks_df = pd.DataFrame(all_benchmarks)
     if "is_synthetic_demo" not in benchmarks_df.columns:
         benchmarks_df["is_synthetic_demo"] = False
@@ -827,6 +855,8 @@ def run_all_advancements(
         f"- **Split & Mondrian Conformal Prediction (Angelopoulos & Bates, 2021):** Calibrated and evaluated on the same (uncalibrated) MLP probabilities; the 90% finite-sample coverage target achieved `{conf_res['empirical_coverage']:.4f}` empirical coverage (Case: `{conf_res['positive_class_coverage']:.4f}`, Control: `{conf_res['negative_class_coverage']:.4f}`) with average set size `{conf_res['average_set_size']:.3f}` and `{conf_res['ambiguous_abstention_rate']:.3f}` clinical abstention rate.",
         f"- **Conformal Efficiency-Coverage Trade-Off:** Operating at $\\alpha=0.15$ (85% coverage guarantee) cuts the ambiguous deferral rate from `{conf_res['ambiguous_abstention_rate']*100:.1f}%` down to `{conformal_sweeps[0.15]['ambiguous_abstention_rate']*100:.1f}%` with `{conformal_sweeps[0.15]['empirical_coverage']*100:.1f}%` empirical test coverage.",
         f"- **Causal IPTW Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `{causal_res['observational_risk_difference']:.4f}`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `{causal_res['causal_ate_iptw']:.4f}`, demonstrating a confounding bias of `{causal_res['confounding_bias']:.4f}`.",
+        f"- **Covariate Balance (IPTW, treatment `{treat_col}`):** maximum |SMD| fell from `{max(smd_before.values()):.3f}` to `{max(smd_after.values()):.3f}`, but `{len(imbalanced)}` of `{len(smd_after)}` covariates remain at or above the 0.10 balance threshold"
+        + (f" ({', '.join(imbalanced)}), so residual measured confounding cannot be ruled out." if imbalanced else "."),
         "- **Doubly Robust AIPW & E-Value (Chernozhukov et al., 2018; VanderWeele & Ding, 2017):**",
         f"  - *Symptomatic Proxy (exang):* Cross-fitted AIPW ATE = `{dr_res['causal_ate_aipw']:.4f}` (95% CI: [{dr_res['aipw_ci_lower']:.4f}, {dr_res['aipw_ci_upper']:.4f}]), E-value = `{dr_res['e_value_point']:.3f}`.",
     ])
@@ -838,8 +868,8 @@ def run_all_advancements(
 
     md_lines.extend([
         f"- **Algorithmic Fairness (Barocas et al., 2020):** Validation-tuned Equal Opportunity thresholds (t0={t0:.3f}, t1={t1:.3f}) reduced holdout test TPR disparity from `{test_unmit_diff:.4f}` to `{test_mit_diff:.4f}` ({test_disparity_reduction:.1f}% reduction), while the false-positive rate moved from `{fair_cost['fpr_before']:.3f}` to `{fair_cost['fpr_after']:.3f}` and accuracy from `{fair_cost['acc_before']:.3f}` to `{fair_cost['acc_after']:.3f}`"
-        + (" — both thresholds are near 0, so this parity comes from flagging almost every patient and is not a useful operating point." if max(t0, t1) <= 0.10 else ".") + "",
-        f"- **Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `{cf_metrics['recourse_validity_rate'] * 100:.1f}%` recourse validity across high-risk test patients with `{cf_metrics['mean_features_modified']:.2f}` average features modified, reducing mean predicted mortality risk by `{-cf_metrics['mean_probability_reduction']:.3f}` while strictly maintaining `{cf_metrics['max_immutable_violation']:.6f}` immutable demographic violation.",
+        + (" — at least one group threshold is near 0, so this parity comes from flagging almost every patient in that group and is not a useful operating point." if min(t0, t1) <= 0.10 else ".") + "",
+        f"- **Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `{cf_metrics['recourse_validity_rate'] * 100:.1f}%` recourse validity across high-risk test patients with `{cf_metrics['mean_features_modified']:.2f}` average features modified, reducing mean predicted risk by `{cf_metrics['mean_probability_reduction']:.3f}` while strictly maintaining `{cf_metrics['max_immutable_violation']:.6f}` immutable demographic violation.",
         f"- **Closed-Loop Conformal Recourse Transition:** `{closed_loop_rate:.1f}%` of Conformal High-Risk patients ($\\hat{{C}}(x) = \\{{1\\}}$) successfully transitioned into Low-Risk $\\{{0\\}}$ or Deferral $\\{{0, 1\\}}$ following sparse actionable recourse.",
     ])
 
@@ -870,7 +900,7 @@ def run_all_advancements(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run the AI thesis reading-list suite.")
-    parser.add_argument("--heart-csv", type=str, default="cleaned_heart_disease.csv")
+    parser.add_argument("--heart-csv", type=str, default=PRIMARY_HEART_DATASET)
     parser.add_argument("--mimic-csv", type=str, default="mimic_hospital_mortality.csv")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     parser.add_argument("--seed", type=int, default=42)

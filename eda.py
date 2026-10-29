@@ -187,17 +187,17 @@ def run_eda(df: pd.DataFrame, output_dir: Path) -> None:
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
-    from project_paths import resolve_data_path, resolve_output_dir
+    from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
 
     parser = argparse.ArgumentParser(description="Exploratory data analysis of the cleaned heart cohort.")
-    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv")
+    parser.add_argument("--dataset", type=str, default=PRIMARY_HEART_DATASET)
     parser.add_argument("--output-dir", type=str, default="artifacts")
     args = parser.parse_args(argv)
 
     cleaned_path = resolve_data_path(args.dataset)
     if not cleaned_path.exists():
         raise FileNotFoundError(
-            "cleaned_heart_disease.csv not found. Run clean_data.py first."
+            f"{cleaned_path.name} not found. Run clean_data.py or prepare_heart_combined.py first."
         )
 
     df = pd.read_csv(cleaned_path)

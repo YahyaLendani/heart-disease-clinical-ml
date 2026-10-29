@@ -40,7 +40,7 @@ from evaluation.clinical_metrics import (
 )
 from evaluation.cv_utils import add_bootstrap_cis, binary_metrics, resolve_n_jobs
 from models import HeartMLP
-from project_paths import resolve_data_path, resolve_output_dir
+from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
 from training.device_utils import DEVICE_CHOICES, resolve_torch_device
 from training.torch_utils import (
     clone_state,
@@ -351,7 +351,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--n-jobs", type=int, default=1,
         help="Parallel CV fold processes (default 1: serial is faster for this small MLP; results do not depend on it).",
     )
-    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv", help="Path to cleaned dataset CSV file.")
+    parser.add_argument("--dataset", type=str, default=PRIMARY_HEART_DATASET, help="Cleaned dataset CSV (default: 918-patient 4-center cohort).")
     parser.add_argument("--run-xai", action="store_true", help="Run SHAP explainability analysis after training.")
     return parser
 
@@ -645,6 +645,9 @@ def main(argv: list[str] | None = None) -> list[dict]:
     figures_dir = output_dir / "figures"
     model_probas = {f"MLP_{item['optimizer'].upper()}": item["y_prob"] for item in results}
     if model_probas:
+        from evaluation.model_comparison import save_test_predictions
+
+        save_test_predictions(output_dir, "mlp", args.dataset, X_test.index, y_test, model_probas)
         plot_calibration_curves(y_test, model_probas, "heart_mlp", figures_dir)
         plot_precision_recall_curves(y_test, model_probas, "heart_mlp", figures_dir)
 

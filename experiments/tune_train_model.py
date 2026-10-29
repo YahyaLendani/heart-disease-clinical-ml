@@ -17,6 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from project_paths import PRIMARY_HEART_DATASET  # noqa: E402
+
 
 def save_learning_rate_plot(results: pd.DataFrame, output_path: Path) -> None:
     """Plot learning rate against the selection metric (repeated-CV ROC-AUC)."""
@@ -74,7 +76,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--cv-folds", type=int, default=5)
     parser.add_argument("--cv-repeats", type=int, default=1)
-    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv")
+    parser.add_argument("--dataset", type=str, default=PRIMARY_HEART_DATASET)
     parser.add_argument("--output-dir", type=str, default="artifacts")
     return parser
 

@@ -19,6 +19,11 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 HEART_CSV = PROCESSED_DATA_DIR / "cleaned_heart_disease.csv"
 HEART_COMBINED_CSV = PROCESSED_DATA_DIR / "cleaned_heart_disease_combined.csv"
 MIMIC_CSV = PROCESSED_DATA_DIR / "mimic_hospital_mortality.csv"
+
+# Primary heart benchmark: the 918-patient 4-center cohort. Its test split is
+# three times larger than Cleveland's alone, which roughly halves CI widths.
+# Cleveland-only runs remain available with --dataset cleaned_heart_disease.csv.
+PRIMARY_HEART_DATASET = HEART_COMBINED_CSV.name
 MIMIC_DISCHARGE_CSV = PROCESSED_DATA_DIR / "mimic_hospital_mortality_discharge.csv"
 
 

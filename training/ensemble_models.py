@@ -401,8 +401,10 @@ def run_ensemble_benchmark(
     y_train_np = y_train.values
 
     results = []
+    test_probas: dict[str, np.ndarray] = {}
     for m_idx, (name, pipe) in enumerate(trained_base):
         proba = pipe.predict_proba(X_test)[:, 1]
+        test_probas[f"Ensemble base: {name}"] = proba
         row = evaluate_predictions(name, y_test.values, proba, y_train_np, oof_preds[:, m_idx], seed=seed)
         results.append(row)
         print(
@@ -419,6 +421,7 @@ def run_ensemble_benchmark(
     print(f"\n[Nelder-Mead Simplex Weights] {weight_str}")
 
     sv_proba = soft_voting.predict_proba(X_test)[:, 1]
+    test_probas["Hybrid Soft-Voting Ensemble"] = sv_proba
     sv_oof = np.clip(oof_preds @ soft_voting.weights, 0.0, 1.0)
     sv_row = evaluate_predictions("Hybrid Soft-Voting Ensemble", y_test.values, sv_proba, y_train_np, sv_oof, seed=seed)
     results.append(sv_row)
@@ -439,6 +442,7 @@ def run_ensemble_benchmark(
         precomputed_fitted_models=trained_base,
     )
     st_proba = stacking.predict_proba(X_test)[:, 1]
+    test_probas["Hybrid Stacking Ensemble (Ours)"] = st_proba
     # Out-of-fold meta-learner predictions give a leak-free set for threshold tuning.
     st_oof = cross_val_predict(
         LogisticRegression(C=1.0, random_state=seed), oof_preds, y_train_np,
@@ -455,6 +459,9 @@ def run_ensemble_benchmark(
     res_df = pd.DataFrame(results).sort_values("test_roc_auc", ascending=False).reset_index(drop=True)
 
     out_p = resolve_output_dir(output_dir)
+    from evaluation.model_comparison import save_test_predictions
+
+    save_test_predictions(out_p, "ensemble", dataset_path, X_test.index, y_test, test_probas)
     csv_file = out_p / "ensemble_comparison.csv"
     md_file = out_p / "ensemble_comparison.md"
 

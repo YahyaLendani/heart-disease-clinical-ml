@@ -45,7 +45,7 @@ from evaluation.cv_utils import (
     summarize_cv_scores,
     to_markdown_table,
 )
-from project_paths import resolve_data_path, resolve_output_dir
+from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
 from training.device_utils import (
     DEVICE_CHOICES,
     align_xgb_inference_device,
@@ -55,47 +55,36 @@ from training.device_utils import (
 
 # Tree models use one thread each: on a few hundred rows thread start-up costs
 # more than it saves. Parallelism happens across CV folds instead.
-RF_BASELINE_PARAMS = {
-    "n_estimators": 400,
-    "max_depth": None,
-    "min_samples_split": 2,
-    "min_samples_leaf": 1,
-    "random_state": 42,
-    "n_jobs": 1,
+RF_BASE_PARAMS = {"n_estimators": 300, "random_state": 42, "n_jobs": 1}
+RF_PARAM_GRID = {
+    "max_depth": [None, 6],
+    "min_samples_leaf": [1, 5],
+    "max_features": ["sqrt", 0.5],
 }
 
-RF_CANDIDATE_PARAMS = {
+XGB_BASE_PARAMS = {
     "n_estimators": 300,
-    "max_depth": 5,
-    "min_samples_split": 5,
-    "random_state": 42,
-    "n_jobs": 1,
-}
-
-XGB_BASELINE_PARAMS = {
-    "n_estimators": 300,
-    "learning_rate": 0.05,
-    "max_depth": 4,
-    "subsample": 0.9,
-    "colsample_bytree": 0.9,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
     "reg_lambda": 1.0,
     "objective": "binary:logistic",
     "eval_metric": "logloss",
     "random_state": 42,
     "n_jobs": 1,
 }
-
-XGB_CANDIDATE_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 3,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "objective": "binary:logistic",
-    "eval_metric": "logloss",
-    "random_state": 42,
-    "n_jobs": 1,
+XGB_PARAM_GRID = {
+    "max_depth": [2, 4],
+    "learning_rate": [0.03, 0.1],
+    "min_child_weight": [1, 5],
 }
+
+
+def expand_grid(base: dict, grid: dict) -> list[dict]:
+    """All combinations of ``grid`` merged into ``base`` (8 configurations per model here)."""
+    from sklearn.model_selection import ParameterGrid
+
+    return [{**base, **combo} for combo in ParameterGrid(grid)]
+
 
 TEST_METRIC_COLUMNS = {
     "accuracy": "test_accuracy",
@@ -106,7 +95,7 @@ TEST_METRIC_COLUMNS = {
 }
 
 
-def load_data(dataset_path: str = "cleaned_heart_disease.csv") -> tuple[pd.DataFrame, pd.Series]:
+def load_data(dataset_path: str = PRIMARY_HEART_DATASET) -> tuple[pd.DataFrame, pd.Series]:
     cleaned_path = resolve_data_path(dataset_path)
     if not cleaned_path.exists():
         raise FileNotFoundError(
@@ -231,40 +220,39 @@ def select_best_params(
     model_name: str,
     preprocess: ColumnTransformer,
     model_cls,
-    baseline_params: dict,
-    candidate_params: dict,
+    candidates: list[dict],
     X: pd.DataFrame,
     y: pd.Series,
     cv_folds: int,
     seed: int = 42,
     n_jobs: int = -1,
     cv_repeats: int = 1,
-) -> tuple[dict, dict]:
-    """Pick the configuration with the higher mean CV ROC-AUC.
+) -> tuple[dict, dict, pd.DataFrame]:
+    """Pick the candidate configuration with the highest mean CV ROC-AUC.
 
-    Returns ``(selected_params, selected_cv_scores)`` so callers can report
-    the CV scores without running the same cross-validation again.
+    Returns ``(selected_params, selected_cv_scores, search_table)``. The CV
+    scores of the winner are reused for reporting (no second CV run). Because
+    the same folds are used to select and to report, the winner's CV score is
+    slightly optimistic; the untouched holdout split is the unbiased check.
     """
-    print(f"\nSelecting {model_name} hyperparameters via {cv_folds}-fold x {cv_repeats} CV")
+    print(f"\nSelecting {model_name} hyperparameters: {len(candidates)} configurations, {cv_folds}-fold x {cv_repeats} CV")
 
-    def _pipeline(params: dict) -> Pipeline:
-        return Pipeline(steps=[("preprocess", preprocess), ("classifier", model_cls(**params))])
+    rows = []
+    best_params, best_scores = None, None
+    for idx, params in enumerate(candidates, start=1):
+        pipeline = Pipeline(steps=[("preprocess", preprocess), ("classifier", model_cls(**params))])
+        scores = cross_validate_model(
+            f"{model_name} config {idx}", pipeline, X, y, cv_folds,
+            seed=seed, n_jobs=n_jobs, cv_repeats=cv_repeats,
+        )
+        tunable = {k: v for k, v in params.items() if k not in ("random_state", "n_jobs", "device", "tree_method")}
+        rows.append({"config": idx, **{f"param_{k}": v for k, v in tunable.items()}, **scores})
+        if best_scores is None or scores["cv_roc_auc_mean"] > best_scores["cv_roc_auc_mean"]:
+            best_params, best_scores = params, scores
 
-    baseline_scores = cross_validate_model(
-        f"{model_name} (baseline)", _pipeline(baseline_params), X, y, cv_folds,
-        seed=seed, n_jobs=n_jobs, cv_repeats=cv_repeats,
-    )
-    candidate_scores = cross_validate_model(
-        f"{model_name} (candidate)", _pipeline(candidate_params), X, y, cv_folds,
-        seed=seed, n_jobs=n_jobs, cv_repeats=cv_repeats,
-    )
-
-    if candidate_scores["cv_roc_auc_mean"] > baseline_scores["cv_roc_auc_mean"]:
-        print(f"Selected {model_name}: candidate params")
-        return candidate_params, candidate_scores
-
-    print(f"Selected {model_name}: baseline params")
-    return baseline_params, baseline_scores
+    table = pd.DataFrame(rows).sort_values("cv_roc_auc_mean", ascending=False).reset_index(drop=True)
+    print(f"Selected {model_name}: config {int(table.iloc[0]['config'])} (CV ROC-AUC {best_scores['cv_roc_auc_mean']:.4f})")
+    return best_params, best_scores, table
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -279,7 +267,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--update-thesis", action="store_true")
     parser.add_argument("--xgb-device", choices=DEVICE_CHOICES, default="auto")
     parser.add_argument("--model", choices=["all", "logreg", "rf", "xgb"], default="all")
-    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv", help="Dataset CSV path.")
+    parser.add_argument("--dataset", type=str, default=PRIMARY_HEART_DATASET, help="Dataset CSV (default: 918-patient 4-center cohort).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility across splits and models.")
     parser.add_argument("--save-run-metrics", action="store_true")
     parser.add_argument("--comparison-file", type=str, default="artifacts/separate_model_runs.csv")
@@ -405,17 +393,17 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
         models.append(("Logistic Regression", logreg))
 
     if run_rf:
-        selected_rf_params, cv_lookup["Random Forest"] = select_best_params(
+        selected_rf_params, cv_lookup["Random Forest"], rf_search = select_best_params(
             model_name="Random Forest",
             preprocess=preprocess_unscaled,
             model_cls=RandomForestClassifier,
-            baseline_params={**RF_BASELINE_PARAMS, "random_state": args.seed},
-            candidate_params={**RF_CANDIDATE_PARAMS, "random_state": args.seed},
+            candidates=expand_grid({**RF_BASE_PARAMS, "random_state": args.seed}, RF_PARAM_GRID),
             X=X_train,
             y=y_train,
             cv_folds=args.cv_folds,
             **cv_kwargs,
         )
+        rf_search.to_csv(output_dir / "hyperparameter_search_random_forest.csv", index=False)
         models.append(
             (
                 "Random Forest",
@@ -431,17 +419,17 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     selected_xgb_params = None
     if run_xgb:
         xgb_extra = {"tree_method": "hist", "device": xgb_device, "random_state": args.seed}
-        selected_xgb_params, cv_lookup["XGBoost"] = select_best_params(
+        selected_xgb_params, cv_lookup["XGBoost"], xgb_search = select_best_params(
             model_name="XGBoost",
             preprocess=preprocess_unscaled,
             model_cls=XGBClassifier,
-            baseline_params={**XGB_BASELINE_PARAMS, **xgb_extra},
-            candidate_params={**XGB_CANDIDATE_PARAMS, **xgb_extra},
+            candidates=expand_grid({**XGB_BASE_PARAMS, **xgb_extra}, XGB_PARAM_GRID),
             X=X_train,
             y=y_train,
             cv_folds=args.cv_folds,
             **cv_kwargs,
         )
+        xgb_search.to_csv(output_dir / "hyperparameter_search_xgboost.csv", index=False)
 
     results: list[dict] = []
     model_probas: dict[str, np.ndarray] = {}
@@ -527,6 +515,11 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
             import traceback
 
             traceback.print_exc()
+
+    if model_probas:
+        from evaluation.model_comparison import save_test_predictions
+
+        save_test_predictions(output_dir, "baselines", args.dataset, X_test.index, y_test, model_probas)
 
     # --- Calibration & PR Curves ---
     figures_dir = output_dir / "figures"

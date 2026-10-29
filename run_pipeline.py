@@ -43,6 +43,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "tune": ("experiments.tune_train_model", "HeartMLP hyperparameter grid search (ranked by CV)."),
     "overfit": ("experiments.analyze_overfitting_network_size", "Overfitting vs network size."),
     "compare-runs": ("evaluation.compare_separate_runs", "Compare separately trained runs."),
+    "compare-models": ("evaluation.model_comparison", "Paired DeLong tests between all models on the shared test split."),
     "update-thesis": ("evaluation.update_thesis_results", "Write result tables into thesis_draft.md."),
     "test": ("", "Run the pytest suite."),
 }
@@ -102,8 +103,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="cleaned_heart_disease.csv",
-        help="Heart dataset CSV (e.g. cleaned_heart_disease_combined.csv for the 918-patient cohort).",
+        default=MULTI_CENTER_DATASET,
+        help="Heart dataset CSV (default: the 918-patient 4-center cohort; "
+        "cleaned_heart_disease.csv for Cleveland only).",
     )
     parser.add_argument("--update-thesis", action="store_true")
     parser.add_argument("--update-thesis-all", action="store_true")
@@ -122,12 +124,15 @@ def run_full_pipeline(args: argparse.Namespace) -> None:
     if args.run_tests and not args.skip_tests:
         run_step("test")
 
-    print("\nStarting full pipeline: clean -> EDA -> train")
-    if Path(args.dataset).name == "cleaned_heart_disease.csv":
+    print("\nStarting full pipeline: prepare data -> EDA -> train")
+    dataset_name = Path(args.dataset).name
+    if dataset_name == "cleaned_heart_disease.csv":
         run_step("clean")
-        run_step("eda", ["--output-dir", args.output_dir])
+    elif dataset_name == MULTI_CENTER_DATASET:
+        run_step("prepare-combined")  # rebuilt from data/raw (downloads only if missing)
     else:
-        print(f"\n>>> Using custom/expanded dataset: {args.dataset}")
+        print(f"\n>>> Using custom dataset as-is: {args.dataset}")
+    run_step("eda", ["--dataset", args.dataset, "--output-dir", args.output_dir])
 
     common = ["--seed", str(args.seed), "--dataset", args.dataset, "--output-dir", args.output_dir]
     train_args = [
@@ -192,6 +197,9 @@ def run_full_pipeline(args: argparse.Namespace) -> None:
                 "--n-jobs", str(args.n_jobs),
             ],
         )
+
+    # Paired DeLong tests across every model that scored the shared test split.
+    run_step("compare-models", ["--output-dir", args.output_dir, "--dataset", args.dataset])
 
     if args.update_thesis:
         run_step("update-thesis", ["--task", "heart", "--heart-dataset", args.dataset])

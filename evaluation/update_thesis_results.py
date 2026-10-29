@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from project_paths import PRIMARY_HEART_DATASET
 
 MIMIC_AUTO_START = "<!-- AUTO_RESULTS_START -->"
 MIMIC_AUTO_END = "<!-- AUTO_RESULTS_END -->"
@@ -23,6 +24,8 @@ ENSEMBLE_AUTO_START = "<!-- AUTO_ENSEMBLE_START -->"
 ENSEMBLE_AUTO_END = "<!-- AUTO_ENSEMBLE_END -->"
 LOCO_AUTO_START = "<!-- AUTO_LOCO_START -->"
 LOCO_AUTO_END = "<!-- AUTO_LOCO_END -->"
+READING_LIST_AUTO_START = "<!-- AUTO_READING_LIST_START -->"
+READING_LIST_AUTO_END = "<!-- AUTO_READING_LIST_END -->"
 FAIRNESS_AUTO_START = "<!-- AUTO_FAIRNESS_START -->"
 FAIRNESS_AUTO_END = "<!-- AUTO_FAIRNESS_END -->"
 
@@ -42,7 +45,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--mimic-dataset", type=str, default="mimic_hospital_mortality.csv")
     parser.add_argument("--mimic-comparison", type=str, default="artifacts/mimic_baseline_comparison.csv")
-    parser.add_argument("--heart-dataset", type=str, default="cleaned_heart_disease.csv")
+    parser.add_argument("--heart-dataset", type=str, default=PRIMARY_HEART_DATASET)
     parser.add_argument("--heart-comparison", type=str, default="artifacts/baseline_comparison.csv")
     parser.add_argument("--heart-eda-missingness", type=str, default="artifacts/eda_missingness.csv")
     parser.add_argument("--heart-eda-outliers", type=str, default="artifacts/eda_outliers_iqr.csv")
@@ -55,6 +58,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loco-comparison", type=str, default="artifacts/cross_center_generalization.csv")
     parser.add_argument("--fairness-comparison", type=str, default="artifacts/fairness_analysis.csv")
     parser.add_argument("--fairness-figure", type=str, default="artifacts/figures/fairness_disparities.png")
+    parser.add_argument("--reading-list-summary", type=str, default="artifacts/reading_list_advancements_summary.csv")
+    parser.add_argument("--reading-list-report", type=str, default="artifacts/reading_list_advancements_summary.md")
+    parser.add_argument("--model-comparison", type=str, default="artifacts/model_comparison.csv")
+    parser.add_argument("--loco-conformal", type=str, default="artifacts/loco_conformal_generalization.csv")
+    parser.add_argument("--secondary-dir", type=str, default="artifacts/cleveland",
+                        help="Artifacts of the Cleveland-only sensitivity run (optional).")
     return parser
 
 
@@ -470,6 +479,64 @@ def build_shap_block(
     return "\n".join(lines)
 
 
+def _ensemble_findings(ensemble_df: pd.DataFrame) -> str:
+    """Data-driven comparison of the ensembles with their best base model."""
+    if ensemble_df.empty or "test_roc_auc" not in ensemble_df.columns:
+        return ""
+    is_ensemble = ensemble_df["model"].str.contains("Ensemble", case=False)
+    ensembles, bases = ensemble_df[is_ensemble], ensemble_df[~is_ensemble]
+    if ensembles.empty or bases.empty:
+        return ""
+    best_base = bases.sort_values("test_roc_auc", ascending=False).iloc[0]
+    lines = []
+    for _, row in ensembles.iterrows():
+        diff = float(row["test_roc_auc"] - best_base["test_roc_auc"])
+        overlap = ""
+        if {"test_roc_auc_ci_low", "test_roc_auc_ci_high"} <= set(row.index):
+            overlap = (
+                f"; its 95% CI [{row['test_roc_auc_ci_low']:.3f}, {row['test_roc_auc_ci_high']:.3f}] "
+                f"{'overlaps' if row['test_roc_auc_ci_low'] <= best_base['test_roc_auc_ci_high'] else 'does not overlap'} "
+                f"that of {best_base['model']}"
+            )
+        brier = ""
+        if "test_brier_score" in row.index:
+            brier = f", Brier {row['test_brier_score']:.3f} vs {best_base['test_brier_score']:.3f}"
+        lines.append(
+            f"- **{row['model']}:** ROC-AUC {row['test_roc_auc']:.3f} ({diff:+.3f} vs the best base model, "
+            f"{best_base['model']}){brier}{overlap}.\n"
+        )
+    lines.append(
+        "- Paired DeLong tests for all models on the same test patients are reported in Table R-1b "
+        "(`artifacts/model_comparison.csv`).\n"
+    )
+    return "".join(lines)
+
+
+def _loco_findings(loco_df: pd.DataFrame) -> str:
+    """Data-driven LOCO summary: best/worst centers and which model transfers best where."""
+    needed = {"test_center", "model", "transfer_roc_auc"}
+    if not needed <= set(loco_df.columns):
+        return ""
+    pivot = loco_df.pivot(index="test_center", columns="model", values="transfer_roc_auc")
+    center_mean = pivot.mean(axis=1).sort_values(ascending=False)
+    lines = [
+        f"- **Easiest / hardest unseen center:** {center_mean.index[0]} (mean ROC-AUC {center_mean.iloc[0]:.3f}) "
+        f"vs {center_mean.index[-1]} ({center_mean.iloc[-1]:.3f}).\n"
+    ]
+    for center, row in pivot.iterrows():
+        best, worst = row.idxmax(), row.idxmin()
+        lines.append(
+            f"- **{center}:** best transfer by {best} ({row[best]:.3f}), worst by {worst} ({row[worst]:.3f}).\n"
+        )
+    lines.append(
+        "- No single model family transfers best at every center, so robustness to hospital shift "
+        "is center-specific rather than a property of linear vs. non-linear models.\n"
+        if pivot.idxmax(axis=1).nunique() > 1
+        else f"- {pivot.idxmax(axis=1).iloc[0]} transfers best at every center.\n"
+    )
+    return "".join(lines)
+
+
 def build_ensemble_results_block(ensemble_df: pd.DataFrame) -> str:
     table_md = to_markdown_table(ensemble_df)
     best_row = ensemble_df.iloc[0] if not ensemble_df.empty else None
@@ -489,8 +556,8 @@ def build_ensemble_results_block(ensemble_df: pd.DataFrame) -> str:
         "**Table E-1. Test set discrimination and calibration across base models, engineered features, and hybrid ensembles.**\n\n"
         f"{table_md}\n\n"
         "### 3) Key Findings (Auto-generated)\n"
-        f"- The top-performing configuration achieves a test ROC-AUC of **{best_auc}** ({best_name}).\n"
-        "- The hybrid ensembles deliver robust test PR-AUC (>0.94) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.\n"
+        f"- The highest test ROC-AUC is **{best_auc}** ({best_name}).\n"
+        f"{_ensemble_findings(ensemble_df)}"
         f"{ENSEMBLE_AUTO_END}"
     )
 
@@ -526,8 +593,7 @@ def build_loco_results_block(loco_df: pd.DataFrame) -> str:
         "**Table L-2. Complete metric breakdown per center and model.**\n\n"
         f"{full_table_md}\n\n"
         "### 4) Clinical Generalizability Analysis (Auto-generated)\n"
-        "- **High Generalizability:** Models transfer strongly between the Cleveland and Hungarian cohorts (ROC-AUC 0.85–0.88), indicating stable diagnostic feature relationships across these patient populations.\n"
-        "- **Domain Shift Vulnerability:** When tested on Zurich (Switzerland) and Long Beach VA (which suffer from high missingness and higher disease prevalence), linear models degrade sharply, whereas non-linear ensembles demonstrate superior robustness.\n"
+        f"{_loco_findings(loco_df)}"
         f"{LOCO_AUTO_END}"
     )
 
@@ -596,6 +662,144 @@ def build_fairness_results_block(
         f"{findings_text}\n"
         f"{fig_snippet}"
         f"{FAIRNESS_AUTO_END}"
+    )
+
+
+def _ci_cell(row: pd.Series, col: str) -> str:
+    low, high = row.get(f"{col}_ci_low"), row.get(f"{col}_ci_high")
+    if pd.isna(low) or pd.isna(high):
+        return f"{row[col]:.3f}"
+    return f"{row[col]:.3f} [{low:.3f}, {high:.3f}]"
+
+
+def _cv_cell(row: pd.Series, metric: str) -> str:
+    mean, std = row.get(f"cv_{metric}_mean"), row.get(f"cv_{metric}_std")
+    if mean is None or pd.isna(mean):
+        return "—"
+    return f"{mean:.3f} ± {std:.3f}"
+
+
+def _methodology_bullets(report_text: str) -> str:
+    """The suite's own 'Methodology & Rigor Summary' bullets (numbers come from the run)."""
+    start_tag, end_tag = "## 2. Methodology & Rigor Summary", "## 3."
+    if start_tag not in report_text:
+        return ""
+    body = report_text.split(start_tag, 1)[1]
+    return body.split(end_tag, 1)[0].strip()
+
+
+def build_reading_list_block(
+    summary_df: pd.DataFrame,
+    report_text: str,
+    comparison_df: pd.DataFrame | None,
+    loco_conformal_df: pd.DataFrame | None,
+    secondary: dict[str, pd.DataFrame] | None = None,
+) -> str:
+    """Tables R-1 (architectures), R-1b (paired DeLong tests), R-2 (LOCO conformal), R-3 (Cleveland)."""
+    lines = [
+        READING_LIST_AUTO_START,
+        "**Table R-1. Reading-list architectures: holdout (bootstrap 95% CI) and repeated stratified CV (mean ± SD).**",
+        "",
+        "| Architecture | Holdout Accuracy | Holdout ROC-AUC [95% CI] | Holdout PR-AUC | Holdout Brier | CV ROC-AUC | CV Brier |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for _, row in summary_df.iterrows():
+        name = row["model"] + (" †" if bool(row.get("is_synthetic_demo", False)) else "")
+        lines.append(
+            f"| {name} | {row['test_accuracy']:.3f} | {_ci_cell(row, 'test_roc_auc')} | {row['test_pr_auc']:.3f} | "
+            f"{row['test_brier']:.3f} | {_cv_cell(row, 'roc_auc')} | {_cv_cell(row, 'brier')} |"
+        )
+    lines += ["", "† Demonstration only: the signal channel is synthesised from the tabular features.", ""]
+
+    if comparison_df is not None and not comparison_df.empty:
+        n_sig = int(comparison_df["significant_holm_0.05"].sum())
+        lines += [
+            f"**Table R-1b. Paired DeLong tests of ROC-AUC differences on the shared test split** "
+            f"({len(comparison_df)} model pairs; {n_sig} significant after Holm correction at 0.05). "
+            "The ten smallest adjusted p-values are shown; the full table is `artifacts/model_comparison.csv`.",
+            "",
+            "| Model A | Model B | AUC A | AUC B | Difference [95% CI] | p (raw) | p (Holm) |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for _, row in comparison_df.head(10).iterrows():
+            lines.append(
+                f"| {row['model_a']} | {row['model_b']} | {row['auc_a']:.3f} | {row['auc_b']:.3f} | "
+                f"{row['auc_diff']:+.3f} [{row['diff_ci_low']:+.3f}, {row['diff_ci_high']:+.3f}] | "
+                f"{row['p_value']:.3f} | {row['p_holm']:.3f} |"
+            )
+        lines.append("")
+
+    if loco_conformal_df is not None and not loco_conformal_df.empty:
+        lines += [
+            "**Table R-2. Leave-One-Center-Out conformal generalization (alpha = 0.10, 90% target).**",
+            "",
+            "| Held-out Center | N | Prevalence | Fixed-Threshold Accuracy | Conformal Coverage | Mean Set Size | Deferral Rate |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for _, r in loco_conformal_df.iterrows():
+            lines.append(
+                f"| {r['test_site']} | {int(r['n_test_samples'])} | {r['test_disease_prevalence'] * 100:.1f}% | "
+                f"{r['fixed_threshold_accuracy'] * 100:.1f}% | {r['loco_empirical_coverage'] * 100:.1f}% | "
+                f"{r['average_set_size']:.2f} | {r['ambiguous_abstention_rate'] * 100:.1f}% |"
+            )
+        lines.append("")
+
+    if secondary:
+        lines += [
+            "**Table R-3. Sensitivity analysis on the Cleveland-only cohort (302 patients, 61 test patients).**",
+            "",
+            "| Model | Holdout ROC-AUC [95% CI] | CV ROC-AUC |",
+            "| --- | --- | --- |",
+        ]
+        for frame in secondary.values():
+            for _, row in frame.iterrows():
+                label = row["model"] if "model" in row else f"HeartMLP ({row['optimizer'].upper()})"
+                lines.append(f"| {label} | {_ci_cell(row, 'test_roc_auc')} | {_cv_cell(row, 'roc_auc')} |")
+        lines.append("")
+
+    bullets = _methodology_bullets(report_text)
+    if bullets:
+        lines += ["**Key empirical findings (auto-generated from the reading-list suite run):**", "", bullets, ""]
+
+    lines.append(READING_LIST_AUTO_END)
+    return "\n".join(lines)
+
+
+def update_reading_list_block(thesis_text: str, project_root: Path, args) -> str:
+    summary_path = resolve_path(project_root, args.reading_list_summary)
+    if not summary_path.exists():
+        return thesis_text
+    report_path = resolve_path(project_root, args.reading_list_report)
+    comparison_path = resolve_path(project_root, args.model_comparison)
+    loco_path = resolve_path(project_root, args.loco_conformal)
+    secondary_dir = resolve_path(project_root, args.secondary_dir)
+
+    secondary: dict[str, pd.DataFrame] = {}
+    for name in ("baseline_comparison.csv", "mlp_holdout_summary.csv", "reading_list_advancements_summary.csv"):
+        path = secondary_dir / name
+        if path.exists():
+            frame = pd.read_csv(path)
+            if name == "mlp_holdout_summary.csv":
+                cv_path = secondary_dir / "mlp_cv_summary.csv"
+                if cv_path.exists():
+                    frame = frame.merge(pd.read_csv(cv_path), on="optimizer", how="left")
+            if "is_synthetic_demo" in frame.columns:
+                frame = frame[~frame["is_synthetic_demo"].astype(bool)]
+            secondary[name] = frame
+
+    block = build_reading_list_block(
+        pd.read_csv(summary_path),
+        report_path.read_text(encoding="utf-8") if report_path.exists() else "",
+        pd.read_csv(comparison_path) if comparison_path.exists() else None,
+        pd.read_csv(loco_path) if loco_path.exists() else None,
+        secondary or None,
+    )
+    return replace_or_insert_block(
+        thesis_text=thesis_text,
+        auto_block=block,
+        start_marker=READING_LIST_AUTO_START,
+        end_marker=READING_LIST_AUTO_END,
+        section_heading="## Results and Discussion",
     )
 
 
@@ -780,6 +984,7 @@ def main(argv: list[str] | None = None) -> None:
             fairness_comparison=args.fairness_comparison,
             fairness_figure=args.fairness_figure,
         )
+        updated_text = update_reading_list_block(updated_text, project_root, args)
         thesis_path.write_text(updated_text, encoding="utf-8")
 
         return
@@ -876,6 +1081,7 @@ def main(argv: list[str] | None = None) -> None:
         fairness_comparison=args.fairness_comparison,
         fairness_figure=args.fairness_figure,
     )
+    updated_text = update_reading_list_block(updated_text, project_root, args)
     thesis_path.write_text(updated_text, encoding="utf-8")
 
     print(f"Updated thesis results block in: {thesis_path}")
