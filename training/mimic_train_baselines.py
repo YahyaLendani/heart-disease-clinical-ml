@@ -50,7 +50,7 @@ from evaluation.cv_utils import (
     summarize_cv_scores,
     to_markdown_table,
 )
-from project_paths import resolve_data_path, resolve_output_dir
+from project_paths import cohort_label, resolve_data_path, resolve_output_dir
 from training.device_utils import (
     DEVICE_CHOICES,
     align_xgb_inference_device,
@@ -436,8 +436,8 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     # --- Calibration & PR Curves ---
     figures_dir = output_dir / "figures"
     if model_probas:
-        plot_calibration_curves(y_test, model_probas, "mimic", figures_dir)
-        plot_precision_recall_curves(y_test, model_probas, "mimic", figures_dir)
+        plot_calibration_curves(y_test, model_probas, "mimic", figures_dir, cohort=cohort_label(args.input))
+        plot_precision_recall_curves(y_test, model_probas, "mimic", figures_dir, cohort=cohort_label(args.input))
 
     print(f"Saved MIMIC comparison CSV: {csv_path}")
     print(f"Saved MIMIC comparison Markdown: {md_path}")

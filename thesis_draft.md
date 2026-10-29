@@ -313,7 +313,7 @@ Reported metrics include:
 ### 5) Implementation
 The workflow is implemented in Python using `pandas`, `scikit-learn`, `xgboost`, `scipy` and PyTorch. Every stage is a subcommand of a single command-line entry point, `heart-pipeline` (`run_pipeline.py`), and runs in one process; CV folds, ensemble fits and LOCO centers run in parallel across CPU cores, with each fold trained single-threaded so that results do not depend on the number of workers.
 
-For the neural network component, PyTorch is used with explicit autograd-driven optimization. A dedicated validation script (`validate_scratch_mlp.py`) verifies three implementation-level correctness criteria: output tensor shape, non-zero gradient flow through model parameters, and parameter updates after one optimizer step. The repository's pytest suite (81 tests) covers leakage controls, metric implementations (including a brute-force check of the DeLong variance), seeding and end-to-end runs.
+For the neural network component, PyTorch is used with explicit autograd-driven optimization. A dedicated validation script (`validate_scratch_mlp.py`) verifies three implementation-level correctness criteria: output tensor shape, non-zero gradient flow through model parameters, and parameter updates after one optimizer step. The repository's pytest suite (82 tests) covers leakage controls, metric implementations (including a brute-force check of the DeLong variance), seeding and end-to-end runs.
 
 Primary commands:
 - `heart-pipeline` (full heart pipeline on the 918-patient cohort)
@@ -804,7 +804,7 @@ The tables in this subsection are regenerated from the experiment artifacts by `
 | XGBoost | 0.900 [0.826, 0.965] | 0.907 ± 0.048 |
 | Logistic Regression | 0.900 [0.819, 0.968] | 0.898 ± 0.051 |
 | HeartMLP (SGD) | 0.869 [0.774, 0.951] | 0.816 ± 0.130 |
-| HeartMLP (ADAM) | 0.898 [0.813, 0.969] | 0.882 ± 0.063 |
+| HeartMLP (Adam) | 0.898 [0.813, 0.969] | 0.882 ± 0.063 |
 | TabTransformer | 0.908 [0.830, 0.972] | 0.894 ± 0.027 |
 | GCN (Kipf & Welling) | 0.910 [0.832, 0.972] | 0.915 ± 0.025 |
 | GAT (Velickovic et al.) | 0.897 [0.819, 0.963] | 0.910 ± 0.030 |

@@ -39,7 +39,10 @@ def save_learning_rate_plot(results: pd.DataFrame, output_path: Path) -> None:
         print("matplotlib is not installed; skipping learning-rate plot.")
         return
 
-    fig, ax = plt.subplots(figsize=(7, 4))
+    from evaluation.plot_style import apply_style, finish_axes
+
+    apply_style()
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
     groups = plot_df.groupby("optimizer") if "optimizer" in plot_df.columns else [("model", plot_df)]
     for optimizer_name, group in groups:
         # Several dropout/clip settings share a learning rate: plot the best one per rate.
@@ -51,7 +54,7 @@ def save_learning_rate_plot(results: pd.DataFrame, output_path: Path) -> None:
     ax.set_ylabel("Best CV ROC-AUC")
     ax.set_title("Learning Rate vs Cross-Validated ROC-AUC")
     ax.set_ylim(0.5, 1)
-    ax.grid(alpha=0.3)
+    finish_axes(ax)
     ax.legend()
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)

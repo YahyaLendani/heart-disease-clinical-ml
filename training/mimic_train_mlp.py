@@ -48,7 +48,7 @@ from evaluation.clinical_metrics import (
 )
 from evaluation.cv_utils import add_bootstrap_cis
 from models import HeartMLP
-from project_paths import resolve_data_path, resolve_output_dir
+from project_paths import cohort_label, resolve_data_path, resolve_output_dir
 from training.device_utils import DEVICE_CHOICES, resolve_torch_device
 from training.torch_utils import (
     clone_state,
@@ -440,33 +440,36 @@ def main(argv: list[str] | None = None) -> None:
     pd.DataFrame(history).to_csv(output_dir / "training_history_mimic_mlp.csv", index=False)
 
     # Plot curves
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+    from evaluation.plot_style import apply_style, finish_axes
+
+    apply_style()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
     hist_df = pd.DataFrame(history)
     ax1.plot(hist_df["epoch"], hist_df["train_loss"], label="Train Loss")
     ax1.plot(hist_df["epoch"], hist_df["val_loss"], label="Val Loss")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title("MIMIC MLP Training & Validation Loss")
+    ax1.set_title("MIMIC-IV demo MLP: loss")
     ax1.legend()
-    ax1.grid(alpha=0.3)
+    finish_axes(ax1)
 
     ax2.plot(hist_df["epoch"], hist_df["val_roc_auc"], label="Val ROC-AUC")
     ax2.plot(hist_df["epoch"], hist_df["val_pr_auc"], label="Val PR-AUC")
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Metric")
-    ax2.set_title("Validation Discrimination")
+    ax2.set_title(f"Validation discrimination ({int(y_val.sum())} validation deaths)")
     ax2.legend()
-    ax2.grid(alpha=0.3)
+    finish_axes(ax2)
 
     plt.tight_layout()
     curves_path = figures_dir / "mimic_mlp_curves.png"
-    fig.savefig(curves_path, dpi=150)
+    fig.savefig(curves_path)
     plt.close(fig)
     print(f"Saved MLP curves: {curves_path}")
 
     # Calibration & PR Curves
-    plot_calibration_curves(pd.Series(y_test_true), {"PyTorch MLP": y_test_prob}, "mimic_mlp", figures_dir)
-    plot_precision_recall_curves(pd.Series(y_test_true), {"PyTorch MLP": y_test_prob}, "mimic_mlp", figures_dir)
+    plot_calibration_curves(pd.Series(y_test_true), {"PyTorch MLP": y_test_prob}, "mimic_mlp", figures_dir, cohort=cohort_label(args.input))
+    plot_precision_recall_curves(pd.Series(y_test_true), {"PyTorch MLP": y_test_prob}, "mimic_mlp", figures_dir, cohort=cohort_label(args.input))
 
     # Append to mimic_baseline_comparison.csv if it exists
     csv_path = output_dir / "mimic_baseline_comparison.csv"

@@ -430,3 +430,31 @@ def test_combined_cohort_has_no_zero_coded_measurements():
     df = pd.read_csv(HEART_COMBINED_CSV)
     assert len(df) == 918
     assert (df["chol"] == 0).sum() == 0 and (df["trestbps"] == 0).sum() == 0
+
+
+def test_summary_figures_write_light_and_dark(tmp_path):
+    """The README figures build from result tables and come in both themes."""
+    from evaluation.summary_figures import main
+
+    base = pd.DataFrame({
+        "model": ["Logistic Regression", "XGBoost"],
+        "test_roc_auc": [0.88, 0.90],
+        "test_roc_auc_ci_low": [0.83, 0.86],
+        "test_roc_auc_ci_high": [0.93, 0.94],
+    })
+    base.to_csv(tmp_path / "baseline_comparison.csv", index=False)
+    pd.DataFrame({
+        "test_site": ["cleveland", "hungarian"],
+        "n_test_samples": [303, 293],
+        "test_disease_prevalence": [0.46, 0.36],
+        "fixed_threshold_accuracy": [0.65, 0.77],
+        "loco_empirical_coverage": [0.81, 0.91],
+    }).to_csv(tmp_path / "loco_conformal_generalization.csv", index=False)
+
+    written = main(["--output-dir", str(tmp_path), "--secondary-dir", str(tmp_path / "missing")])
+    names = sorted(p.name for p in written)
+    assert names == [
+        "loco_conformal_coverage.png", "loco_conformal_coverage_dark.png",
+        "model_auc_forest.png", "model_auc_forest_dark.png",
+    ]
+    assert all(p.stat().st_size > 10_000 for p in written)

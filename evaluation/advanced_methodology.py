@@ -557,26 +557,20 @@ class ClinicalCounterfactualGenerator:
 
 
 def _apply_publication_style() -> None:
-    """Apply consistent, journal-grade Matplotlib styling across all figures."""
+    """Shared project style (validated palette) with slightly denser text for multi-panel figures."""
+    from evaluation.plot_style import apply_style
+
+    apply_style()
     plt.rcParams.update(
         {
-            "font.family": "sans-serif",
-            "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
             "font.size": 10,
-            "axes.titlesize": 11,
-            "axes.titleweight": "bold",
+            "axes.titlesize": 11.5,
             "axes.labelsize": 10,
-            "axes.labelweight": "bold",
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
             "legend.fontsize": 8.5,
             "figure.titlesize": 13,
-            "figure.titleweight": "bold",
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "savefig.dpi": 300,
-            "savefig.bbox": "tight",
-            "savefig.facecolor": "white",
+            "savefig.dpi": 220,
         }
     )
 
@@ -641,7 +635,7 @@ def plot_conformal_triage_curve(
     abstain = np.array(abstain_list)
     empty = np.array(empty_list)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.5, 5.4), dpi=300)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.5, 5.4), dpi=220)
     mode_label = "Mondrian Class-Conditional" if conformal_classifier.mondrian else "Marginal Split"
 
     # --- Panel A: Finite-Sample Coverage Calibration ---
@@ -649,21 +643,21 @@ def plot_conformal_triage_curve(
         target_covs * 100,
         target_covs * 100,
         linestyle="--",
-        color="#555555",
+        color="#898781",
         linewidth=1.5,
         label="Ideal Finite-Sample Guarantee ($y = x$)",
     )
     ax1.plot(
         target_covs * 100,
         emp_cov * 100,
-        color="#1f4e78",
+        color="#2a78d6",
         linewidth=2.4,
         label="Empirical Marginal Coverage",
     )
     ax1.plot(
         target_covs * 100,
         pos_cov * 100,
-        color="#d95f02",
+        color="#eb6834",
         linewidth=2.0,
         linestyle="-.",
         label="Positive Class ($Y=1$) Coverage",
@@ -671,7 +665,7 @@ def plot_conformal_triage_curve(
     ax1.plot(
         target_covs * 100,
         neg_cov * 100,
-        color="#1b9e77",
+        color="#1baf7a",
         linewidth=2.0,
         linestyle=":",
         label="Negative Class ($Y=0$) Coverage",
@@ -681,22 +675,22 @@ def plot_conformal_triage_curve(
     op_emp_pct = op_metrics["empirical_coverage"] * 100.0
     ax1.axvline(
         op_target_pct,
-        color="#b22222",
+        color="#52514e",
         linestyle="--",
         linewidth=1.2,
         alpha=0.8,
         label=f"Operating Point ($1-\\alpha = {op_target_pct:.0f}\\%$)",
     )
-    ax1.scatter([op_target_pct], [op_emp_pct], color="#b22222", s=55, zorder=5)
+    ax1.scatter([op_target_pct], [op_emp_pct], color="#52514e", s=55, zorder=5)
     ax1.annotate(
         f"Emp: {op_emp_pct:.1f}%\n(Y=1: {op_metrics['positive_class_coverage']*100:.1f}%)",
         xy=(op_target_pct, op_emp_pct),
         xytext=(op_target_pct - 12.5, max(68.0, op_emp_pct - 14.0)),
         fontsize=8.5,
         fontweight="bold",
-        color="#1f4e78",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="#f4f8fb", edgecolor="#1f4e78", alpha=0.9),
-        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.15", color="#1f4e78"),
+        color="#2a78d6",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="#fcfcfb", edgecolor="#2a78d6", alpha=0.9),
+        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.15", color="#2a78d6"),
     )
 
     ax1.set_title(f"A. {mode_label} Coverage Guarantee")
@@ -705,7 +699,7 @@ def plot_conformal_triage_curve(
     ax1.set_xlim(65, 99.5)
     ax1.set_ylim(60, 101.5)
     ax1.grid(True, linestyle="--", alpha=0.3)
-    ax1.legend(loc="lower right", frameon=True, facecolor="white", framealpha=0.9)
+    ax1.legend(loc="lower right", frameon=True, facecolor="#fcfcfb", framealpha=0.9)
 
     # --- Panel B: Clinical Triage Zone Decomposition ---
     ax2.stackplot(
@@ -720,11 +714,11 @@ def plot_conformal_triage_curve(
             "Ambiguous / Abstain for Clinical Review $\\hat{C}(x) = \\{0, 1\\}$",
             "Empty Prediction Set $\\hat{C}(x) = \\emptyset$",
         ],
-        colors=["#2b8cbe", "#e34a33", "#fdbb84", "#cccccc"],
+        colors=["#2a78d6", "#eb6834", "#1baf7a", "#c3c2b7"],
         alpha=0.85,
     )
 
-    ax2.axvline(op_target_pct, color="#111111", linestyle="--", linewidth=1.5)
+    ax2.axvline(op_target_pct, color="#0b0b0b", linestyle="--", linewidth=1.5)
     ax2.annotate(
         f"At $1-\\alpha = {op_target_pct:.0f}\\%$:\n"
         f"• Low-Risk {{0}}: {op_metrics['certifiable_low_risk_rate']*100:.1f}%\n"
@@ -733,8 +727,8 @@ def plot_conformal_triage_curve(
         xy=(op_target_pct, 50.0),
         xytext=(67.0, 56.0),
         fontsize=8.5,
-        bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="#333333", alpha=0.92),
-        arrowprops=dict(arrowstyle="->", color="#222222", lw=1.2),
+        bbox=dict(boxstyle="round,pad=0.35", facecolor="#fcfcfb", edgecolor="#52514e", alpha=0.92),
+        arrowprops=dict(arrowstyle="->", color="#52514e", lw=1.2),
     )
 
     ax2.set_title("B. Clinical Risk Triage & Abstention Trade-Off")
@@ -743,14 +737,14 @@ def plot_conformal_triage_curve(
     ax2.set_xlim(65, 99.5)
     ax2.set_ylim(0, 100)
     ax2.grid(True, linestyle="--", alpha=0.3)
-    ax2.legend(loc="lower left", frameon=True, facecolor="white", framealpha=0.9)
+    ax2.legend(loc="lower left", frameon=True, facecolor="#fcfcfb", framealpha=0.9)
 
     fig.suptitle(
         "Distribution-Free Conformal Risk Triage: Calibration & Selective Abstention",
         y=1.02,
     )
     plt.tight_layout()
-    fig.savefig(out_file, dpi=300, bbox_inches="tight")
+    fig.savefig(out_file, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
     return {
@@ -827,7 +821,7 @@ def plot_counterfactual_case_study(
     plot_order = immutable_order + actionable_order
 
     fig, (ax1, ax2) = plt.subplots(
-        1, 2, figsize=(14.0, max(5.6, 0.42 * len(names) + 1.5)), dpi=300, gridspec_kw={"width_ratios": [1.85, 1.0]}
+        1, 2, figsize=(14.0, max(5.6, 0.42 * len(names) + 1.5)), dpi=220, gridspec_kw={"width_ratios": [1.85, 1.0]}
     )
 
     y_positions = np.arange(len(plot_order))
@@ -843,30 +837,30 @@ def plot_counterfactual_case_study(
         nc = norm_cf[feat_idx]
 
         # Physiological box-constraint background track
-        ax1.plot([0.0, 1.0], [pos, pos], color="#e6e6e6", linewidth=5.0, solid_capstyle="round", zorder=1)
+        ax1.plot([0.0, 1.0], [pos, pos], color="#e1e0d9", linewidth=5.0, solid_capstyle="round", zorder=1)
 
         if is_immutable:
             y_labels.append(f"{fname}  [LOCKED]")
-            ax1.axhspan(pos - 0.38, pos + 0.38, color="#f2f2f2", alpha=0.8, zorder=0)
+            ax1.axhspan(pos - 0.38, pos + 0.38, color="#f0efec", alpha=0.8, zorder=0)
             ax1.scatter(
                 [nf],
                 [pos],
                 marker="s",
                 s=95,
-                facecolor="#636363",
-                edgecolor="#111111",
+                facecolor="#898781",
+                edgecolor="#0b0b0b",
                 linewidth=1.5,
                 zorder=4,
             )
             ax1.text(
-                min(0.98, nf + 0.03),
+                nf + 0.03,
                 pos,
                 f"Immutable ({f_val:.2f}, $\\Delta=0$)",
                 va="center",
                 ha="left",
                 fontsize=8.0,
                 fontstyle="italic",
-                color="#444444",
+                color="#52514e",
             )
         else:
             y_labels.append(fname)
@@ -876,11 +870,11 @@ def plot_counterfactual_case_study(
                     "",
                     xy=(nc, pos),
                     xytext=(nf, pos),
-                    arrowprops=dict(arrowstyle="-|>", color="#006d2c", lw=2.2, mutation_scale=13),
+                    arrowprops=dict(arrowstyle="-|>", color="#2a78d6", lw=2.2, mutation_scale=13),
                     zorder=3,
                 )
-                ax1.scatter([nf], [pos], marker="o", s=70, color="#cb181d", zorder=4)
-                ax1.scatter([nc], [pos], marker="D", s=70, color="#006d2c", zorder=5)
+                ax1.scatter([nf], [pos], marker="o", s=70, color="#eb6834", zorder=4)
+                ax1.scatter([nc], [pos], marker="D", s=70, color="#2a78d6", zorder=5)
                 sign_str = "+" if d_val > 0 else ""
                 ax1.text(
                     max(nf, nc) + 0.025,
@@ -890,10 +884,10 @@ def plot_counterfactual_case_study(
                     ha="left",
                     fontsize=8.3,
                     fontweight="bold",
-                    color="#00441b",
+                    color="#184f95",
                 )
             else:
-                ax1.scatter([nf], [pos], marker="o", s=55, color="#888888", alpha=0.8, zorder=3)
+                ax1.scatter([nf], [pos], marker="o", s=55, color="#898781", alpha=0.8, zorder=3)
                 ax1.text(
                     min(0.98, nf + 0.025),
                     pos,
@@ -901,19 +895,19 @@ def plot_counterfactual_case_study(
                     va="center",
                     ha="left",
                     fontsize=8.0,
-                    color="#666666",
+                    color="#52514e",
                 )
 
     if immutable_order and actionable_order:
         sep_y = len(immutable_order) - 0.5
-        ax1.axhline(sep_y, color="#444444", linestyle="--", linewidth=1.1, alpha=0.7)
+        ax1.axhline(sep_y, color="#52514e", linestyle="--", linewidth=1.1, alpha=0.7)
         ax1.text(
             0.01,
             sep_y + 0.15,
             "▲ Actionable Physiological Features",
             fontsize=8.0,
             fontweight="bold",
-            color="#00441b",
+            color="#184f95",
         )
         ax1.text(
             0.01,
@@ -921,7 +915,7 @@ def plot_counterfactual_case_study(
             "▼ Locked Immutable Features (Hard Projection $\\Delta = 0$)",
             fontsize=8.0,
             fontweight="bold",
-            color="#444444",
+            color="#52514e",
         )
 
     ax1.set_yticks(y_positions)
@@ -934,11 +928,11 @@ def plot_counterfactual_case_study(
     ax1.grid(axis="x", linestyle="--", alpha=0.3)
 
     legend_elements = [
-        Line2D([0], [0], marker="o", color="w", label="Factual High-Risk State $x$", markerfacecolor="#cb181d", markersize=8),
-        Line2D([0], [0], marker="D", color="w", label="Actionable Counterfactual $x_{\\mathrm{cf}}$", markerfacecolor="#006d2c", markersize=8),
-        Line2D([0], [0], marker="s", color="w", label="Locked Immutable Attribute ($\\Delta=0$)", markerfacecolor="#636363", markeredgecolor="#111111", markersize=8),
+        Line2D([0], [0], marker="o", color="w", label="Factual High-Risk State $x$", markerfacecolor="#eb6834", markersize=8),
+        Line2D([0], [0], marker="D", color="w", label="Actionable Counterfactual $x_{\\mathrm{cf}}$", markerfacecolor="#2a78d6", markersize=8),
+        Line2D([0], [0], marker="s", color="w", label="Locked Immutable Attribute ($\\Delta=0$)", markerfacecolor="#898781", markeredgecolor="#0b0b0b", markersize=8),
     ]
-    ax1.legend(handles=legend_elements, loc="lower right", frameon=True, facecolor="white", framealpha=0.95)
+    ax1.legend(handles=legend_elements, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3, frameon=False)
 
     # --- Panel B: Risk Reduction & Manifold Plausibility ---
     orig_p = float(cf_result["original_probability"]) * 100.0
@@ -948,9 +942,9 @@ def plot_counterfactual_case_study(
     bars = ax2.bar(
         ["Factual State\n$P(Y=1 \\mid x)$", "Post-Recourse\n$P(Y=1 \\mid x_{\\mathrm{cf}})$"],
         [orig_p, cf_p],
-        color=["#cb181d", "#006d2c"],
+        color=["#eb6834", "#2a78d6"],
         width=0.48,
-        edgecolor="#222222",
+        edgecolor="#52514e",
         linewidth=1.2,
         zorder=3,
     )
@@ -958,7 +952,7 @@ def plot_counterfactual_case_study(
     for bar, val in zip(bars, [orig_p, cf_p], strict=True):
         ax2.text(
             bar.get_x() + bar.get_width() / 2.0,
-            val + 2.2,
+            max(val, target_p) + 2.2,
             f"{val:.1f}%",
             ha="center",
             va="bottom",
@@ -968,17 +962,16 @@ def plot_counterfactual_case_study(
 
     ax2.axhline(
         target_p,
-        color="#1f4e78",
+        color="#2a78d6",
         linestyle="--",
         linewidth=1.8,
         label=f"Target Safe Threshold $\\tau = {target_p:.1f}\\%$",
         zorder=4,
     )
-    ax2.axhspan(0.0, target_p, color="#e5f5e0", alpha=0.45, zorder=1, label="Certified Low-Risk Zone")
+    ax2.axhspan(0.0, target_p, color="#e7f0fb", alpha=0.45, zorder=1, label="Certified Low-Risk Zone")
 
     summary_text = (
         f"Recourse Diagnostic Summary\n"
-        f"───────────────────────────\n"
         f"• Validity Achieved: {'YES' if cf_result['validity_achieved'] else 'NO'}\n"
         f"• Absolute Risk Drop: -{orig_p - cf_p:.1f}%\n"
         f"• Sparsity ($L_0$ Modified): {cf_result['sparsity_count']} / {len(names)} features\n"
@@ -986,14 +979,14 @@ def plot_counterfactual_case_study(
         f"• Max Immutable Violation: {cf_result['immutable_violation_max']:.4f}"
     )
     ax2.text(
-        0.50,
-        0.60,
+        0.97,
+        0.62,
         summary_text,
         transform=ax2.transAxes,
         fontsize=8.8,
         va="center",
-        ha="center",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#1f4e78", linewidth=1.2),
+        ha="right",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="#fcfcfb", edgecolor="#2a78d6", linewidth=1.2),
         zorder=5,
     )
 
@@ -1001,14 +994,14 @@ def plot_counterfactual_case_study(
     ax2.set_ylabel("Predicted Clinical Risk Probability (%)")
     ax2.set_title("B. Risk Reduction & Manifold Diagnostics")
     ax2.grid(axis="y", linestyle="--", alpha=0.3)
-    ax2.legend(loc="upper right", frameon=True, facecolor="white")
+    ax2.legend(loc="upper right", frameon=True, facecolor="#fcfcfb")
 
     fig.suptitle(
         "Actionable Clinical Counterfactual Recourse with Hard Immutability & Manifold Constraints",
         y=1.02,
     )
     plt.tight_layout()
-    fig.savefig(out_file, dpi=300, bbox_inches="tight")
+    fig.savefig(out_file, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
     return {
@@ -1096,17 +1089,17 @@ def plot_aipw_love_plot(
     sorted_unadj = abs_smd_unadj[sort_idx]
     sorted_iptw = abs_smd_iptw[sort_idx]
 
-    fig, ax = plt.subplots(figsize=(9.5, max(5.0, 0.38 * n_features + 1.6)), dpi=300)
+    fig, ax = plt.subplots(figsize=(9.5, max(5.0, 0.38 * n_features + 1.6)), dpi=220)
     y_pos = np.arange(n_features)
 
     # Horizontal connecting lines showing bias reduction per confounder
     for y, u_val, w_val in zip(y_pos, sorted_unadj, sorted_iptw, strict=True):
-        ax.plot([w_val, u_val], [y, y], color="#888888", linestyle="-", linewidth=1.4, zorder=2)
+        ax.plot([w_val, u_val], [y, y], color="#898781", linestyle="-", linewidth=1.4, zorder=2)
 
     ax.scatter(
         sorted_unadj,
         y_pos,
-        color="#d95f02",
+        color="#eb6834",
         marker="o",
         s=70,
         label="Unadjusted Observational Cohort",
@@ -1115,7 +1108,7 @@ def plot_aipw_love_plot(
     ax.scatter(
         sorted_iptw,
         y_pos,
-        color="#1f4e78",
+        color="#2a78d6",
         marker="D",
         s=65,
         label="IPTW Doubly-Robust Pseudo-Population",
@@ -1125,13 +1118,13 @@ def plot_aipw_love_plot(
     # Standard clinical covariate balance threshold at |SMD| = 0.10
     ax.axvline(
         0.10,
-        color="#b22222",
+        color="#52514e",
         linestyle="--",
         linewidth=1.6,
         label="Clinical Balance Threshold ($|\\mathrm{SMD}| = 0.10$)",
         zorder=3,
     )
-    ax.axvspan(0.0, 0.10, color="#e5f5e0", alpha=0.40, zorder=1, label="Well-Balanced Region ($|\\mathrm{SMD}| < 0.10$)")
+    ax.axvspan(0.0, 0.10, color="#e7f0fb", alpha=0.40, zorder=1, label="Well-Balanced Region ($|\\mathrm{SMD}| < 0.10$)")
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(sorted_names)
@@ -1152,19 +1145,19 @@ def plot_aipw_love_plot(
     )
     ax.text(
         0.97,
-        0.18,
+        0.22,
         summary_box,
         transform=ax.transAxes,
         fontsize=8.5,
         va="bottom",
         ha="right",
-        bbox=dict(boxstyle="round,pad=0.45", facecolor="white", edgecolor="#1f4e78", alpha=0.95),
+        bbox=dict(boxstyle="round,pad=0.45", facecolor="#fcfcfb", edgecolor="#2a78d6", alpha=0.95),
         zorder=6,
     )
 
-    ax.legend(loc="lower right", frameon=True, facecolor="white", framealpha=0.95)
+    ax.legend(loc="lower right", frameon=True, facecolor="#fcfcfb", framealpha=0.95)
     plt.tight_layout()
-    fig.savefig(out_file, dpi=300, bbox_inches="tight")
+    fig.savefig(out_file, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
     return {

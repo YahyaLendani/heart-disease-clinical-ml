@@ -27,6 +27,24 @@ except ImportError:
     shap = None  # type: ignore[assignment]
 
 
+MODEL_DISPLAY_NAMES = {
+    "mlp_adam": "HeartMLP (Adam)",
+    "mlp_sgd": "HeartMLP (SGD)",
+    "mlp": "MLP",
+    "random_forest": "Random Forest",
+    "xgboost": "XGBoost",
+    "logistic_regression": "Logistic Regression",
+}
+DATASET_DISPLAY_NAMES = {"heart": "heart disease", "mimic": "MIMIC-IV demo"}
+
+
+def _display_name(model_name: str, dataset_name: str) -> str:
+    """Readable "Model (dataset)" label for figure titles."""
+    model = MODEL_DISPLAY_NAMES.get(model_name, model_name.replace("_", " ").title())
+    dataset = DATASET_DISPLAY_NAMES.get(dataset_name, dataset_name)
+    return f"{model} ({dataset})"
+
+
 def _ensure_deps() -> None:
     if shap is None:
         raise ImportError("shap is required. Install with: pip install shap")
@@ -201,7 +219,7 @@ def generate_shap_tree(
         X_test_transformed,
         feature_names,
         figures_dir / f"{prefix}_shap_summary.png",
-        title=f"SHAP Summary — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"SHAP Summary — {_display_name(model_name, dataset_name)}",
     )
 
     high_idx, low_idx = _find_risk_indices(shap_values)
@@ -210,13 +228,13 @@ def generate_shap_tree(
         explanation,
         high_idx,
         figures_dir / f"{prefix}_shap_waterfall_high_risk.png",
-        title=f"Highest-Risk Patient — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"Highest-Risk Patient — {_display_name(model_name, dataset_name)}",
     )
     _save_waterfall_plot(
         explanation,
         low_idx,
         figures_dir / f"{prefix}_shap_waterfall_low_risk.png",
-        title=f"Lowest-Risk Patient — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"Lowest-Risk Patient — {_display_name(model_name, dataset_name)}",
     )
 
     top = _top_features(shap_values, feature_names, top_n=5)
@@ -298,7 +316,7 @@ def generate_shap_mlp(
         X_test_np,
         feature_names,
         figures_dir / f"{prefix}_shap_summary.png",
-        title=f"SHAP Summary — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"SHAP Summary — {_display_name(model_name, dataset_name)}",
     )
 
     high_idx, low_idx = _find_risk_indices(shap_values)
@@ -307,13 +325,13 @@ def generate_shap_mlp(
         explanation,
         high_idx,
         figures_dir / f"{prefix}_shap_waterfall_high_risk.png",
-        title=f"Highest-Risk Patient — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"Highest-Risk Patient — {_display_name(model_name, dataset_name)}",
     )
     _save_waterfall_plot(
         explanation,
         low_idx,
         figures_dir / f"{prefix}_shap_waterfall_low_risk.png",
-        title=f"Lowest-Risk Patient — {model_name.replace('_', ' ').title()} ({dataset_name.title()})",
+        title=f"Lowest-Risk Patient — {_display_name(model_name, dataset_name)}",
     )
 
     top = _top_features(shap_values, feature_names, top_n=5)

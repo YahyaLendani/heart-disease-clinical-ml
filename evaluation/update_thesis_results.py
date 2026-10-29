@@ -753,7 +753,7 @@ def build_reading_list_block(
         ]
         for frame in secondary.values():
             for _, row in frame.iterrows():
-                label = row["model"] if "model" in row else f"HeartMLP ({row['optimizer'].upper()})"
+                label = row["model"] if "model" in row else f"HeartMLP ({ {'adam': 'Adam'}.get(row['optimizer'], row['optimizer'].upper()) })"
                 lines.append(f"| {label} | {_ci_cell(row, 'test_roc_auc')} | {_cv_cell(row, 'roc_auc')} |")
         lines.append("")
 

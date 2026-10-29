@@ -45,7 +45,7 @@ from evaluation.cv_utils import (
     summarize_cv_scores,
     to_markdown_table,
 )
-from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
+from project_paths import PRIMARY_HEART_DATASET, cohort_label, resolve_data_path, resolve_output_dir
 from training.device_utils import (
     DEVICE_CHOICES,
     align_xgb_inference_device,
@@ -335,16 +335,23 @@ def save_xgb_learning_curve(evals_result: dict, output_path: Path) -> None:
     if metric_values is None:
         return
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.plot(range(1, len(metric_values) + 1), metric_values, label="Validation Logloss")
-    ax.set_title("XGBoost Early-Stopping Curve")
-    ax.set_xlabel("Boosting Round")
-    ax.set_ylabel("Logloss")
-    ax.grid(alpha=0.3)
-    ax.legend()
+    from evaluation.plot_style import apply_style, finish_axes, series_color
+
+    apply_style()
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
+    rounds = np.arange(1, len(metric_values) + 1)
+    best_round = int(np.argmin(metric_values)) + 1
+    ax.plot(rounds, metric_values, color=series_color(0))
+    ax.axvline(best_round, color=series_color(0), linewidth=1, alpha=0.5)
+    ax.annotate(f"best round {best_round}", xy=(best_round, min(metric_values)),
+                xytext=(6, 12), textcoords="offset points", fontsize=9)
+    ax.set_title("XGBoost validation log-loss (early stopping)")
+    ax.set_xlabel("Boosting round")
+    ax.set_ylabel("Validation log-loss")
+    finish_axes(ax)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
+    fig.savefig(output_path)
     plt.close(fig)
     print(f"Saved XGBoost learning curve: {output_path}")
 
@@ -524,9 +531,9 @@ def main(argv: list[str] | None = None) -> pd.DataFrame:
     # --- Calibration & PR Curves ---
     figures_dir = output_dir / "figures"
     if model_probas:
-        plot_calibration_curves(y_test, model_probas, "heart", figures_dir)
-        plot_precision_recall_curves(y_test, model_probas, "heart", figures_dir)
-        plot_decision_curve(y_test, model_probas, "heart", figures_dir)
+        plot_calibration_curves(y_test, model_probas, "heart", figures_dir, cohort=cohort_label(args.dataset))
+        plot_precision_recall_curves(y_test, model_probas, "heart", figures_dir, cohort=cohort_label(args.dataset))
+        plot_decision_curve(y_test, model_probas, "heart", figures_dir, cohort=cohort_label(args.dataset))
 
     summary = pd.DataFrame(results).sort_values(
         by=["cv_roc_auc_mean", "test_roc_auc", "test_f1"],
