@@ -1,7 +1,7 @@
 # Clinical ML System Verification & Methodological Audit Report
 
 **Status:** Revised after the evaluation-protocol review (see Section 6)  
-**Test Suite Execution:** 72 / 72 passed (~30 s on 4 CPU cores) | CI: full Ruff rule set, Python 3.10–3.13 tests, pipeline smoke run  
+**Test Suite Execution:** 81 / 81 passed (~45 s on 4 CPU cores) | CI: full Ruff rule set, Python 3.10–3.13 tests, pipeline smoke run  
 **Scope:** Data Hygiene, Feature Engineering, Deep & Tabular Architectures, Uncertainty Quantification, Causal Inference, Counterfactual Recourse, Algorithmic Fairness, Nelder-Mead Simplex Optimization, Vectorized GNN/DCA, Multi-Core Parallelism, and Pipeline Governance.
 
 ---
@@ -121,7 +121,7 @@ Inspection of `run_pipeline.py` confirms a fail-safe, reproducible execution arc
 
 ## 5. Summary Statement
 
-All 72 unit, integration and end-to-end tests pass, and the full pipeline regenerates every artifact from the committed data. The corrections in Section 6 were needed before the reported numbers could be relied on; the remaining limitation is sample size (61 holdout patients for the heart cohort, 3 test deaths for MIMIC), which the reported confidence intervals now make explicit.
+All 81 unit, integration and end-to-end tests pass, and the full pipeline regenerates every artifact from the committed data. The corrections in Section 6 were needed before the reported numbers could be relied on; the remaining limitation is sample size (184 holdout patients for the primary heart cohort, 3 test deaths for the MIMIC demonstration), which the reported confidence intervals and paired DeLong tests make explicit.
 
 ---
 
@@ -142,4 +142,12 @@ The earlier version of this report missed the following. Each is fixed and, wher
 | Pipeline passed the Cleveland file to the fairness stage | Silently undid the move to the 918-patient cohort | LOCO and fairness always use the multi-center cohort |
 | Single 61-patient holdout used to rank models | Rankings within noise | Bootstrap 95% CIs on every test metric; repeated stratified CV for every model family |
 | Equal Opportunity "100% disparity reduction" reported alone | Hid that both thresholds were 0.05 (flag almost everyone) | False-positive rate and accuracy before/after are reported, with a warning |
+| Equal Opportunity search maximised F1 | Near-zero thresholds on small or high-prevalence validation sets | Youden's J objective (flagging everyone scores 0); warning when any group threshold is near 0 |
+| Zero-coded `chol` (172 patients) and `trestbps` (1) in the multi-center cohort | `chol = 0` identified Zurich (93.5% prevalence): a site shortcut | Recoded as missing in `prepare_heart_combined.py` |
+| Kaggle placeholders `ca = 4` (4) and `thal = 0` (2) in the Cleveland file | Invalid category values used as measurements | Recoded as missing in `clean_data.py` |
+| "All covariates balanced below \|SMD\| = 0.10" after weighting | Not supported: 7 of 12 remain above 0.10 (largest 0.264) | Actual balance computed and reported by the suite |
+| Only 2 Random Forest / XGBoost configurations compared | Under-tuned baselines | 8-configuration CV grid each; full search tables saved |
+| Models ranked by point estimates only | Rankings not tested | Paired DeLong tests with Holm correction (0 of 91 pairs significant on the 918-patient cohort) |
+| Hard-coded findings in thesis templates ("ensembles reduce variance", "linear models degrade sharply") | Text contradicted the data | Findings generated from the result tables |
+| 61-patient Cleveland split as primary benchmark | Confidence intervals about ±0.08 | 918-patient cohort is primary (±0.04); Cleveland kept as sensitivity analysis |
 

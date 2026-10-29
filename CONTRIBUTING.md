@@ -51,7 +51,7 @@ Contributions are organized into four modular packages:
 
 ### Key Scientific Guardrails
 1. **Zero Data Leakage:** All feature scalers (`StandardScaler`), encoders (`OneHotEncoder`), imputation statistics, conformal calibration quantiles, and optimal decision thresholds (`Youden's J`, F1, or Equal Opportunity thresholds) **must** be fit strictly on training or dedicated validation splits—never on holdout test folds.
-2. **No Selection on the Test Split:** Model, optimizer, hyperparameter and early-stopping choices use validation data or cross-validation only. Report test metrics with bootstrap confidence intervals (`evaluation/cv_utils.py`).
+2. **No Selection on the Test Split:** Model, optimizer, hyperparameter and early-stopping choices use validation data or cross-validation only. Report test metrics with bootstrap confidence intervals (`evaluation/cv_utils.py`) and compare models with paired tests on the shared test split (`evaluation/model_comparison.py`).
 3. **Deterministic Seeding:** Every stochastic routine must accept and respect a `--seed` parameter (default `42`) across NumPy, PyTorch, and scikit-learn splits.
 4. **Immutable Clinical Constraints:** Counterfactual recourse and feature perturbation modules must strictly enforce immutability on non-modifiable patient attributes (e.g., `age`, `sex`) and verify zero immutable violation (`0.000000`).
 

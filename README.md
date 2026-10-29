@@ -9,7 +9,7 @@
 [![Logistic Regression](https://img.shields.io/badge/Logistic%20Regression-Linear%20Model-0288d1.svg)](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Tests: 72 passing](https://img.shields.io/badge/tests-72%20passing-success.svg)](docs/CLINICAL_ML_VERIFICATION_REPORT.md)
+[![Tests: 81 passing](https://img.shields.io/badge/tests-81%20passing-success.svg)](docs/CLINICAL_ML_VERIFICATION_REPORT.md)
 
 A publication-grade, end-to-end **Clinical Machine Learning and Trustworthy AI Framework** for **Cardiovascular Disease (CVD) Diagnosis** across multi-center international cohorts (*Cleveland, Hungarian, Switzerland, VA Long Beach*) and **In-Hospital Mortality Prediction** on **MIMIC-IV**.
 
@@ -100,7 +100,7 @@ flowchart TB
 
     subgraph Output["5. Automated Verification & Reproducible Reporting"]
         direction LR
-        E1["72-Test Pytest Suite\ntests/ Unit, Integrity & End-to-End Checks"]:::out
+        E1["81-Test Pytest Suite\ntests/ Unit, Integrity & End-to-End Checks"]:::out
         E2["25+ Publication Diagnostic Figures\nartifacts/figures/ & Checkpoints"]:::out
         E3["Automated Manuscript Synchronization\nevaluation/update_thesis_results.py"]:::out
     end
@@ -117,82 +117,96 @@ flowchart TB
 
 ### 1. Holdout Test & Repeated Cross-Validation Model Comparison
 
-Primary cardiovascular cohort (`data/processed/cleaned_heart_disease.csv`, 302 patients), identical stratified splits (`--seed 42`), leak-free preprocessing.
+**Primary benchmark:** the 918-patient 4-center cohort (`data/processed/cleaned_heart_disease_combined.csv`), with identical stratified splits (`--seed 42`) and leak-free preprocessing. Its test split has **184 patients**, three times Cleveland's 61, which roughly halves confidence-interval widths (about ±0.04 instead of ±0.08 in ROC-AUC). Zero-coded cholesterol (172 patients) and blood pressure (1 patient) are recoded as missing; left in, `chol = 0` marks almost every Zurich patient (93.5% prevalence) and acts as a site shortcut.
 
-**How to read these numbers.** The holdout test set has **61 patients**, so one patient moves accuracy by 1.6 points. Every holdout ROC-AUC therefore carries a stratified bootstrap **95% confidence interval**, and models are also compared by **repeated stratified 5-fold CV (5 × 3 = 15 folds, mean ± SD)**. The intervals below overlap heavily: on this cohort the data do not support ranking these models against each other. Model, optimizer and early-stopping choices use validation data only; the test split is never used for selection.
+**How to read these numbers.** Every holdout metric carries a stratified bootstrap **95% confidence interval**; every model family is also scored by **repeated stratified 5-fold CV (5 × 3 = 15 folds, mean ± SD)**; and all models are compared pairwise on the same test patients with **DeLong's test and Holm correction** (`artifacts/model_comparison.md`). **None of the 91 model pairs differs significantly** (smallest Holm-adjusted p = 1.0). Model, optimizer, hyperparameter, early-stopping and threshold choices use validation data or CV only.
 
 #### Classical baselines and HeartMLP
 
-CV is run on the training portion of each script's split (baselines: 60% train; HeartMLP: 80% train+val).
+Random Forest and XGBoost are each tuned over an 8-configuration grid (`artifacts/hyperparameter_search_*.csv`). CV runs on each script's training portion (baselines: 60% train; HeartMLP: 80% train+val).
 
 | Architecture / Model | Category | Test Accuracy | Test ROC-AUC [95% CI] | Test PR-AUC | Test Brier $\downarrow$ | CV ROC-AUC (15 folds) | CV Brier $\downarrow$ |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Random Forest** | Bagged Decision Trees | 0.803 | 0.876 [0.788, 0.951] | 0.869 | 0.144 | **0.911 ± 0.048** | **0.121 ± 0.031** |
-| **XGBoost** | Gradient Boosted Trees | 0.803 | 0.879 [0.792, 0.951] | 0.871 | 0.147 | 0.890 ± 0.061 | 0.136 ± 0.052 |
-| **Logistic Regression** | Linear Baseline | 0.787 | 0.885 [0.798, 0.959] | 0.875 | 0.135 | 0.880 ± 0.054 | 0.138 ± 0.042 |
-| **HeartMLP (Adam)** | Feedforward Network | 0.803 | 0.892 [0.806, 0.964] | 0.842 | 0.141 | 0.874 ± 0.060 | 0.159 ± 0.052 |
-| **HeartMLP (SGD)** | Feedforward Network | 0.787 | 0.876 [0.776, 0.955] | 0.846 | 0.168 | 0.798 ± 0.124 | 0.209 ± 0.087 |
+| **XGBoost** | Gradient Boosted Trees | 0.832 | 0.909 [0.867, 0.947] | 0.924 | 0.121 | 0.878 ± 0.022 | 0.139 ± 0.015 |
+| **Random Forest** | Bagged Decision Trees | 0.815 | 0.900 [0.856, 0.939] | 0.916 | 0.130 | 0.877 ± 0.025 | 0.143 ± 0.011 |
+| **Logistic Regression** | Linear Baseline | 0.804 | 0.884 [0.835, 0.929] | 0.912 | 0.137 | 0.871 ± 0.022 | 0.143 ± 0.015 |
+| **HeartMLP (Adam)** | Feedforward Network | 0.810 | 0.885 [0.835, 0.931] | 0.898 | 0.139 | 0.859 ± 0.038 | 0.155 ± 0.030 |
+| **HeartMLP (SGD)** | Feedforward Network | 0.793 | 0.879 [0.829, 0.925] | 0.899 | 0.148 | 0.854 ± 0.035 | 0.162 ± 0.029 |
 
 #### Reading-list architectures
 
-Holdout uses a 60/20/20 split; CV uses each of 5 folds × 3 repeats of the full cohort as the test set, with the remainder split 75/25 into train/validation. Weights come from the epoch with the lowest validation loss.
+Holdout uses the same test patients; CV uses each of 5 folds × 3 repeats of the full cohort as the test set, with the remainder split 75/25 into train/validation. Weights come from the epoch with the lowest validation loss.
 
 | Architecture / Model | Category | Test Accuracy | Test ROC-AUC [95% CI] | Test PR-AUC | Test Brier $\downarrow$ | CV ROC-AUC (15 folds) | CV Brier $\downarrow$ |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **TabTransformer (Huang et al., 2020)** | Contextual Self-Attention | 0.820 | 0.909 [0.832, 0.970] | 0.860 | **0.121** | 0.890 ± 0.030 | 0.140 ± 0.023 |
-| **GCN (Kipf & Welling, 2017)** | Spectral Graph ConvNet | 0.770 | 0.904 [0.824, 0.965] | 0.865 | 0.139 | **0.910 ± 0.028** | **0.123 ± 0.017** |
-| **GAT (Veličković et al., 2018)** | Graph Attention Network | 0.820 | 0.902 [0.825, 0.964] | 0.874 | 0.136 | 0.901 ± 0.029 | 0.129 ± 0.022 |
-| **Multimodal Cross-Attention †** | Synthetic-signal demo | 0.672 | 0.690 [0.554, 0.821] | 0.646 | 0.223 | 0.682 ± 0.069 | 0.228 ± 0.026 |
+| **GCN (Kipf & Welling, 2017)** | Spectral Graph ConvNet | 0.799 | 0.887 [0.837, 0.934] | 0.899 | 0.135 | 0.878 ± 0.026 | 0.138 ± 0.016 |
+| **TabTransformer (Huang et al., 2020)** | Contextual Self-Attention | 0.799 | 0.885 [0.831, 0.931] | 0.904 | 0.138 | 0.866 ± 0.029 | 0.147 ± 0.016 |
+| **GAT (Veličković et al., 2018)** | Graph Attention Network | 0.810 | 0.882 [0.831, 0.929] | 0.905 | 0.138 | 0.874 ± 0.033 | 0.142 ± 0.021 |
+| **Multimodal Cross-Attention †** | Synthetic-signal demo | 0.663 | 0.698 [0.620, 0.778] | 0.769 | 0.218 | 0.704 ± 0.043 | 0.216 ± 0.012 |
 
 † Demonstration only: its "waveform" channel is synthesised from the same tabular features, so it adds no information and is not a like-for-like comparison.
 
 #### Operating thresholds (tuned on validation, applied to test)
 
-Thresholds are chosen on the validation split and then evaluated on the test split, so these F1 and Youden's $J$ values are out-of-sample (earlier versions of this table tuned and scored thresholds on the same test data).
-
 | Baseline Model | Threshold (F1) | Test F1 at that Threshold | Threshold (Youden's $J$) | Test Youden's $J$ |
 | :--- | :---: | :---: | :---: | :---: |
-| **Logistic Regression** | 0.477 | **0.786** | 0.477 | **0.604** |
-| **XGBoost** | 0.546 | 0.780 | 0.546 | 0.579 |
-| **Random Forest** | 0.527 | 0.750 | 0.527 | 0.538 |
+| **XGBoost** | 0.469 | 0.854 | 0.523 | 0.668 |
+| **Random Forest** | 0.429 | 0.829 | 0.643 | 0.579 |
+| **Logistic Regression** | 0.508 | 0.831 | 0.508 | 0.611 |
 
-> **MIMIC-IV:** the bundled demo extract has 275 admissions and 15 deaths, so its test split holds only 3 deaths and holdout ROC-AUC intervals span roughly 0.1–1.0. `artifacts/mimic_baseline_comparison.md` reports repeated patient-grouped CV and bootstrap CIs; treat those results as a pipeline demonstration, not a model ranking.
+#### Sensitivity analysis: Cleveland-only cohort (302 patients, 61 test patients)
+
+Same pipeline with `--dataset cleaned_heart_disease.csv` (full outputs in `artifacts/cleveland/`). Rankings shuffle relative to the primary cohort (e.g., GCN and TabTransformer move to the top) and the intervals are twice as wide; again, 0 of 91 pairs differ after Holm correction.
+
+| Architecture / Model | Category | Test Accuracy | Test ROC-AUC [95% CI] | Test PR-AUC | Test Brier $\downarrow$ | CV ROC-AUC (15 folds) | CV Brier $\downarrow$ |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **XGBoost** | Gradient Boosted Trees | 0.803 | 0.900 [0.826, 0.965] | 0.885 | 0.133 | 0.907 ± 0.048 | 0.122 ± 0.039 |
+| **Random Forest** | Bagged Decision Trees | 0.803 | 0.877 [0.788, 0.953] | 0.871 | 0.144 | 0.913 ± 0.046 | 0.120 ± 0.031 |
+| **Logistic Regression** | Linear Baseline | 0.836 | 0.900 [0.819, 0.968] | 0.883 | 0.129 | 0.898 ± 0.051 | 0.127 ± 0.039 |
+| **HeartMLP (Adam)** | Feedforward Network | 0.803 | 0.898 [0.813, 0.969] | 0.852 | 0.145 | 0.882 ± 0.063 | 0.156 ± 0.063 |
+| **HeartMLP (SGD)** | Feedforward Network | 0.770 | 0.869 [0.774, 0.951] | 0.817 | 0.171 | 0.816 ± 0.130 | 0.198 ± 0.092 |
+| **GCN (Kipf & Welling, 2017)** | Spectral Graph ConvNet | 0.803 | 0.910 [0.832, 0.972] | 0.864 | 0.130 | 0.915 ± 0.025 | 0.119 ± 0.017 |
+| **TabTransformer (Huang et al., 2020)** | Contextual Self-Attention | 0.820 | 0.908 [0.830, 0.972] | 0.871 | 0.125 | 0.894 ± 0.027 | 0.135 ± 0.022 |
+| **GAT (Veličković et al., 2018)** | Graph Attention Network | 0.820 | 0.897 [0.819, 0.963] | 0.854 | 0.135 | 0.910 ± 0.030 | 0.124 ± 0.024 |
+| **Multimodal Cross-Attention †** | Synthetic-signal demo | 0.672 | 0.690 [0.554, 0.821] | 0.646 | 0.223 | 0.682 ± 0.069 | 0.228 ± 0.026 |
+
+> **MIMIC-IV (demonstration only):** the bundled demo extract has 275 admissions and 15 deaths, so its test split holds only 3 deaths and holdout ROC-AUC intervals span roughly 0.1–1.0. `artifacts/mimic_baseline_comparison.md` shows the pipeline running on ICU data with patient-grouped splits, repeated CV and bootstrap CIs; it is not a model ranking. A substantive mortality study needs credentialed access to the full MIMIC-IV database.
 
 ---
 
 ### 2. Leave-One-Center-Out (LOCO) Multi-Center Generalization & Conformal Triage
 
-To evaluate real-world external validity across geographically and demographically distinct hospitals, models are trained on three clinical centers and evaluated zero-shot on the held-out fourth center. While standard fixed-threshold classification degrades sharply under severe prevalence shift (e.g., **54.5%** accuracy in Switzerland), **Split Conformal Prediction** ($\alpha = 0.10$, target 90% coverage) preserves reliable finite-sample coverage by converting epistemic/domain uncertainty into explicit clinical deferral ($\hat{C}(x) = \{0, 1\}$):
+Models are trained on three centers and evaluated zero-shot on the fourth. **Split Conformal Prediction** ($\alpha = 0.10$, 90% target) is calibrated on the three source centers. Coverage on the unseen hospital falls short of 90% at three of four centers: conformal deferral rises with shift, as intended, but exchangeability-based guarantees do not transfer across hospitals.
 
 | Held-Out Evaluation Center | Cohort Size ($N$) | Disease Prevalence | Fixed-Threshold Accuracy | 90% Conformal Empirical Coverage | Mean Prediction Set Size | Clinical Deferral (Abstain) Rate |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Cleveland** | 303 | 45.9% | 71.3% | **87.1%** | 1.28 | 27.7% |
-| **Hungarian** | 293 | 36.2% | **80.5%** | **93.2%** | 1.35 | 34.8% |
-| **Switzerland** | 123 | 93.5% | 54.5% | **82.1%** | 1.43 | 43.1% |
-| **VA Long Beach** | 199 | 74.4% | 69.8% | **84.4%** | 1.25 | 24.6% |
+| **Cleveland** | 303 | 45.9% | 65.3% | 80.9% | 1.22 | 22.4% |
+| **Hungarian** | 293 | 36.2% | 77.5% | 91.1% | 1.32 | 32.1% |
+| **Switzerland** | 123 | 93.5% | 64.2% | 87.8% | 1.38 | 38.2% |
+| **VA Long Beach** | 199 | 74.4% | 73.9% | 88.9% | 1.32 | 31.7% |
+
+No model family transfers best everywhere: Random Forest is best on Cleveland and Zurich, Logistic Regression on Budapest and Long Beach (`artifacts/cross_center_generalization.md`).
 
 ---
 
 ### 3. Uncertainty, Conformal Triage, Causality & Recourse Highlights
 
-All numbers below come from the 61-patient Cleveland holdout and carry the same small-sample caveat as Section 1.
+Numbers below come from the 184-patient holdout of the primary cohort.
 
 - **Split & Mondrian Conformal Triage (Angelopoulos & Bates, 2021):**
-  - Calibration and test scores use the same (uncalibrated) `HeartMLP` probabilities, which the finite-sample coverage guarantee requires. (Earlier versions calibrated on raw probabilities and evaluated on temperature-scaled ones, which voids the guarantee.)
-  - At $\alpha = 0.10$ (90% target), empirical holdout coverage is **95.1%** (**100.0%** on disease cases, **90.9%** on controls), mean set size **1.443**, deferral rate **44.3%**.
-  - At $\alpha = 0.15$ (85% target), the deferral rate falls to **23.0%** with **88.5%** empirical coverage.
+  - Calibration and test scores use the same (uncalibrated) `HeartMLP` probabilities, which the finite-sample coverage guarantee requires.
+  - At $\alpha = 0.10$ (90% target), empirical coverage is **88.6%** (87.3% on disease cases, 90.2% on controls), mean set size **1.255**, deferral rate **25.5%**.
+  - At $\alpha = 0.15$ (85% target), deferral falls to **15.2%** with **86.4%** coverage; at $\alpha = 0.05$, coverage is 95.1% with 52.7% deferral.
 - **Deep Ensembles & Post-Hoc Calibration (Lakshminarayanan et al., 2017; Guo et al., 2017):**
-  - A 5-member Deep Ensemble gives mean epistemic variance $\sigma^2 = 0.0106$ across holdout patients.
-  - Validation-tuned Temperature Scaling ($T^* = 1.522$) lowers holdout ECE from **0.106** to **0.079**.
-- **Deconfounded Causal Inference (Pearl & Mackenzie, 2018; Chernozhukov et al., 2018; VanderWeele & Ding, 2017):**
-  - **IPTW Deconfounding:** the naive observational risk difference (**0.4623**) shrinks to an IPTW Average Treatment Effect of **0.0657**, i.e. **0.3966** of the raw association is attributable to measured confounding.
-  - **Cross-Fitted Doubly Robust AIPW:**
-    - *Symptomatic Proxy (`exang`):* AIPW ATE = **-0.0060** (95% CI: `[-0.1844, 0.1724]`), E-value = **1.130**, consistent with exercise angina being a downstream marker rather than an upstream cause.
-    - *Modifiable Metabolic Intervention (Hypertension $\text{SBP} \ge 140\text{ mmHg}$):* AIPW ATE = **+0.0712** (95% CI: `[-0.0420, 0.1845]`), point-estimate E-value = **1.594**. Both intervals include zero.
-- **Equal Opportunity Thresholds (Barocas et al., 2020):** the F1-optimal parity thresholds found on the 61-patient validation split are 0.05 for both sexes, so parity on test (TPR gap **0.238 → 0.000**) is reached by flagging almost everyone: the false-positive rate rises **0.212 → 0.485** and accuracy falls **0.803 → 0.738**. At this sample size this is not a useful operating point.
+  - A 5-member Deep Ensemble gives mean epistemic variance $\sigma^2 = 0.0049$.
+  - Validation-tuned Temperature Scaling ($T^* = 1.455$) lowers holdout ECE from **0.073** to **0.067**.
+- **Causal Inference (Pearl & Mackenzie, 2018; Chernozhukov et al., 2018; VanderWeele & Ding, 2017):**
+  - **IPTW:** the naive risk difference for exercise angina (**0.446**) shrinks to **0.075** after weighting, but **7 of 12 covariates** remain imbalanced ($|\text{SMD}| \ge 0.10$; largest 0.264), so residual confounding cannot be excluded.
+  - **Cross-Fitted Doubly Robust AIPW:** exercise angina ATE = **+0.060** (95% CI `[-0.047, 0.167]`, E-value 1.457); Stage 2 hypertension ATE = **−0.013** (95% CI `[-0.069, 0.042]`, E-value 1.184). Both intervals include zero, and both point estimates change sign relative to the Cleveland-only cohort.
+- **Equal Opportunity Thresholds (Barocas et al., 2020):** thresholds now maximise Youden's $J$ under a sensitivity-parity constraint (the earlier F1 objective chose near-zero thresholds that flagged almost everyone). On the primary cohort they narrow the test sensitivity gap only from **0.226 to 0.215** at an unchanged false-positive rate; on Cleveland, one group's threshold still collapses to 0.05, which the report flags.
 - **Actionable Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):**
-  - Gradient-guided counterfactual search reaches **100.0% recourse validity** on high-risk test patients, lowering mean predicted risk by **0.592** with zero change to immutable attributes (`age`, `sex`).
-  - **Closed-Loop Conformal Verification:** **100.0%** of conformal high-risk patients ($\hat{C}(x) = \{1\}$) move to $\{0\}$ or $\{0, 1\}$ after the recommended changes.
+  - Valid recourse for **80.0%** of high-risk test patients, mean predicted-risk reduction **0.519**, zero change to immutable attributes (`age`, `sex`). About 7.8 features change per patient, so these are explanations rather than sparse treatment plans.
+  - **Closed-Loop Conformal Check:** **100.0%** of conformal high-risk patients ($\hat{C}(x) = \{1\}$) move to $\{0\}$ or $\{0, 1\}$ under the model.
 
 ---
 
@@ -218,8 +232,8 @@ All diagnostic visualizations are automatically generated and versioned in `arti
 </table>
 
 **Clinical Interpretation:**
-- **Decision Curve Analysis (Vickers & Elkin, 2006):** Discrimination metrics (ROC-AUC) ignore the clinical consequences of false positives (unnecessary invasive coronary angiography) versus false negatives (missed myocardial ischemia). As shown in **Figure 1A**, our calibrated models deliver strictly higher **Net Benefit** than both default clinical heuristics (*"Treat All"* and *"Treat None"*) across the entire clinically relevant threshold probability range ($p_t \in [0.10, 0.75]$).
-- **Precision-Recall Operating Point Selection:** **Figure 1B** shows precision holding up in high-sensitivity regimes (holdout PR-AUC up to **0.875**; repeated-CV PR-AUC up to **0.915**), letting clinicians to select operating thresholds tailored to outpatient screening (high sensitivity) or catheterization referral (high PPV).
+- **Decision Curve Analysis (Vickers & Elkin, 2006):** Discrimination metrics (ROC-AUC) ignore the clinical consequences of false positives (unnecessary invasive coronary angiography) versus false negatives (missed myocardial ischemia). In **Figure 1A**, all three baseline models (Logistic Regression, Random Forest, XGBoost) have higher **Net Benefit** than both *"Treat All"* and *"Treat None"* at every threshold probability from $p_t = 0.10$ to $0.75$ on the 184-patient test set (checked numerically; the same holds on the Cleveland-only cohort). These are point estimates without confidence bands.
+- **Precision-Recall Operating Point Selection:** **Figure 1B** shows precision holding up in high-sensitivity regimes (holdout PR-AUC **0.912–0.924** for the baselines; repeated-CV PR-AUC **0.871–0.882**), letting clinicians select operating thresholds tailored to outpatient screening (high sensitivity) or catheterization referral (high PPV).
 
 ---
 
@@ -269,8 +283,8 @@ All diagnostic visualizations are automatically generated and versioned in `arti
   1. **Anatomical Vessel Narrowing (`ca`):** Number of major vessels (0–3) visualized under fluoroscopy.
   2. **Myocardial Perfusion Defects (`thal`):** Reversible/fixed ischemia on nuclear stress testing.
   3. **Exercise-Induced Ischemia (`oldpeak` & `cp`):** ST depression $\ge 1.0\text{ mm}$ during stress and typical/atypical anginal symptoms.
-- **The Role of Random Forest:** **Random Forest** has the highest repeated-CV ROC-AUC among the baselines (**`0.911 ± 0.048`**) and the lowest CV Brier score (**`0.121`**). The fold-to-fold spread is as large as the gaps between models, so this is a tendency, not a demonstrated advantage.
-- **The Role of Logistic Regression:** Logistic Regression serves as the foundational **clinical standard of reference** (**CV ROC-AUC = `0.880 ± 0.054`**, validation-tuned test $F_1 = 0.786$). Its linear log-odds formulation ($\log\frac{p}{1-p} = \beta_0 + \sum \beta_j X_j$) provides directly interpretable Odds Ratios ($e^{\beta_j}$), verifying that non-linear deep models preserve the true directional sign of established clinical risk factors while capturing higher-order physiological interactions.
+- **The Role of Tree Ensembles:** **XGBoost** has the highest holdout ROC-AUC (**0.909**, 95% CI 0.867–0.947) and lowest Brier score (**0.121**), and XGBoost and Random Forest share the highest repeated-CV ROC-AUC (**`0.878 ± 0.022`** and **`0.877 ± 0.025`**). Paired DeLong tests find no significant difference from any other model after Holm correction, so this is a tendency, not a demonstrated advantage.
+- **The Role of Logistic Regression:** Logistic Regression serves as the foundational **clinical standard of reference** (**CV ROC-AUC = `0.871 ± 0.022`**, validation-tuned test $F_1 = 0.831$), within about 0.025 AUC of every other (non-demo) model. Its linear log-odds formulation ($\log\frac{p}{1-p} = \beta_0 + \sum \beta_j X_j$) provides directly interpretable Odds Ratios ($e^{\beta_j}$), verifying that non-linear deep models preserve the true directional sign of established clinical risk factors while capturing higher-order physiological interactions.
 
 ---
 
@@ -286,14 +300,14 @@ All diagnostic visualizations are automatically generated and versioned in `arti
     <td width="50%" align="center">
       <img src="artifacts/figures/calibration_heart.png" alt="Probability Calibration and Reliability Diagram" width="100%"/>
       <br/>
-      <em><b>Figure 3B:</b> Reliability diagram of the baseline models' predicted probabilities against the ideal diagonal (temperature scaling, $T^* = 1.522$, is evaluated in the reading-list suite).</em>
+      <em><b>Figure 3B:</b> Reliability diagram of the baseline models' predicted probabilities against the ideal diagonal (temperature scaling, $T^* = 1.455$, is evaluated in the reading-list suite).</em>
     </td>
   </tr>
 </table>
 
 **Clinical Interpretation:**
-- **Finite-Sample Guaranteed Safe Deferral:** Standard point classifiers force a binary decision even on ambiguous or out-of-distribution patients. Using **Split & Mondrian Conformal Prediction** (**Figure 3A**), the model outputs prediction sets $\hat{C}_{1-\alpha}(x) \subseteq \{0, 1\}$. Singleton sets $\{0\}$ (*Rule-Out*) and $\{1\}$ (*Rule-In*) enable confident automated triage, while doubleton sets $\{0, 1\}$ explicitly flag uncertain cases for **secondary specialist review / diagnostic deferral**. Moving $\alpha$ from $0.10 \to 0.15$ roughly halves the deferral rate (**44.3% $\to$ 23.0%**) at **88.5%** empirical coverage (85% target).
-- **Post-Hoc Reliability:** As shown in **Figure 3B** (and `artifacts/figures/calibration_heart_mlp.png`), validation-tuned Temperature Scaling corrects neural overconfidence in the extreme probability bins, ensuring that a predicted 80% risk corresponds to an true ~80% empirical disease incidence.
+- **Finite-Sample Guaranteed Safe Deferral:** Standard point classifiers force a binary decision even on ambiguous or out-of-distribution patients. Using **Split & Mondrian Conformal Prediction** (**Figure 3A**), the model outputs prediction sets $\hat{C}_{1-\alpha}(x) \subseteq \{0, 1\}$. Singleton sets $\{0\}$ (*Rule-Out*) and $\{1\}$ (*Rule-In*) enable confident automated triage, while doubleton sets $\{0, 1\}$ explicitly flag uncertain cases for **secondary specialist review / diagnostic deferral**. Moving $\alpha$ from $0.10 \to 0.15$ lowers the deferral rate from **25.5% to 15.2%** at **86.4%** empirical coverage (85% target).
+- **Post-Hoc Reliability:** As shown in **Figure 3B** (and `artifacts/figures/calibration_heart_mlp.png`), validation-tuned Temperature Scaling ($T^* = 1.455$) softens neural overconfidence and lowers holdout ECE from 0.073 to 0.067; with 184 test patients, per-bin calibration estimates remain noisy.
 
 ---
 
@@ -307,7 +321,7 @@ All diagnostic visualizations are automatically generated and versioned in `arti
 
 **Clinical Interpretation:**
 - **Mitigating Historical Under-Diagnosis in Women & Young Adults:** Cardiovascular disease in female and younger patients frequently presents with atypical angina or non-obstructive coronary disease, historically resulting in elevated false-negative (missed disease) rates under uniform probability cutoffs.
-- **Subgroup Audit:** **Figure 4** audits subgroup error rates across sex and age on the multi-center cohort ($N=918$, 184 test patients) with `evaluation/fairness_analysis.py`. Group-specific Equal Opportunity thresholds (`evaluation/fair_mitigation.py`) can equalise sensitivity, but on the 61-patient Cleveland validation split they collapse to flagging almost everyone (see Section 3), so threshold post-processing needs a larger validation cohort before it is clinically usable.
+- **Subgroup Audit:** **Figure 4** audits subgroup error rates across sex and age on the multi-center cohort ($N=918$, 184 test patients) with `evaluation/fairness_analysis.py`. Sick women are missed more often than sick men (false-negative rate **25.0%**, 35 test patients, vs **7.4%**, 149 patients). Group-specific Equal Opportunity thresholds (`evaluation/fair_mitigation.py`, Youden objective) narrow the sensitivity gap only slightly on this cohort (0.226 → 0.215), and on the 61-patient Cleveland split one group's threshold collapses to 0.05, flagging almost everyone in that group. Threshold post-processing needs a larger validation cohort, or in-processing methods, before it is clinically usable.
 
 ---
 
@@ -318,7 +332,7 @@ All diagnostic visualizations are automatically generated and versioned in `arti
     <td width="50%" align="center">
       <img src="artifacts/figures/aipw_love_plot.png" alt="AIPW Covariate Balance Love Plot" width="100%"/>
       <br/>
-      <em><b>Figure 5A:</b> Causal Covariate Balance (Love Plot) demonstrating reduction of Absolute Standardized Mean Differences (SMD) below the $0.10$ threshold after Propensity Score / AIPW weighting.</em>
+      <em><b>Figure 5A:</b> Causal Covariate Balance (Love Plot): absolute standardized mean differences before and after propensity weighting, against the $0.10$ balance threshold.</em>
     </td>
     <td width="50%" align="center">
       <img src="artifacts/figures/counterfactual_case_study.png" alt="Actionable Counterfactual Recourse Case Study" width="100%"/>
@@ -329,8 +343,8 @@ All diagnostic visualizations are automatically generated and versioned in `arti
 </table>
 
 **Clinical Interpretation:**
-- **Deconfounding Observational Bias (Love Plot):** In observational clinical registries, treated/exposed patients systematically differ from controls in age, sex, and comorbidities. **Figure 5A** illustrates that unadjusted covariate imbalances (SMD $> 0.40$) are successfully neutralized below the strict clinical balance threshold ($\text{SMD} < 0.10$) via **Inverse Probability of Treatment Weighting (IPTW)** and **Cross-Fitted Doubly Robust AIPW**, isolating true modifiable causal effects from demographic confounding (**0.3966** bias removed).
-- **Closed-Loop Actionable Patient Recourse:** **Figure 5B** visualizes a patient-level counterfactual intervention trajectory. By strictly locking immutable attributes (`age`, `sex`, congenital defect history) and applying $L_1$-sparse projected gradient descent exclusively to modifiable physiological targets (e.g., reducing resting systolic blood pressure `trestbps`, mitigating ST depression `oldpeak`, and improving peak exercise capacity `thalach`), **100.0%** of high-risk patients achieve recourse validity and transition out of the Conformal High-Risk regime $\hat{C}(x) = \{1\}$.
+- **Deconfounding Observational Bias (Love Plot):** In observational clinical registries, exposed patients systematically differ from controls in age, sex and comorbidities. **Figure 5A** shows weighting reduces the largest imbalance from $|\text{SMD}| = 0.961$ to $0.264$, but **7 of 12 covariates** stay at or above the $0.10$ threshold. Residual measured confounding therefore remains, consistent with AIPW intervals that include zero for both exposures. (An earlier version of this README stated that all covariates were balanced below $0.10$; the computed SMDs do not support that.)
+- **Closed-Loop Actionable Patient Recourse:** **Figure 5B** visualizes a patient-level counterfactual trajectory. With immutable attributes (`age`, `sex`) locked and projected gradient descent applied to modifiable targets (e.g., resting systolic blood pressure `trestbps`, ST depression `oldpeak`, peak heart rate `thalach`), **80.0%** of high-risk test patients reach the 0.30 risk target, and every conformal high-risk patient leaves the $\hat{C}(x) = \{1\}$ regime under the model. Roughly eight features change per patient, so the counterfactuals explain the model rather than prescribe treatment.
 
 ---
 
@@ -369,7 +383,11 @@ heart-disease-clinical-ml/
 │   ├── baseline_comparison.md                   # Holdout (with 95% CIs) & repeated-CV baseline table
 │   ├── mlp_holdout_summary.csv                  # HeartMLP holdout metrics with 95% CIs
 │   ├── reading_list_advancements_summary.md     # Deep architectures, conformal, causal & LOCO report
-│   └── reading_list_architecture_cv_folds.csv   # Per-fold scores behind the architecture CV table
+│   ├── reading_list_architecture_cv_folds.csv   # Per-fold scores behind the architecture CV table
+│   ├── model_comparison.md                      # Paired DeLong tests across all models
+│   ├── hyperparameter_search_*.csv              # Every Random Forest / XGBoost configuration tried
+│   ├── test_predictions/                        # Per-patient test probabilities from every script
+│   └── cleveland/                               # Same benchmarks on the Cleveland-only cohort
 ├── data/
 │   ├── raw/                                     # Source files: heart.csv, cleve.mod, processed.*.data, heart-disease.names
 │   └── processed/                               # Model-ready CSVs: cleaned_heart_disease*.csv, mimic_hospital_mortality*.csv
@@ -381,6 +399,7 @@ heart-disease-clinical-ml/
 │   ├── advanced_methodology.py                  # Conformal prediction, AIPW, batched counterfactual recourse
 │   ├── clinical_metrics.py                      # PR-AUC, Brier, thresholds, DCA, calibration plots
 │   ├── cv_utils.py                              # Single-pass CV scorer, bootstrap CIs, n_jobs handling
+│   ├── model_comparison.py                      # Paired DeLong tests with Holm correction
 │   ├── fairness_analysis.py                     # Sex & age subgroup audit
 │   └── update_thesis_results.py                 # Writes result tables into thesis_draft.md
 ├── experiments/
@@ -389,7 +408,7 @@ heart-disease-clinical-ml/
 │   ├── run_reading_list_suite.py                # Reading-list benchmark suite (holdout + repeated CV)
 │   └── tune_train_model.py                      # Hyperparameter grid, ranked by repeated-CV ROC-AUC
 ├── models/                                      # HeartMLP, TabTransformer, GCN/GAT, multimodal, temperature scaling
-├── tests/                                       # pytest suite (70 tests)
+├── tests/                                       # pytest suite (81 tests)
 ├── training/
 │   ├── baseline_models.py                       # LogReg, Random Forest & early-stopped XGBoost
 │   ├── device_utils.py                          # CPU/GPU selection for PyTorch and XGBoost
@@ -430,11 +449,16 @@ available (`--device auto`, the default) and otherwise runs on the CPU. All stag
 Python process; CV folds, ensemble fits and LOCO centers run in parallel across CPU cores.
 
 ```bash
-# Standard pipeline: clean -> EDA -> HeartMLP (SGD & Adam) with 5-fold x 3 repeated CV
+# Standard pipeline on the 918-patient cohort: prepare data -> EDA -> HeartMLP (SGD & Adam)
+# with 5-fold x 3 repeated CV -> paired model comparison
 heart-pipeline
 
 # Everything: baselines, SHAP, ensembles, LOCO, fairness, reading-list suite, thesis tables
 heart-pipeline --run-baselines --run-xai --run-advancements --run-reading-list --update-thesis-all
+
+# Cleveland-only sensitivity analysis into its own folder
+heart-pipeline --dataset cleaned_heart_disease.csv --output-dir artifacts/cleveland \
+    --run-baselines --run-ensemble --run-reading-list
 
 # Run the test suite first (CI already runs it on every push)
 heart-pipeline --run-tests
@@ -450,12 +474,12 @@ for the list of steps and `heart-pipeline <step> --help` for a step's options.
 ### Stage 1: Data Cleaning & Exploratory Data Analysis (EDA)
 
 ```bash
-heart-pipeline clean
+heart-pipeline prepare-combined     # primary: 918-patient 4-center cohort from data/raw/processed.*.data
+heart-pipeline clean                # Cleveland-only cohort from data/raw/heart.csv (sensitivity analysis)
 heart-pipeline eda
-heart-pipeline prepare-combined     # optional: 918-patient 4-center cohort
 ```
-- Processes `data/raw/heart.csv` (or `data/raw/cleve.mod`) into `data/processed/cleaned_heart_disease.csv`.
-- Dataset arguments accept bare file names (`--dataset cleaned_heart_disease_combined.csv`); they are looked up in `data/processed` and `data/raw`.
+- Builds `data/processed/cleaned_heart_disease_combined.csv` (zero-coded `chol`/`trestbps` recoded as missing) and `data/processed/cleaned_heart_disease.csv` (Kaggle placeholders `ca = 4`, `thal = 0` recoded as missing).
+- Every training step defaults to the 918-patient cohort; pass `--dataset cleaned_heart_disease.csv` for Cleveland only. Bare file names are looked up in `data/processed` and `data/raw`.
 
 ### Stage 2: Deep Feedforward Training (`HeartMLP`: SGD vs. Adam)
 
@@ -470,7 +494,12 @@ heart-pipeline train-mlp --optimizer both --loss bce_weighted --epochs 80 --pati
 ```bash
 heart-pipeline baselines --cv-folds 5 --cv-repeats 3 --xgb-early-stopping-rounds 25 --update-thesis
 ```
-- Logistic Regression, Random Forest and XGBoost with repeated stratified CV, validation-tuned thresholds and bootstrap 95% CIs (`artifacts/baseline_comparison.md`).
+- Logistic Regression, Random Forest and XGBoost (8-configuration grid each, `artifacts/hyperparameter_search_*.csv`) with repeated stratified CV, validation-tuned thresholds and bootstrap 95% CIs (`artifacts/baseline_comparison.md`).
+
+```bash
+heart-pipeline compare-models       # paired DeLong tests of every model on the shared test patients
+```
+- Reads `artifacts/test_predictions/*.csv` (written by every training step) and writes `artifacts/model_comparison.md` with Holm-adjusted p-values.
 
 ### Stage 4: AI Thesis Reading List Suite
 
