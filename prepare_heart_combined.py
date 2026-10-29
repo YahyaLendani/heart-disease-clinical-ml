@@ -41,6 +41,8 @@ FEATURE_COLUMNS = [
     "num",
 ]
 
+ZERO_MEANS_MISSING = ("chol", "trestbps")
+
 
 def download_raw_files() -> dict[str, Path]:
     local_paths = {}
@@ -82,6 +84,16 @@ def build_combined_dataset() -> pd.DataFrame:
     numeric_cols = [c for c in FEATURE_COLUMNS if c != "site"]
     for col in numeric_cols:
         combined[col] = pd.to_numeric(combined[col], errors="coerce")
+
+    # The UCI files code some missing measurements as 0. A cholesterol or resting
+    # blood pressure of 0 is physiologically impossible; left in, "chol == 0"
+    # marks almost every Switzerland patient (93.5% disease prevalence) and acts
+    # as a site shortcut. Treat these zeros as missing so imputation handles them.
+    for col in ZERO_MEANS_MISSING:
+        zeros = combined[col] == 0
+        if zeros.any():
+            print(f"Recoding {int(zeros.sum())} zero values of '{col}' as missing.")
+            combined.loc[zeros, col] = float("nan")
 
     # Binarize target: 0 = healthy (no disease), 1-4 = presence of heart disease
     combined["target"] = (combined["num"] > 0).astype(int)
