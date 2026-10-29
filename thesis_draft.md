@@ -1,28 +1,28 @@
 # Thesis Draft
 
 ## Abstract
-Clinical risk prediction models deployed in high-stakes healthcare environments frequently suffer from silent performance degradation under cross-hospital domain shift, overconfident probability miscalibration, demographic fairness disparities, and a conflation of observational correlation with causal actionability. To address these translational barriers, this thesis presents a **Dual-Benchmark Clinical Risk Stratification Study** spanning two complementary clinical paradigms: **(1) Benchmark A — Acute In-Hospital Mortality Risk Stratification** on the MIMIC-IV Clinical Database ($N=275$ admissions, $5.45\%$ mortality prevalence), engineered strictly at admission time ($t_0$) with patient-grouped partitioning (`StratifiedGroupKFold`) to eliminate target and longitudinal leakage; and **(2) Benchmark B — Multi-Center Coronary Artery Disease (CAD) Diagnosis** across the four international hospitals of the UCI Cardiology Consortium ($N=918$ patients across Cleveland, Budapest, Zurich, and Long Beach VA). 
+Clinical risk prediction models deployed in high-stakes healthcare environments frequently suffer from silent performance degradation under cross-hospital domain shift, overconfident probability miscalibration, demographic fairness disparities, and a conflation of observational correlation with causal actionability. To study these translational barriers, this thesis presents a clinical risk stratification study whose primary benchmark is **Multi-Center Coronary Artery Disease (CAD) Diagnosis** across the four international hospitals of the UCI Cardiology Consortium ($N=918$ patients across Cleveland, Budapest, Zurich, and Long Beach VA), with the Cleveland-only cohort ($N=302$) as a sensitivity analysis. A second, **demonstration** benchmark applies the same leakage-controlled pipeline to admission-time in-hospital mortality on the public MIMIC-IV Clinical Database Demo ($N=275$ admissions, 15 deaths); with only 3 deaths in its test split, it shows that the pipeline runs on ICU data but cannot rank models.
 
-Methodologically, we construct an end-to-end, reproducible clinical AI framework bridging classical machine learning (Logistic Regression, Random Forest, XGBoost), from-scratch parameterized PyTorch Multi-Layer Perceptrons (MLPs), hybrid soft-voting and out-of-fold meta-stacking ensembles, and advanced architectures synthesized from 27 foundational papers—including **TabTransformer**, **Graph Convolutional Networks (GCN)**, **Graph Attention Networks (GAT)**, and **Multimodal Cross-Attention Fusion**. Across holdout evaluations, domain-engineered neural and relational architectures achieve strong discrimination (PyTorch MLP ROC-AUC $= 0.9177$, TabTransformer ROC-AUC $= 0.9091$, GAT ROC-AUC $= 0.9037$). 
+Methodologically, we construct an end-to-end, reproducible clinical AI framework bridging classical machine learning (Logistic Regression, Random Forest, XGBoost), from-scratch parameterized PyTorch Multi-Layer Perceptrons (MLPs), hybrid soft-voting and out-of-fold stacking ensembles, and architectures drawn from a 19-paper reading list—including **TabTransformer**, **Graph Convolutional Networks (GCN)**, **Graph Attention Networks (GAT)**, and a **Multimodal Cross-Attention** demonstration. The evaluation protocol never uses the test split for any choice: hyperparameters, optimizers, early stopping and decision thresholds are selected on validation data or cross-validation; every test metric carries a stratified bootstrap 95% confidence interval; every model family is also evaluated with repeated stratified cross-validation; and all models are compared pairwise on the same 184 test patients with DeLong's test and Holm correction. On the multi-center cohort, holdout ROC-AUCs range from $0.877$ to $0.909$ (XGBoost $0.909$ [$0.867$, $0.947$], GCN $0.887$, TabTransformer $0.885$, Logistic Regression $0.884$), and **none of the 91 model pairs differs significantly after correction**: on tabular cohorts of this size, the classical baselines and the advanced architectures perform comparably.
 
-To move beyond point predictions toward safe clinical deployment, we introduce three methodological pillars:
-1. **Distribution-Free Conformal Clinical Triage:** Using Mondrian (class-conditional) conformal prediction, we guarantee finite-sample coverage across imbalanced classes. By optimizing the efficiency-coverage trade-off across significance levels $\alpha \in \{0.05, 0.10, 0.15\}$, operating at $\alpha = 0.15$ reduces ambiguous clinician deferral ($\{0, 1\}$ abstention) from $57.4\%$ to $27.9\%$ while preserving $91.8\%$ empirical test coverage ($100.0\%$ sensitivity on disease cases). Furthermore, **Leave-One-Center-Out (LOCO)** cross-hospital evaluation demonstrates that conformal prediction buffers severe domain and prevalence shifts across unseen international hospitals ($82.1\%\text{--}93.2\%$ empirical coverage), whereas fixed-threshold classifiers degrade to $54.5\%$ accuracy.
-2. **Doubly Robust Causal Disentanglement:** Using cross-fitted Augmented Inverse Probability Weighting (AIPW) with Standardized Mean Difference ($|\text{SMD}| < 0.10$) covariate balance verification and VanderWeele & Ding's $E$-value sensitivity analysis, we contrast non-modifiable symptomatic proxies (exercise-induced angina, $\text{ATE} = -0.0060$, $E\text{-value} = 1.130$) against modifiable metabolic treatment targets (Stage 2 systolic hypertension $\ge 140\text{ mmHg}$, $\text{ATE} = +0.0712$, $E\text{-value} = 1.594$), isolating substantial observational confounding ($+0.3966$).
-3. **Closed-Loop Constrained Counterfactual Recourse:** Integrating shrinkage-regularized Mahalanobis manifold constraints and hard demographic immutability projections, our counterfactual optimizer achieves $100.0\%$ recourse validity across high-risk patients (mean predicted risk reduction of $-0.630$ with $0.000000$ immutable violation), successfully transitioning $100.0\%$ of Conformal High-Risk singletons ($\mathcal{C}_{1-\alpha}(x) = \{1\}$) into certifiably lower-risk states ($\{0\}$ or $\{0, 1\}$).
+Beyond point predictions, we evaluate three safety-oriented components:
+1. **Distribution-Free Conformal Clinical Triage:** Mondrian (class-conditional) conformal prediction at $\alpha = 0.10$ reaches $88.6\%$ empirical holdout coverage with a $25.5\%$ deferral rate; at $\alpha = 0.15$ deferral falls to $15.2\%$ with $86.4\%$ coverage. Under **Leave-One-Center-Out (LOCO)** evaluation, coverage on unseen hospitals is $80.9\%\text{--}91.1\%$ (below the $90\%$ target at three of four centers), while fixed-threshold accuracy falls as low as $64.2\%$—conformal deferral buffers but does not eliminate cross-hospital shift.
+2. **Doubly Robust Causal Estimation:** Inverse probability weighting reduces the observational risk difference for exercise-induced angina from $0.446$ to $0.075$, but $7$ of $12$ covariates remain imbalanced ($|\text{SMD}| \ge 0.10$). Cross-fitted AIPW estimates for exercise-induced angina ($\text{ATE} = +0.060$, 95% CI $[-0.047, 0.167]$) and Stage 2 systolic hypertension ($\text{ATE} = -0.013$, 95% CI $[-0.069, 0.042]$) both include zero, so neither exposure shows a detectable causal effect in these observational data.
+3. **Constrained Counterfactual Recourse:** With Mahalanobis manifold regularization and hard immutability projections, the optimizer finds valid recourse for $80.0\%$ of high-risk test patients (mean predicted-risk reduction $0.519$, zero change to immutable attributes), and $100.0\%$ of conformal high-risk singletons ($\mathcal{C}_{1-\alpha}(x) = \{1\}$) move to $\{0\}$ or $\{0, 1\}$.
 
 ## Introduction
 Clinical risk prediction is a cornerstone of modern data-driven healthcare and decision-support systems. Early identification of high-risk patients empowers clinicians to prioritize intensive monitoring, optimize resource allocation, and initiate preemptive therapeutic interventions. Recent advances in deep learning and machine learning have unlocked rich opportunities to model clinical phenotypes from structured electronic health records (EHRs) and diagnostic cardiology cohorts.
 
-To comprehensively examine model robustness, fairness, explainability, and inductive biases across diverse healthcare settings, this thesis is formulated as a **Dual-Benchmark Clinical Risk Stratification Study** spanning two complementary clinical tasks and failure modes:
+To examine model robustness, fairness, explainability, and inductive biases across healthcare settings, this thesis uses one primary benchmark and one demonstration benchmark:
 
-1. **Benchmark A — Acute In-Hospital Mortality Risk Stratification (MIMIC-IV):** Investigates acute inpatient mortality prediction from admission-time ($t_0$) EHR features. This benchmark stresses severe class imbalance ($5.45\%$ event rate), minority-class calibration, and patient-level longitudinal history aggregation under strict anti-leakage constraints.
-2. **Benchmark B — Multi-Center Coronary Artery Disease Diagnosis (UCI Cardiology Consortium):** Investigates angiographic coronary artery disease (CAD) detection across four international clinical centers ($N=918$ total patients from Cleveland Clinic Foundation, Hungarian Institute of Cardiology in Budapest, University Hospital Zurich, and Long Beach V.A. Medical Center). This benchmark tests deep neural vs. tree-based inductive biases, feature attribution via SHAP, demographic fairness disparities across sex and age groups, and **cross-hospital domain generalization via Leave-One-Center-Out (LOCO) evaluation**.
+1. **Benchmark A — Acute In-Hospital Mortality (MIMIC-IV Demo, demonstration):** Applies the pipeline to admission-time ($t_0$) EHR features under strict anti-leakage constraints. With $15$ deaths in total ($5.45\%$ event rate) and only $3$ in the test split, this benchmark demonstrates patient-grouped splitting, imbalance handling and reporting on ICU data; it is not used to rank models. Full credentialed MIMIC-IV access would be required for that.
+2. **Benchmark B — Multi-Center Coronary Artery Disease Diagnosis (UCI Cardiology Consortium, primary):** Investigates angiographic coronary artery disease (CAD) detection across four international clinical centers ($N=918$ total patients from Cleveland Clinic Foundation, Hungarian Institute of Cardiology in Budapest, University Hospital Zurich, and Long Beach V.A. Medical Center). This benchmark tests deep neural vs. tree-based inductive biases, feature attribution via SHAP, demographic fairness disparities across sex and age groups, and **cross-hospital domain generalization via Leave-One-Center-Out (LOCO) evaluation**.
 
-The core contribution of this work is an end-to-end, reproducible clinical AI framework integrating from-scratch parameterized Multi-Layer Perceptrons (MLPs), gradient-boosted trees, cross-validation, patient-grouped leakage prevention, post-hoc temperature scaling, hybrid ensembling, and cutting-edge advancements across 19 foundational papers from the clinical AI literature.
+The core contribution of this work is an end-to-end, reproducible clinical AI framework integrating from-scratch parameterized Multi-Layer Perceptrons (MLPs), gradient-boosted trees, cross-validation, patient-grouped leakage prevention, post-hoc temperature scaling, hybrid ensembling, and methods drawn from 19 foundational papers in the clinical AI literature, evaluated under a protocol in which the test split is never used for model, hyperparameter or threshold selection.
 
 ## Dataset Description
 
-### 1. Benchmark A: MIMIC-IV Clinical Database Demo (Acute Hospital Mortality)
+### 1. Benchmark A: MIMIC-IV Clinical Database Demo (Acute Hospital Mortality, Demonstration)
 This benchmark utilizes the MIMIC-IV Clinical Database Demo (v2.2), a deidentified cohort of intensive care and hospital admissions. The modeling dataset is constructed at the hospital admission level using relational joins across `hosp/admissions.csv`, `hosp/patients.csv`, `icu/icustays.csv`, and `hosp/diagnoses_icd.csv`.
 
 The engineered dataset is stored as `mimic_hospital_mortality.csv` and contains one row per admission (`hadm_id`), with 100 unique patients generating 275 admissions. The target variable is `hospital_expire_flag`:
@@ -37,7 +37,7 @@ Feature groups are extracted strictly at admission time ($t_0$) to eliminate tar
 
 To preserve clinical causality and eliminate target leakage, all in-hospital post-admission events (current stay ICU length of stay, current stay diagnostic codes, discharge summaries) are strictly excluded from the predictive feature space. Splitting is performed using `StratifiedGroupKFold` grouped on `subject_id` to guarantee that different admissions of the same patient never co-occur across training, validation, or test partitions.
 
-In the current prepared cohort, the dataset contains 275 admissions with an observed hospital mortality rate of approximately 5.45%, indicating substantial class imbalance.
+In the current prepared cohort, the dataset contains 275 admissions with an observed hospital mortality rate of approximately 5.45% (15 deaths), indicating substantial class imbalance. Under patient-grouped 60/20/20 splitting the test split holds only 3 deaths, and holdout ROC-AUC bootstrap intervals span roughly 0.1–1.0. This benchmark is therefore reported as a **demonstration** that the leakage-controlled pipeline runs end to end on ICU data; model comparisons rely on repeated patient-grouped cross-validation and are not interpreted as rankings. Credentialed access to the full MIMIC-IV database would be needed for a substantive mortality study.
 
 ### 2. Benchmark B: International UCI Cardiology Consortium (Coronary Artery Disease)
 This benchmark investigates diagnostic coronary artery disease detection across four international cardiology centers:
@@ -51,6 +51,10 @@ The unified multi-center cohort comprises $N=918$ unique patients across 14 stan
 The target label is binarized angiographic coronary disease status:
 - `target = 1`: Significant coronary artery disease ($\ge 50\%$ diameter stenosis in one or more major coronary vessels; `num > 0`)
 - `target = 0`: Healthy / absent coronary disease ($< 50\%$ diameter stenosis; `num = 0`)
+
+**Data quality.** The UCI files encode several missing measurements as numbers. In the multi-center files, a serum cholesterol of 0 (172 patients: all 123 from Zurich and 49 from Long Beach) and a resting blood pressure of 0 (1 patient) are physiologically impossible and denote "not measured"; left in place, `chol = 0` identifies Zurich, where disease prevalence is 93.5%, and acts as a site shortcut. In the Cleveland export used for the sensitivity analysis, `ca = 4` (4 patients) and `thal = 0` (2 patients) are placeholders for the original "?" values. All of these are recoded as missing and imputed inside each training fold.
+
+This 918-patient cohort is the **primary benchmark**: its 184-patient test split is three times larger than the Cleveland-only split, which roughly halves confidence-interval widths. The Cleveland-only cohort is retained as a sensitivity analysis.
 
 In addition to baseline classification, this cohort serves as the empirical testbed for domain shift adaptation (Leave-One-Center-Out cross-hospital partitioning), subgroup fairness analysis across biological sex and age, and physiological feature engineering (rate pressure product, chronotropic ratio, ischemia burden).
 
@@ -292,28 +296,36 @@ Class imbalance is addressed using model-specific weighting:
 - `scale_pos_weight` for XGBoost
 
 ### 4) Validation Strategy
-The dataset is split into train/test partitions using stratified sampling. Within training data, stratified K-fold cross-validation is used for robust estimation.
+The evaluation protocol is designed so that the test split is never used for any modelling choice:
+
+- **Splits.** A stratified 80/20 split (seed 42) defines the test set, shared by every model so that models can be compared on identical patients. The remaining 80% is split again into training and validation data (MIMIC splits are grouped by `subject_id`).
+- **Model selection.** Random Forest and XGBoost hyperparameters are chosen from an 8-configuration grid each by repeated stratified 5-fold CV on the training split; the MLP optimizer (SGD vs. Adam) is chosen by validation loss; the MLP hyperparameter grid is ranked by repeated-CV ROC-AUC. Neural networks keep the weights from the epoch with the lowest validation loss, and inside each CV fold early stopping uses a separate split of the training portion, so the scored fold never chooses the stopping epoch.
+- **Thresholds.** F1- and Youden-optimal decision thresholds are tuned on the validation split (out-of-fold training predictions for the ensembles) and only applied to the test split.
+- **Uncertainty of estimates.** Every test metric is reported with a stratified bootstrap 95% confidence interval (1,000 resamples). Every model family is also evaluated by repeated stratified 5-fold CV (5 folds × 3 repeats; mean ± SD over 15 folds).
+- **Model comparison.** All models are compared pairwise on the shared test patients with DeLong's test for correlated ROC curves (DeLong et al., 1988), with Holm correction for the number of pairs.
 
 Reported metrics include:
-- test accuracy
-- expired-class precision/recall/F1
-- ROC-AUC
-- PR-AUC
-- cross-validation mean and standard deviation for the same family of metrics
+- test accuracy, F1 (expired-class precision/recall/F1 for MIMIC)
+- ROC-AUC, PR-AUC and Brier score, each with a bootstrap 95% CI
+- repeated-CV mean and standard deviation for the same family of metrics
+- validation-tuned F1 and Youden thresholds evaluated on test
 
 ### 5) Implementation
-The workflow is implemented in Python using `pandas`, `scikit-learn`, and `xgboost`.
+The workflow is implemented in Python using `pandas`, `scikit-learn`, `xgboost`, `scipy` and PyTorch. Every stage is a subcommand of a single command-line entry point, `heart-pipeline` (`run_pipeline.py`), and runs in one process; CV folds, ensemble fits and LOCO centers run in parallel across CPU cores, with each fold trained single-threaded so that results do not depend on the number of workers.
 
-For the neural network component, PyTorch is used with explicit autograd-driven optimization. A dedicated validation script (`validate_scratch_mlp.py`) verifies three implementation-level correctness criteria: output tensor shape, non-zero gradient flow through model parameters, and parameter updates after one optimizer step.
+For the neural network component, PyTorch is used with explicit autograd-driven optimization. A dedicated validation script (`validate_scratch_mlp.py`) verifies three implementation-level correctness criteria: output tensor shape, non-zero gradient flow through model parameters, and parameter updates after one optimizer step. The repository's pytest suite (81 tests) covers leakage controls, metric implementations (including a brute-force check of the DeLong variance), seeding and end-to-end runs.
 
-Primary scripts:
-- `mimic_prepare_dataset.py`
-- `mimic_train_baselines.py`
+Primary commands:
+- `heart-pipeline` (full heart pipeline on the 918-patient cohort)
+- `heart-pipeline prepare-mimic` and `heart-pipeline mimic-baselines` (MIMIC demonstration)
+- `heart-pipeline compare-models` (paired DeLong tests)
+- `heart-pipeline update-thesis --task all` (regenerates the auto-generated blocks of this document)
 
 Generated artifacts:
-- `mimic_hospital_mortality.csv`
-- `artifacts/mimic_baseline_comparison.csv`
-- `artifacts/mimic_baseline_comparison.md`
+- `data/processed/cleaned_heart_disease_combined.csv`, `data/processed/mimic_hospital_mortality.csv`
+- `artifacts/baseline_comparison.csv`, `artifacts/mlp_holdout_summary.csv`, `artifacts/reading_list_advancements_summary.csv`
+- `artifacts/model_comparison.csv`, `artifacts/mimic_baseline_comparison.csv`
+- `artifacts/cleveland/` (Cleveland-only sensitivity analysis)
 
 ## Results and Discussion
 
@@ -362,30 +374,30 @@ The best-ranked model by PR-AUC is **XGBoost** (PR-AUC=0.3840). This ranking sho
 ## Heart Disease Baseline Results
 
 ### 1) Cohort Summary (Auto-generated)
-- Number of samples: 302
-- Positive class prevalence (heart disease): 45.70%
-- Mean age: 54.42 ± 9.05
+- Number of samples: 918
+- Positive class prevalence (heart disease): 55.34%
+- Mean age: 53.51 ± 9.43
 
 ### 2) Baseline Model Performance (Auto-generated)
 **Table Y. Baseline performance for heart disease prediction.**
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | test_accuracy_ci_low | test_accuracy_ci_high | test_f1_ci_low | test_f1_ci_high | test_roc_auc_ci_low | test_roc_auc_ci_high | test_pr_auc_ci_low | test_pr_auc_ci_high | test_brier_score_ci_low | test_brier_score_ci_high | cv_accuracy_mean | cv_accuracy_std | cv_f1_mean | cv_f1_std | cv_roc_auc_mean | cv_roc_auc_std | cv_pr_auc_mean | cv_pr_auc_std | cv_brier_mean | cv_brier_std | cv_n_folds_total |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.7869 | 0.7636 | 0.8853 | 0.8750 | 0.1351 | 0.4766 | 0.7857 | 0.4766 | 0.6039 | 0.6885 | 0.8852 | 0.6415 | 0.8772 | 0.7976 | 0.9589 | 0.7809 | 0.9582 | 0.0812 | 0.1923 | 0.8111 | 0.0856 | 0.7798 | 0.1029 | 0.8803 | 0.0545 | 0.8813 | 0.0507 | 0.1385 | 0.0418 | 15.0000 |
-| XGBoost | 0.8033 | 0.8000 | 0.8788 | 0.8708 | 0.1470 | 0.5455 | 0.7797 | 0.5455 | 0.5790 | 0.7049 | 0.9016 | 0.7000 | 0.8966 | 0.7922 | 0.9513 | 0.7842 | 0.9480 | 0.0910 | 0.2064 | 0.8204 | 0.0694 | 0.7956 | 0.0830 | 0.8897 | 0.0608 | 0.9006 | 0.0575 | 0.1358 | 0.0516 | 15.0000 |
-| Random Forest | 0.8033 | 0.7931 | 0.8761 | 0.8690 | 0.1442 | 0.5275 | 0.7500 | 0.5275 | 0.5379 | 0.7049 | 0.9016 | 0.6800 | 0.8966 | 0.7879 | 0.9513 | 0.7813 | 0.9494 | 0.0967 | 0.1922 | 0.8352 | 0.0637 | 0.8053 | 0.0810 | 0.9106 | 0.0484 | 0.9152 | 0.0464 | 0.1209 | 0.0310 | 15.0000 |
+| XGBoost | 0.8315 | 0.8517 | 0.9094 | 0.9242 | 0.1212 | 0.4692 | 0.8545 | 0.5229 | 0.6676 | 0.7772 | 0.8859 | 0.8060 | 0.8986 | 0.8666 | 0.9474 | 0.8835 | 0.9581 | 0.0944 | 0.1480 | 0.8109 | 0.0303 | 0.8305 | 0.0277 | 0.8781 | 0.0225 | 0.8781 | 0.0197 | 0.1387 | 0.0147 | 15.0000 |
+| Random Forest | 0.8152 | 0.8396 | 0.9002 | 0.9156 | 0.1302 | 0.4289 | 0.8288 | 0.6431 | 0.5791 | 0.7609 | 0.8696 | 0.7924 | 0.8846 | 0.8559 | 0.9394 | 0.8737 | 0.9516 | 0.1072 | 0.1539 | 0.8164 | 0.0294 | 0.8374 | 0.0252 | 0.8768 | 0.0250 | 0.8709 | 0.0332 | 0.1426 | 0.0114 | 15.0000 |
+| Logistic Regression | 0.8043 | 0.8269 | 0.8841 | 0.9119 | 0.1371 | 0.5081 | 0.8309 | 0.5081 | 0.6114 | 0.7446 | 0.8641 | 0.7742 | 0.8774 | 0.8348 | 0.9291 | 0.8706 | 0.9474 | 0.1075 | 0.1662 | 0.8012 | 0.0281 | 0.8221 | 0.0236 | 0.8709 | 0.0218 | 0.8818 | 0.0191 | 0.1426 | 0.0154 | 15.0000 |
 
 ### 3) Interpretation of Findings (Auto-generated)
-The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8853).
+The best-ranked model by ROC-AUC is **XGBoost** (ROC-AUC=0.9094).
 
 ### 4) Clinical Calibration & Threshold Metrics (Auto-generated)
 **Table Y-B. Calibration and threshold tuning metrics for heart disease prediction.**
 
 | model | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j |
 | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.8750 | 0.1351 | 0.4766 | 0.7857 | 0.4766 | 0.6039 |
-| XGBoost | 0.8708 | 0.1470 | 0.5455 | 0.7797 | 0.5455 | 0.5790 |
-| Random Forest | 0.8690 | 0.1442 | 0.5275 | 0.7500 | 0.5275 | 0.5379 |
+| XGBoost | 0.9242 | 0.1212 | 0.4692 | 0.8545 | 0.5229 | 0.6676 |
+| Random Forest | 0.9156 | 0.1302 | 0.4289 | 0.8288 | 0.6431 | 0.5791 |
+| Logistic Regression | 0.9119 | 0.1371 | 0.5081 | 0.8309 | 0.5081 | 0.6114 |
 
 **Note:** Brier Score measures calibration quality (lower is better, 0 = perfect). PR-AUC summarizes the precision-recall trade-off. Optimal thresholds are computed via F1-maximization and Youden's J statistic.
 
@@ -398,29 +410,29 @@ The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8853).
 ## Heart Disease EDA Findings
 
 ### 1) Data Quality Summary (Auto-generated)
-- Features with missing values: 0
-- Maximum missingness in any feature: 0.00%
+- Features with missing values: 10
+- Maximum missingness in any feature: 66.34%
 
 ### 2) Outlier Summary (Top 5, Auto-generated)
-- ca: 7.95% outliers
-- trestbps: 2.98% outliers
-- oldpeak: 1.66% outliers
-- chol: 1.66% outliers
-- thal: 0.66% outliers
+- cp: 5.01% outliers
+- trestbps: 2.94% outliers
+- chol: 2.51% outliers
+- ca: 2.18% outliers
+- oldpeak: 1.74% outliers
 
 ### 3) Correlation with Target (Top 5 by |Pearson|, Auto-generated)
-- exang: Pearson r = 0.4356
-- cp: Pearson r = -0.4321
-- oldpeak: Pearson r = 0.4291
-- thalach: Pearson r = -0.4200
-- ca: Pearson r = 0.4090
+- thal: Pearson r = 0.4985
+- cp: Pearson r = 0.4714
+- exang: Pearson r = 0.4624
+- ca: Pearson r = 0.4556
+- thalach: Pearson r = -0.3934
 
 ### 4) Class Separation (Top 5 by |Cohen's d|, Auto-generated)
-- exang: Cohen's d = 0.9682
-- cp: Cohen's d = -0.9586
-- oldpeak: Cohen's d = 0.9506
-- thalach: Cohen's d = -0.9258
-- ca: Cohen's d = 0.8967
+- thal: Cohen's d = 1.1586
+- cp: Cohen's d = 1.0739
+- exang: Cohen's d = 1.0467
+- ca: Cohen's d = 1.0227
+- thalach: Cohen's d = -0.8587
 <!-- AUTO_HEART_EDA_END -->
 
 <!-- AUTO_SHAP_START -->
@@ -428,53 +440,53 @@ The best-ranked model by ROC-AUC is **Logistic Regression** (ROC-AUC=0.8853).
 
 This section presents feature importance analysis using SHAP (SHapley Additive exPlanations). SHAP values quantify each feature's contribution to individual predictions, providing both global and local model interpretability.
 
-### Random Forest — Mimic Dataset
+### Random Forest — Heart Dataset
 
 **Top 5 Most Important Features (Random Forest):**
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | cat__gender_M | 0.0559 |
-| 2 | cat__gender_F | 0.0522 |
-| 3 | num__days_since_last_discharge | 0.0441 |
-| 4 | num__ed_los_hours | 0.0344 |
-| 5 | cat__insurance_Other | 0.0342 |
+| 1 | num__cp | 0.1304 |
+| 2 | num__exang | 0.0764 |
+| 3 | num__oldpeak | 0.0537 |
+| 4 | num__thalach | 0.0523 |
+| 5 | num__age | 0.0493 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
-![SHAP Summary — Random Forest](artifacts/figures/mimic_random_forest_shap_summary.png)
+![SHAP Summary — Random Forest](artifacts/figures/heart_random_forest_shap_summary.png)
 
 **Local Explanation — Highest-Risk Patient:**
 
-![Waterfall High Risk — Random Forest](artifacts/figures/mimic_random_forest_shap_waterfall_high_risk.png)
+![Waterfall High Risk — Random Forest](artifacts/figures/heart_random_forest_shap_waterfall_high_risk.png)
 
 **Local Explanation — Lowest-Risk Patient:**
 
-![Waterfall Low Risk — Random Forest](artifacts/figures/mimic_random_forest_shap_waterfall_low_risk.png)
+![Waterfall Low Risk — Random Forest](artifacts/figures/heart_random_forest_shap_waterfall_low_risk.png)
 
-### Xgboost — Mimic Dataset
+### Xgboost — Heart Dataset
 
 **Top 5 Most Important Features (Xgboost):**
 
 | Rank | Feature | Mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | num__days_since_last_discharge | 0.9346 |
-| 2 | num__ed_los_hours | 0.8778 |
-| 3 | num__age_at_admission | 0.6274 |
-| 4 | num__prior_diag_count | 0.5459 |
-| 5 | cat__gender_F | 0.5403 |
+| 1 | num__cp | 0.7818 |
+| 2 | num__oldpeak | 0.3332 |
+| 3 | num__exang | 0.3183 |
+| 4 | num__age | 0.2960 |
+| 5 | num__sex | 0.2806 |
 
 **Global Feature Importance (Beeswarm Plot):**
 
-![SHAP Summary — Xgboost](artifacts/figures/mimic_xgboost_shap_summary.png)
+![SHAP Summary — Xgboost](artifacts/figures/heart_xgboost_shap_summary.png)
 
 **Local Explanation — Highest-Risk Patient:**
 
-![Waterfall High Risk — Xgboost](artifacts/figures/mimic_xgboost_shap_waterfall_high_risk.png)
+![Waterfall High Risk — Xgboost](artifacts/figures/heart_xgboost_shap_waterfall_high_risk.png)
 
 **Local Explanation — Lowest-Risk Patient:**
 
-![Waterfall Low Risk — Xgboost](artifacts/figures/mimic_xgboost_shap_waterfall_low_risk.png)
+![Waterfall Low Risk — Xgboost](artifacts/figures/heart_xgboost_shap_waterfall_low_risk.png)
 
 <!-- AUTO_SHAP_END -->
 
@@ -491,30 +503,27 @@ This section consolidates all practical notes used during model development and 
 
 ### 2) Cross-Validation Notes for the MLP
 
-- The training workflow now includes stratified K-fold cross-validation for the MLP (`--cv-folds`, default 5).
-- Fold-level metrics are exported to:
-	- `artifacts/mlp_cv_fold_metrics_sgd.csv`
-	- `artifacts/mlp_cv_fold_metrics_adam.csv`
-- Aggregated CV summary metrics (mean/std) are exported to:
-	- `artifacts/mlp_cv_summary.csv`
-- In addition to CV, a holdout train/validation/test protocol is retained for final checkpoint and confusion-matrix reporting.
+- The MLP is evaluated with repeated stratified K-fold cross-validation (`--cv-folds 5 --cv-repeats 3`).
+- Inside each fold, a separate stratified split of the training portion is used for early stopping, so the scored fold is never used to pick the stopping epoch (an earlier version early-stopped on the scored fold, which made CV scores optimistic).
+- Each fold has its own seed, so the results do not depend on the order in which folds run.
+- Fold-level metrics are exported to `artifacts/mlp_cv_fold_metrics_{sgd,adam}.csv`, the CV summary to `artifacts/mlp_cv_summary.csv` and holdout metrics with 95% CIs to `artifacts/mlp_holdout_summary.csv`.
+- The reported "best optimizer" is the one with the lower validation loss; the test split is not consulted.
 
 ### 3) Overfitting Analysis: Smaller vs Larger Networks
 
-To analyze overfitting behavior as network capacity changes, a dedicated architecture-size analysis was run (`analyze_overfitting_network_size.py`) comparing small, base, and large hidden-layer settings.
+To analyze overfitting behavior as network capacity changes, a dedicated architecture-size analysis was run (`heart-pipeline overfit`, 918-patient cohort, Adam, 40 epochs, 3-fold CV) comparing small, base, and large hidden-layer settings.
 
 **Table Z. Overfitting analysis by network size (sorted by generalization gap = Best Validation Accuracy - Test Accuracy).**
 
 | model | hidden dims | best val acc | test acc | generalization gap | cv acc mean ± std |
 | --- | --- | --- | --- | --- | --- |
-| small | 16,8 | 0.6939 | 0.6066 | +0.0873 | 0.5767 ± 0.0101 |
-| base | 64,32 | 0.7755 | 0.7049 | +0.0706 | 0.7261 ± 0.0094 |
-| large | 128,64 | 0.6531 | 0.7541 | -0.1010 | 0.7801 ± 0.0051 |
+| large | 128,64 | 0.8027 | 0.7880 | +0.0147 | 0.7816 ± 0.0491 |
+| small | 32,16 | 0.8027 | 0.7989 | +0.0038 | 0.7866 ± 0.0340 |
+| base | 64,32 | 0.8095 | 0.8098 | -0.0003 | 0.7893 ± 0.0304 |
 
 Interpretation note:
-- Positive gap indicates validation performance above holdout test performance and can suggest overfitting risk.
-- Negative gap indicates holdout test performance exceeds validation performance in that run and suggests no overfitting signal under the tested setting.
-- These values should be interpreted with run configuration (epoch budget, folds, and random seed) and repeated experiments when reporting final conclusions.
+- All three gaps are within about 1.5 accuracy points, i.e. one to three of 184 test patients, so no architecture shows a clear overfitting signal at this budget; the larger network's final train/validation loss gap is the widest (see `artifacts/overfitting_by_network_size.md`).
+- Validation and test accuracies are single-split estimates; the CV column is the more stable comparison.
 
 ### 4) Separate-Run Comparison Workflow Notes
 
@@ -535,6 +544,13 @@ The thesis results are connected to reproducible artifacts:
 - Baseline comparisons:
 	- `artifacts/baseline_comparison.csv`
 	- `artifacts/mimic_baseline_comparison.csv`
+- Uncertainty and comparison:
+	- `artifacts/mlp_holdout_summary.csv` and the `_ci_low`/`_ci_high` columns of every comparison table (bootstrap 95% CIs)
+	- `artifacts/model_comparison.csv` (paired DeLong tests)
+	- `artifacts/hyperparameter_search_*.csv` (every configuration tried)
+	- `artifacts/test_predictions/*.csv` (per-patient test probabilities)
+- Sensitivity analysis:
+	- `artifacts/cleveland/` (the same benchmarks on the Cleveland-only cohort)
 - EDA summaries:
 	- `artifacts/eda_missingness.csv`
 	- `artifacts/eda_outliers_iqr.csv`
@@ -558,16 +574,18 @@ To maximize discriminative power and clinical reliability, we integrated domain-
 
 | model | test_accuracy | test_f1 | test_roc_auc | test_pr_auc | test_brier_score | optimal_threshold_f1 | f1_at_optimal_threshold | optimal_threshold_youden | youden_j | test_accuracy_ci_low | test_accuracy_ci_high | test_f1_ci_low | test_f1_ci_high | test_roc_auc_ci_low | test_roc_auc_ci_high | test_pr_auc_ci_low | test_pr_auc_ci_high | test_brier_score_ci_low | test_brier_score_ci_high |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PyTorch MLP | 0.8361 | 0.8214 | 0.9221 | 0.9079 | 0.1214 | 0.5076 | 0.8214 | 0.5076 | 0.6699 | 0.7377 | 0.9180 | 0.7037 | 0.9153 | 0.8517 | 0.9751 | 0.8283 | 0.9724 | 0.0634 | 0.1883 |
-| Hybrid Soft-Voting Ensemble | 0.8361 | 0.8148 | 0.9145 | 0.8991 | 0.1238 | 0.3650 | 0.7797 | 0.6218 | 0.6288 | 0.7377 | 0.9180 | 0.6938 | 0.9123 | 0.8377 | 0.9729 | 0.8192 | 0.9693 | 0.0745 | 0.1789 |
-| Logistic Regression | 0.7869 | 0.7636 | 0.9026 | 0.8964 | 0.1345 | 0.4880 | 0.7636 | 0.4880 | 0.5682 | 0.6885 | 0.8852 | 0.6415 | 0.8772 | 0.8203 | 0.9676 | 0.8218 | 0.9651 | 0.0774 | 0.1953 |
-| Hybrid Stacking Ensemble (Ours) | 0.7869 | 0.7636 | 0.9004 | 0.8843 | 0.1347 | 0.4772 | 0.7857 | 0.4772 | 0.6039 | 0.6721 | 0.8852 | 0.6400 | 0.8772 | 0.8171 | 0.9654 | 0.7978 | 0.9601 | 0.0816 | 0.1938 |
-| Random Forest | 0.8197 | 0.8000 | 0.8907 | 0.8831 | 0.1372 | 0.5194 | 0.8148 | 0.5194 | 0.6645 | 0.7213 | 0.9016 | 0.6792 | 0.9000 | 0.8084 | 0.9611 | 0.8009 | 0.9602 | 0.0919 | 0.1853 |
-| XGBoost | 0.7869 | 0.7797 | 0.8810 | 0.8660 | 0.1552 | 0.5259 | 0.7719 | 0.5259 | 0.5736 | 0.6721 | 0.8852 | 0.6664 | 0.8814 | 0.7824 | 0.9567 | 0.7630 | 0.9529 | 0.0883 | 0.2293 |
+| XGBoost | 0.8478 | 0.8692 | 0.9075 | 0.9200 | 0.1196 | 0.4260 | 0.8624 | 0.5817 | 0.6480 | 0.7989 | 0.8913 | 0.8269 | 0.9073 | 0.8624 | 0.9456 | 0.8807 | 0.9546 | 0.0940 | 0.1469 |
+| Hybrid Stacking Ensemble (Ours) | 0.7826 | 0.8058 | 0.9004 | 0.9155 | 0.1312 | 0.3717 | 0.8402 | 0.5192 | 0.5478 | 0.7228 | 0.8371 | 0.7500 | 0.8572 | 0.8538 | 0.9401 | 0.8755 | 0.9508 | 0.1037 | 0.1598 |
+| Hybrid Soft-Voting Ensemble | 0.7880 | 0.8098 | 0.9003 | 0.9156 | 0.1277 | 0.3930 | 0.8349 | 0.5376 | 0.5600 | 0.7283 | 0.8424 | 0.7537 | 0.8600 | 0.8544 | 0.9400 | 0.8749 | 0.9504 | 0.1017 | 0.1541 |
+| Random Forest | 0.7880 | 0.8116 | 0.8973 | 0.9128 | 0.1324 | 0.5325 | 0.8098 | 0.5514 | 0.5820 | 0.7337 | 0.8424 | 0.7565 | 0.8612 | 0.8531 | 0.9362 | 0.8709 | 0.9490 | 0.1100 | 0.1560 |
+| Logistic Regression | 0.8098 | 0.8309 | 0.8853 | 0.9065 | 0.1369 | 0.4325 | 0.8302 | 0.5526 | 0.5746 | 0.7554 | 0.8641 | 0.7822 | 0.8812 | 0.8358 | 0.9310 | 0.8605 | 0.9478 | 0.1075 | 0.1667 |
+| PyTorch MLP | 0.7880 | 0.8116 | 0.8767 | 0.8774 | 0.1419 | 0.3955 | 0.8357 | 0.4088 | 0.6043 | 0.7283 | 0.8425 | 0.7549 | 0.8626 | 0.8227 | 0.9250 | 0.8169 | 0.9334 | 0.1081 | 0.1773 |
 
 ### 3) Key Findings (Auto-generated)
-- The top-performing configuration achieves a test ROC-AUC of **0.9221** (PyTorch MLP).
-- The hybrid ensembles deliver robust test PR-AUC (>0.94) and low Brier scores, demonstrating that blending non-linear tree ensembles with continuous neural representations reduces variance and improves calibration.
+- The highest test ROC-AUC is **0.9075** (XGBoost).
+- **Hybrid Stacking Ensemble (Ours):** ROC-AUC 0.900 (-0.007 vs the best base model, XGBoost), Brier 0.131 vs 0.120; its 95% CI [0.854, 0.940] overlaps that of XGBoost.
+- **Hybrid Soft-Voting Ensemble:** ROC-AUC 0.900 (-0.007 vs the best base model, XGBoost), Brier 0.128 vs 0.120; its 95% CI [0.854, 0.940] overlaps that of XGBoost.
+- Paired DeLong tests for all models on the same test patients are reported in Table R-1b (`artifacts/model_comparison.csv`).
 <!-- AUTO_ENSEMBLE_END -->
 
 
@@ -588,36 +606,40 @@ In each iteration, the model is trained strictly on three hospital cohorts (with
 
 | test_center | Ensemble (Transfer) | Logistic Regression | Random Forest | XGBoost | mean_roc_auc |
 | --- | --- | --- | --- | --- | --- |
-| cleveland | 0.8411 | 0.5833 | 0.8626 | 0.8406 | 0.7819 |
-| hungarian | 0.8761 | 0.8588 | 0.8696 | 0.8676 | 0.8680 |
-| switzerland | 0.7065 | 0.6359 | 0.7239 | 0.7147 | 0.6952 |
-| va_long_beach | 0.6930 | 0.7085 | 0.6848 | 0.6716 | 0.6895 |
+| cleveland | 0.8171 | 0.6014 | 0.8622 | 0.8147 | 0.7738 |
+| hungarian | 0.8732 | 0.8819 | 0.8608 | 0.8510 | 0.8667 |
+| switzerland | 0.7065 | 0.6315 | 0.7511 | 0.7163 | 0.7014 |
+| va_long_beach | 0.7201 | 0.7373 | 0.7141 | 0.6919 | 0.7158 |
 
 ### 3) Complete Metric Breakdown (Auto-generated)
 **Table L-2. Complete metric breakdown per center and model.**
 
 | test_center | model | train_size | test_size | transfer_accuracy | transfer_f1 | transfer_roc_auc | transfer_pr_auc | transfer_brier |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| cleveland | Logistic Regression | 615.0000 | 303.0000 | 0.6205 | 0.4601 | 0.5833 | 0.5823 | 0.3019 |
-| cleveland | Random Forest | 615.0000 | 303.0000 | 0.7822 | 0.7591 | 0.8626 | 0.8577 | 0.1600 |
-| cleveland | XGBoost | 615.0000 | 303.0000 | 0.7492 | 0.7324 | 0.8406 | 0.8259 | 0.1659 |
-| cleveland | Ensemble (Transfer) | 615.0000 | 303.0000 | 0.7921 | 0.7586 | 0.8411 | 0.7868 | 0.1680 |
-| hungarian | Logistic Regression | 625.0000 | 293.0000 | 0.7918 | 0.7336 | 0.8588 | 0.8226 | 0.1526 |
-| hungarian | Random Forest | 625.0000 | 293.0000 | 0.7099 | 0.6931 | 0.8696 | 0.8044 | 0.1930 |
-| hungarian | XGBoost | 625.0000 | 293.0000 | 0.7713 | 0.7287 | 0.8676 | 0.7749 | 0.1572 |
-| hungarian | Ensemble (Transfer) | 625.0000 | 293.0000 | 0.7747 | 0.7317 | 0.8761 | 0.8228 | 0.1601 |
-| switzerland | Logistic Regression | 795.0000 | 123.0000 | 0.5691 | 0.7072 | 0.6359 | 0.9502 | 0.2671 |
-| switzerland | Random Forest | 795.0000 | 123.0000 | 0.6911 | 0.8061 | 0.7239 | 0.9686 | 0.1867 |
-| switzerland | XGBoost | 795.0000 | 123.0000 | 0.6504 | 0.7749 | 0.7147 | 0.9581 | 0.2187 |
-| switzerland | Ensemble (Transfer) | 795.0000 | 123.0000 | 0.6423 | 0.7684 | 0.7065 | 0.9632 | 0.2189 |
-| va_long_beach | Logistic Regression | 719.0000 | 199.0000 | 0.7136 | 0.8055 | 0.7085 | 0.8678 | 0.1868 |
-| va_long_beach | Random Forest | 719.0000 | 199.0000 | 0.6683 | 0.7643 | 0.6848 | 0.8443 | 0.2031 |
-| va_long_beach | XGBoost | 719.0000 | 199.0000 | 0.6432 | 0.7341 | 0.6716 | 0.8305 | 0.2201 |
-| va_long_beach | Ensemble (Transfer) | 719.0000 | 199.0000 | 0.6884 | 0.7801 | 0.6930 | 0.8481 | 0.1972 |
+| cleveland | Logistic Regression | 615.0000 | 303.0000 | 0.6205 | 0.5228 | 0.6014 | 0.5911 | 0.2865 |
+| cleveland | Random Forest | 615.0000 | 303.0000 | 0.7327 | 0.7429 | 0.8622 | 0.8532 | 0.1674 |
+| cleveland | XGBoost | 615.0000 | 303.0000 | 0.6799 | 0.7034 | 0.8147 | 0.7991 | 0.1925 |
+| cleveland | Ensemble (Transfer) | 615.0000 | 303.0000 | 0.7360 | 0.7351 | 0.8171 | 0.7596 | 0.1790 |
+| hungarian | Logistic Regression | 625.0000 | 293.0000 | 0.7474 | 0.7218 | 0.8819 | 0.8463 | 0.1796 |
+| hungarian | Random Forest | 625.0000 | 293.0000 | 0.7235 | 0.7076 | 0.8608 | 0.7793 | 0.2038 |
+| hungarian | XGBoost | 625.0000 | 293.0000 | 0.7406 | 0.7099 | 0.8510 | 0.7551 | 0.1827 |
+| hungarian | Ensemble (Transfer) | 625.0000 | 293.0000 | 0.7509 | 0.7245 | 0.8732 | 0.8073 | 0.1827 |
+| switzerland | Logistic Regression | 795.0000 | 123.0000 | 0.6504 | 0.7772 | 0.6315 | 0.9493 | 0.2317 |
+| switzerland | Random Forest | 795.0000 | 123.0000 | 0.6504 | 0.7749 | 0.7511 | 0.9712 | 0.1993 |
+| switzerland | XGBoost | 795.0000 | 123.0000 | 0.6423 | 0.7708 | 0.7163 | 0.9635 | 0.2160 |
+| switzerland | Ensemble (Transfer) | 795.0000 | 123.0000 | 0.6748 | 0.7959 | 0.7065 | 0.9641 | 0.2113 |
+| va_long_beach | Logistic Regression | 719.0000 | 199.0000 | 0.7337 | 0.8239 | 0.7373 | 0.8742 | 0.1692 |
+| va_long_beach | Random Forest | 719.0000 | 199.0000 | 0.7387 | 0.8231 | 0.7141 | 0.8674 | 0.1882 |
+| va_long_beach | XGBoost | 719.0000 | 199.0000 | 0.7186 | 0.8028 | 0.6919 | 0.8422 | 0.2054 |
+| va_long_beach | Ensemble (Transfer) | 719.0000 | 199.0000 | 0.7387 | 0.8231 | 0.7201 | 0.8642 | 0.1813 |
 
 ### 4) Clinical Generalizability Analysis (Auto-generated)
-- **High Generalizability:** Models transfer strongly between the Cleveland and Hungarian cohorts (ROC-AUC 0.85–0.88), indicating stable diagnostic feature relationships across these patient populations.
-- **Domain Shift Vulnerability:** When tested on Zurich (Switzerland) and Long Beach VA (which suffer from high missingness and higher disease prevalence), linear models degrade sharply, whereas non-linear ensembles demonstrate superior robustness.
+- **Easiest / hardest unseen center:** hungarian (mean ROC-AUC 0.867) vs switzerland (0.701).
+- **cleveland:** best transfer by Random Forest (0.862), worst by Logistic Regression (0.601).
+- **hungarian:** best transfer by Logistic Regression (0.882), worst by XGBoost (0.851).
+- **switzerland:** best transfer by Random Forest (0.751), worst by Logistic Regression (0.632).
+- **va_long_beach:** best transfer by Logistic Regression (0.737), worst by XGBoost (0.692).
+- No single model family transfers best at every center, so robustness to hospital shift is center-specific rather than a property of linear vs. non-linear models.
 <!-- AUTO_LOCO_END -->
 
 
@@ -634,17 +656,17 @@ Clinical algorithms must not propagate or amplify historical disparities across 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 184.0000 | 55.4348 | 0.8533 | 0.8696 | 0.9280 | 0.8824 | 0.8171 | 0.1176 | 0.1829 | 0.5707 |
-| Female Patients (sex=0) | 35.0000 | 22.8571 | 0.9143 | 0.8000 | 0.8935 | 0.7500 | 0.9630 | 0.2500 | 0.0370 | 0.2000 |
-| Male Patients (sex=1) | 149.0000 | 63.0872 | 0.8389 | 0.8750 | 0.9195 | 0.8936 | 0.7455 | 0.1064 | 0.2545 | 0.6577 |
-| Younger (<50 yrs) | 59.0000 | 42.3729 | 0.8644 | 0.8182 | 0.9694 | 0.7200 | 0.9706 | 0.2800 | 0.0294 | 0.3220 |
-| Middle-aged (50-64 yrs) | 104.0000 | 57.6923 | 0.8462 | 0.8769 | 0.9170 | 0.9500 | 0.7045 | 0.0500 | 0.2955 | 0.6731 |
-| Senior (>=65 yrs) | 21.0000 | 80.9524 | 0.8571 | 0.9091 | 0.9265 | 0.8824 | 0.7500 | 0.1176 | 0.2500 | 0.7619 |
+| All Patients | 184.0000 | 55.4348 | 0.8478 | 0.8692 | 0.9075 | 0.9118 | 0.7683 | 0.0882 | 0.2317 | 0.6087 |
+| Female Patients (sex=0) | 35.0000 | 22.8571 | 0.8857 | 0.7500 | 0.9213 | 0.7500 | 0.9259 | 0.2500 | 0.0741 | 0.2286 |
+| Male Patients (sex=1) | 149.0000 | 63.0872 | 0.8389 | 0.8788 | 0.8870 | 0.9255 | 0.6909 | 0.0745 | 0.3091 | 0.6980 |
+| Younger (<50 yrs) | 59.0000 | 42.3729 | 0.8983 | 0.8750 | 0.9482 | 0.8400 | 0.9412 | 0.1600 | 0.0588 | 0.3898 |
+| Middle-aged (50-64 yrs) | 104.0000 | 57.6923 | 0.8269 | 0.8636 | 0.8807 | 0.9500 | 0.6591 | 0.0500 | 0.3409 | 0.6923 |
+| Senior (>=65 yrs) | 21.0000 | 80.9524 | 0.8095 | 0.8824 | 0.9118 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
 
 ### 3) Key Demographic Disparity Findings (Auto-generated)
-- **Equal Opportunity Difference (Sex):** `0.1436` (Sensitivity: Male = `89.4%`, Female = `75.0%`).
-- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`25.0%`) compared to male patients (`10.6%`).
-- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.9694`) and senior (>=65 yrs, ROC-AUC `0.9265`) cohorts.
+- **Equal Opportunity Difference (Sex):** `0.1755` (Sensitivity: Male = `92.6%`, Female = `75.0%`).
+- **Clinical Risk Asymmetry (False Negative Rate):** Sick female patients experience a higher underdiagnosis rate (`25.0%`) compared to male patients (`7.4%`).
+- **Age Bracket Robustness:** High discrimination is maintained across younger (<50 yrs, ROC-AUC `0.9482`) and senior (>=65 yrs, ROC-AUC `0.9118`) cohorts.
 
 ### 4) Fairness Disparity Visualization (Auto-generated)
 
@@ -669,9 +691,9 @@ A key limitation of standard tabular feature engineering is that disease diagnos
 Although tree-based ensembles (XGBoost, Random Forest) demonstrated robust discrimination across our experiments, **TabTransformer** (Huang et al., 2020) illustrates that applying Transformer self-attention (Vaswani et al., 2017) over categorical feature embeddings enhances robustness in scenarios characterized by high feature missingness and corruption. Integrating a TabTransformer backbone into the hospital mortality pipeline represents a natural neural advancement over basic MLPs.
 
 ### 4) Uncertainty Quantification & Clinical Deployment (Lakshminarayanan et al., 2017; Guo et al., 2017; Angelopoulos & Bates, 2021)
-Deterministic point predictions can be hazardous in clinical triage when models encounter atypical cases or out-of-distribution physiological data. As demonstrated by Guo et al. (2017), uncalibrated neural networks frequently output overconfident probabilities. Incorporating ensemble-based predictive uncertainty quantification (Lakshminarayanan et al., 2017) provides clinicians not only with a calibrated risk score, but also with an explicit epistemic uncertainty bound (averaging $\sigma^2_{\text{epistemic}} = 0.0144$ across holdout patients in our Deep Ensemble), alerting medical teams when model confidence is insufficient to guide critical interventions.
+Deterministic point predictions can be hazardous in clinical triage when models encounter atypical cases or out-of-distribution physiological data. As demonstrated by Guo et al. (2017), uncalibrated neural networks frequently output overconfident probabilities. Incorporating ensemble-based predictive uncertainty quantification (Lakshminarayanan et al., 2017) provides clinicians not only with a calibrated risk score, but also with an explicit epistemic uncertainty bound (averaging $\sigma^2_{\text{epistemic}} = 0.0049$ across the 184 holdout patients in our Deep Ensemble), alerting medical teams when model confidence is insufficient to guide critical interventions.
 
-To transition from heuristic uncertainty bounds to rigorous finite-sample safety guarantees, this work implements **Split and Mondrian (Class-Conditional) Conformal Prediction** (Angelopoulos & Bates, 2021). Operating strictly distribution-free under exchangeability, Mondrian conformal prediction calibrates class-specific non-conformity quantiles $\hat{q}_{1-\alpha}^{y}$ on the validation holdout to generate prediction sets $\mathcal{C}_{1-\alpha}(X) \subseteq \{0, 1\}$ that satisfy exact marginal and class-conditional coverage:
+To transition from heuristic uncertainty bounds to rigorous finite-sample safety guarantees, this work implements **Split and Mondrian (Class-Conditional) Conformal Prediction** (Angelopoulos & Bates, 2021). Operating strictly distribution-free under exchangeability, Mondrian conformal prediction calibrates class-specific non-conformity quantiles $\hat{q}_{1-\alpha}^{y}$ on the validation holdout to generate prediction sets $\mathcal{C}_{1-\alpha}(X) \subseteq \{0, 1\}$ that satisfy marginal and class-conditional coverage in expectation over calibration draws, provided calibration and test scores come from the same model output (here, the uncalibrated MLP probabilities; an earlier version calibrated on raw probabilities and evaluated on temperature-scaled ones, which voids the guarantee):
 
 $$
 P\left(Y \in \mathcal{C}_{1-\alpha}(X) \mid Y = y\right) \ge 1 - \alpha, \quad \forall y \in \{0, 1\}.
@@ -683,14 +705,14 @@ This formulation establishes a principled three-zone **Automated Clinical Triage
 - **Ambiguous Deferral ($\mathcal{C}_{1-\alpha}(x) = \{0, 1\}$):** Model abstains from autonomous decision-making and flags the patient for specialist human review.
 
 #### Conformal Efficiency–Coverage Trade-Off Analysis ($\alpha \in \{0.05, 0.10, 0.15\}$)
-A critical operational challenge in clinical conformal prediction is balancing statistical coverage against the clinical workload of ambiguous deferrals (set size $|\mathcal{C}_{1-\alpha}(x)| = 2$). At a strict nominal miscoverage rate of $\alpha = 0.10$ ($90\%$ target guarantee), Mondrian conformal prediction achieves **$91.80\%$ empirical test coverage** ($100.0\%$ coverage on positive disease cases and $84.85\%$ on healthy controls), with an average prediction set size of $1.574$ and a clinician abstention rate of $57.4\%$.
+A critical operational challenge in clinical conformal prediction is balancing statistical coverage against the clinical workload of ambiguous deferrals (set size $|\mathcal{C}_{1-\alpha}(x)| = 2$). At $\alpha = 0.10$ ($90\%$ target), Mondrian conformal prediction achieves **$88.6\%$ empirical test coverage** ($87.3\%$ on disease cases and $90.2\%$ on healthy controls) with an average set size of $1.255$ and a deferral rate of $25.5\%$. The shortfall of 1.4 points is within the finite-sample variation expected for a 184-patient validation set used for calibration.
 
-To optimize clinical workflow efficiency without compromising patient safety, we evaluated the conformal triage curve across significance levels $\alpha \in \{0.05, 0.10, 0.15\}$. Relaxing the nominal miscoverage tolerance to $\alpha = 0.15$ ($85\%$ theoretical guarantee) compresses the ambiguous deferral rate by more than half—from **$57.4\%$ down to $27.9\%$**—while maintaining **$91.8\%$ empirical test coverage** due to discrete quantile step behavior in finite validation samples. This trade-off empowers clinical departments to tune the abstention threshold dynamically according to intensive care bed capacity and specialist availability.
+Relaxing the tolerance to $\alpha = 0.15$ ($85\%$ target) lowers the deferral rate from **$25.5\%$ to $15.2\%$** with **$86.4\%$** empirical coverage, while $\alpha = 0.05$ raises coverage to $95.1\%$ at the cost of deferring $52.7\%$ of patients. This trade-off lets clinical departments tune the abstention level to specialist capacity. (On the Cleveland-only cohort the same procedure gives $90.2\%$ coverage with $34.4\%$ deferral, reflecting its smaller calibration set.)
 
 ![Conformal Triage Efficiency-Coverage Trade-Off](artifacts/figures/conformal_triage_curve.png)
 
 ### 5) The Causal Imperative in Clinical Decision Support (Pearl & Mackenzie, 2018; Chernozhukov et al., 2018; VanderWeele & Ding, 2017)
-A paramount conceptual takeaway from Judea Pearl's *The Book of Why* (Pearl & Mackenzie, 2018) is the structural distinction between observational risk association ($P(Y=1 \mid X)$) and causal intervention ($P(Y=1 \mid \text{do}(T=t))$). Predictive models and post-hoc feature attributions (such as SHAP) quantify statistical correlation within the observational distribution but cannot identify whether modifying a clinical factor will alter disease trajectory. In our baseline Inverse Probability of Treatment Weighting (IPTW) benchmark, an unadjusted observational risk difference of $+0.4623$ for exercise-induced angina (`exang`) collapsed to $+0.0657$ after propensity reweighting, exposing a baseline confounding bias of $+0.3966$.
+A paramount conceptual takeaway from Judea Pearl's *The Book of Why* (Pearl & Mackenzie, 2018) is the structural distinction between observational risk association ($P(Y=1 \mid X)$) and causal intervention ($P(Y=1 \mid \text{do}(T=t))$). Predictive models and post-hoc feature attributions (such as SHAP) quantify statistical correlation within the observational distribution but cannot identify whether modifying a clinical factor will alter disease trajectory. In our Inverse Probability of Treatment Weighting (IPTW) benchmark on the 918-patient cohort, the unadjusted observational risk difference of $+0.446$ for exercise-induced angina (`exang`) shrinks to $+0.075$ after propensity reweighting, so most of the raw association ($0.371$) is attributable to measured confounders.
 
 #### Doubly Robust AIPW: Symptomatic Proxies vs. Modifiable Metabolic Treatments
 To protect against functional form misspecification in either the propensity score model $\hat{e}(X) = P(T=1 \mid X)$ or the outcome regression model $\hat{\mu}_t(X) = E[Y \mid T=t, X]$, we implemented **Cross-Fitted Doubly Robust Augmented Inverse Probability Weighting (AIPW)** (Chernozhukov et al., 2018) coupled with **VanderWeele & Ding's (2017) $E$-Value sensitivity analysis**. The cross-fitted AIPW estimator computes:
@@ -701,20 +723,22 @@ $$
 
 which is mathematically guaranteed to be consistent if *either* the nuisance propensity estimator *or* the outcome model is correctly specified. Crucially, rigorous clinical causal inference requires distinguishing between **downstream symptomatic proxies** (which are non-manipulable diagnostic manifestations of existing pathology) and **modifiable physiological treatment targets** (which can be pharmacologically or behaviorally intervened upon):
 
-**Table C-1. Cross-fitted Doubly Robust AIPW causal effect estimates and unmeasured confounding sensitivity ($E$-Values) comparing symptomatic proxies against modifiable metabolic interventions.**
+**Table C-1. Cross-fitted Doubly Robust AIPW estimates and $E$-values (918-patient cohort; Cleveland-only estimates in brackets for comparison).**
 
-| Clinical Exposure / Intervention Target | Exposure Type | Cross-Fitted AIPW ATE | 95% Confidence Interval | Point Estimate $E$-Value | 95% CI Limit $E$-Value | Clinical & Causal Interpretation |
+| Clinical Exposure | Exposure Type | Cross-Fitted AIPW ATE | 95% Confidence Interval | Point Estimate $E$-Value | 95% CI Limit $E$-Value | Interpretation |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Exercise-Induced Angina (`exang = 1`)** | Symptomatic Proxy (Downstream Manifestation) | `-0.0060` | `[-0.1844, +0.1724]` | `1.130` | `1.000` | Null direct causal effect; strong observational correlation (`r = 0.436`) is driven by underlying ischemic burden and age/sex confounding rather than a causal mechanism. |
-| **Stage 2 Systolic Hypertension (`trestbps >= 140` mmHg)** | Modifiable Metabolic Target (Upstream Risk Factor) | `+0.0712` | `[-0.0420, +0.1845]` | `1.594` | `1.000` | Positive causal risk elevation (`+7.12%` absolute CAD risk increase); an unmeasured confounder would require a relative risk association of at least `1.594` with both hypertension and CAD to explain away the point estimate. |
+| **Exercise-Induced Angina (`exang = 1`)** | Symptomatic proxy (downstream manifestation) | `+0.060` [Cleveland: `-0.011`] | `[-0.047, +0.167]` [Cleveland: `[-0.192, +0.170]`] | `1.457` | `1.000` | Interval includes zero; no detectable direct effect once confounders are weighted. |
+| **Stage 2 Systolic Hypertension (`trestbps >= 140` mmHg)** | Modifiable metabolic target (upstream risk factor) | `-0.013` [Cleveland: `+0.067`] | `[-0.069, +0.042]` [Cleveland: `[-0.047, +0.181]`] | `1.184` | `1.000` | Interval includes zero; the positive Cleveland-only point estimate is not reproduced on the larger cohort. |
 
-#### Covariate Balance Verification ($|\text{SMD}| < 0.10$)
-Valid causal estimation under conditional exchangeability ($Y(1), Y(0) \perp\!\!\!\perp T \mid X$) requires verifying that propensity score weighting successfully eliminates baseline covariate imbalances between treated and untreated cohorts. As illustrated in the **Covariate Balance Love Plot** below, unadjusted observational cohorts exhibit severe covariate confounding across age, sex, maximum heart rate (`thalach`), and ST depression (`oldpeak`), with raw Absolute Standardized Mean Differences ($|\text{SMD}|$) frequently exceeding $0.30\text{--}0.60$. Following stabilized propensity reweighting within the AIPW pipeline, all baseline clinical covariates are compressed strictly below the canonical clinical balance threshold of $|\text{SMD}| < 0.10$, confirming successful pseudo-randomization across observed confounders.
+Neither exposure shows a causal effect distinguishable from zero, and the sign of both point estimates changes between the Cleveland and multi-center cohorts. These estimates therefore demonstrate the confounding-adjustment machinery rather than support clinical causal claims.
+
+#### Covariate Balance Check ($|\text{SMD}| < 0.10$)
+Valid causal estimation under conditional exchangeability ($Y(1), Y(0) \perp\!\!\!\perp T \mid X$) requires that weighting removes baseline covariate imbalance between exposed and unexposed patients. Weighting reduces the largest absolute standardized mean difference from $0.961$ to $0.264$, but **7 of 12 covariates** (`ca`, `cp`, `oldpeak`, `sex`, `slope`, `thal`, `trestbps`) remain at or above the conventional $0.10$ threshold (5 of 12 on the Cleveland cohort). Residual measured confounding therefore cannot be excluded, which is consistent with the wide AIPW intervals above. An earlier draft stated that all covariates were balanced below $0.10$; that statement was not supported by the computed SMDs.
 
 ![Covariate Balance Love Plot (AIPW / IPTW)](artifacts/figures/aipw_love_plot.png)
 
 ### 6) Algorithmic Fairness, Demographic Equity & Clinical Ethics (Barocas et al., 2020; Bryson, 2019; Marques et al., 2021)
-Our empirical evaluation revealed notable demographic disparities, including higher false negative rates in female patients compared to male patients. Aligning with algorithmic fairness literature (Barocas et al., 2020), clinical models must undergo post-hoc threshold adjustment or in-processing fair representation learning to enforce Equal Opportunity. Furthermore, as articulated by Bryson (2019) and Marques et al. (2021), the ethical integration of AI in healthcare necessitates transparent accountability, preservation of physician autonomy, regular algorithmic auditing, and strict safeguards protecting patient confidentiality.
+Our subgroup audit on the 918-patient cohort (184 test patients) shows a higher missed-disease (false negative) rate in female patients ($25.0\%$, 35 patients) than in male patients ($7.4\%$, 149 patients). Following the algorithmic fairness literature (Barocas et al., 2020), we evaluated post-hoc group-specific thresholds that maximise Youden's $J$ subject to an Equal Opportunity constraint, tuned on the validation split. On the multi-center cohort they narrow the test sensitivity gap only from $0.226$ to $0.215$ ($4.7\%$) at an unchanged false-positive rate. On the Cleveland-only cohort, the search assigns one group a threshold of $0.05$, which equalises sensitivity only by flagging almost every patient in that group (false-positive rate $0.21 \rightarrow 0.39$). An earlier version optimised F1 instead, which on small validation sets selected near-zero thresholds for both groups and reported a misleading "100% disparity reduction". With 35 female test patients, these subgroup estimates are imprecise; in-processing approaches or a larger validation cohort would be needed before group thresholds could be used clinically. Furthermore, as articulated by Bryson (2019) and Marques et al. (2021), the ethical integration of AI in healthcare necessitates transparent accountability, preservation of physician autonomy, regular algorithmic auditing, and strict safeguards protecting patient confidentiality.
 
 ### 7) Actionable Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019)
 While feature attribution algorithms (e.g., SHAP, Grad-CAM) quantify *correlational contribution*, they provide no actionable guidance to clinicians seeking to alter a patient's prognostic trajectory. Furthermore, unconstrained adversarial perturbations frequently recommend modifying unmodifiable attributes (e.g., biological age, sex, or historical hospital admissions) or propose physiologically implausible feature combinations. To bridge predictive risk modeling with personalized therapeutic planning, we formulated **Manifold-Constrained Actionable Clinical Counterfactual Recourse**:
@@ -726,61 +750,103 @@ $$
 subject to strict clinical feasibility constraints $\mathcal{F}(x)$:
 - **Strict Demographic Immutability:** Hard subspace gradient projections enforce zero perturbation ($\Delta x_j = 0$) on unmodifiable attributes (`age`, `sex`, and prior historical diagnostic counts), guaranteeing **`0.000000` immutable constraint violation** across all evaluated patients.
 - **Physiological Feasibility & Covariance Manifold Regularization:** Mutable physiological parameters (e.g., resting systolic blood pressure `trestbps`, serum cholesterol `chol`, exercise ST depression `oldpeak`, and metabolic reserve) are bounded within empirical physiological quantiles $[l_j, u_j]$ and regularized by a Ledoit-Wolf shrinkage-estimated Mahalanobis precision matrix $\hat{\Sigma}^{-1}_{\text{train}}$. This ensures recommended interventions respect biological covariation (e.g., coupled hemodynamic reductions in blood pressure and Rate-Pressure Product).
-- **Empirical Recourse Performance & Closed-Loop Conformal Certification:** Across high-risk test patients, the constrained optimizer achieved a **$100.0\%$ recourse validity rate** with a mean sparsity of $8.96$ modified clinical features, reducing mean predicted disease probability by **$-0.630$**. Crucially, we executed a **Closed-Loop Conformal-Recourse Verification Protocol** by passing the optimized counterfactual profiles $x^{\text{cf}}$ back through our Mondrian Conformal Triage system: **$100.0\%$ of Conformal High-Risk patients ($\mathcal{C}_{1-\alpha}(x) = \{1\}$) successfully transitioned out of the high-risk singleton state into Low-Risk Rule-Out ($\{0\}$) or Ambiguous Deferral ($\{0, 1\}$)**, mathematically certifying that the recommended physiological adjustments move patients across the distribution-free safety boundary.
+- **Empirical Recourse Performance & Closed-Loop Conformal Certification:** Across up to 25 high-risk test patients (predicted risk $\ge 0.50$), the constrained optimizer found valid recourse (predicted risk at or below the 0.30 target) for **$80.0\%$**, modifying $7.76$ features on average and reducing mean predicted disease probability by **$0.519$** ($100.0\%$ validity on the Cleveland-only cohort). Because nearly eight features change per patient, these counterfactuals are not sparse in the clinical sense and should be read as model-explanation tools rather than treatment plans. Crucially, we executed a **Closed-Loop Conformal-Recourse Verification Protocol** by passing the optimized counterfactual profiles $x^{\text{cf}}$ back through our Mondrian Conformal Triage system: **$100.0\%$ of Conformal High-Risk patients ($\mathcal{C}_{1-\alpha}(x) = \{1\}$) moved out of the high-risk singleton state into Low-Risk Rule-Out ($\{0\}$) or Ambiguous Deferral ($\{0, 1\}$)** under the model. This shows consistency between the recourse optimizer and the conformal sets; it does not show that the recommended changes would alter real patient outcomes.
 
 ![Clinical Counterfactual Recourse Case Study](artifacts/figures/counterfactual_case_study.png)
 
 ### 8) Empirical Validation of Reading-List Advancements & Multi-Center Conformal Generalization
 
-To evaluate the practical efficacy of the architectures and safety mechanisms synthesized from the 27-paper reading list, we conducted comprehensive holdout and cross-hospital benchmarks across all implemented modules.
+To evaluate the practical efficacy of the architectures and safety mechanisms synthesized from the 19-paper reading list, we conducted comprehensive holdout and cross-hospital benchmarks across all implemented modules.
 
-**Table R-1. Empirical performance of implemented reading-list neural and relational architectures on holdout evaluation.**
+The tables in this subsection are regenerated from the experiment artifacts by `heart-pipeline update-thesis`, so their numbers always match the code. Holdout metrics use the shared seed-42 test split of the 918-patient cohort; CV metrics use repeated stratified 5-fold CV (15 folds); Table R-2 calibrates conformal prediction on three hospitals and evaluates it on the held-out fourth.
 
-| Architecture / Method | Paradigm | Test Accuracy | Test F1 | Test ROC-AUC | Test PR-AUC | Test Brier Score |
+<!-- AUTO_READING_LIST_START -->
+**Table R-1. Reading-list architectures: holdout (bootstrap 95% CI) and repeated stratified CV (mean ± SD).**
+
+| Architecture | Holdout Accuracy | Holdout ROC-AUC [95% CI] | Holdout PR-AUC | Holdout Brier | CV ROC-AUC | CV Brier |
 | --- | --- | --- | --- | --- | --- | --- |
-| **GAT (Veličković et al., 2018)** | Graph Attention Network | 0.8361 | 0.8148 | 0.9037 | 0.8757 | 0.1347 |
-| **TabTransformer (Huang et al., 2020)** | Contextual Transformer Embeddings | 0.8197 | 0.8000 | 0.9091 | 0.8597 | 0.1211 |
-| **GCN (Kipf & Welling, 2017)** | Graph Spectral Convolutions | 0.7869 | 0.7719 | 0.8950 | 0.8413 | 0.1354 |
-| **Multimodal Cross-Attention** | ResNet1D + ViT Fusion (surrogate 1D signal) | 0.6557 | 0.6316 | 0.7067 | 0.6256 | 0.2233 |
+| TabTransformer | 0.799 | 0.885 [0.831, 0.931] | 0.904 | 0.138 | 0.866 ± 0.029 | 0.147 ± 0.016 |
+| GCN (Kipf & Welling) | 0.799 | 0.887 [0.837, 0.934] | 0.899 | 0.135 | 0.878 ± 0.026 | 0.138 ± 0.016 |
+| GAT (Velickovic et al.) | 0.810 | 0.882 [0.831, 0.929] | 0.905 | 0.138 | 0.874 ± 0.033 | 0.142 ± 0.021 |
+| Multimodal Cross-Attention (synthetic-signal demo) † | 0.663 | 0.698 [0.620, 0.778] | 0.769 | 0.218 | 0.704 ± 0.043 | 0.216 ± 0.012 |
 
-#### Multi-Center Domain Generalization of Conformal Prediction (LOCO Evaluation)
-While standard Leave-One-Center-Out (LOCO) evaluation reveals how point-estimate discrimination degrades under cross-hospital covariate and prevalence shift, clinical deployment requires evaluating whether **uncertainty quantification and conformal coverage guarantees survive external hospital transfer**. We evaluated our 90% Mondrian Conformal Prediction framework across all four international cardiology centers under strict LOCO partitioning (calibrating non-conformity scores strictly on a validation split of the three source hospitals and evaluating on the unseen fourth hospital):
+† Demonstration only: the signal channel is synthesised from the tabular features.
 
-**Table R-2. Leave-One-Center-Out (LOCO) cross-hospital conformal generalization across four international cardiology centers ($\alpha = 0.10$, 90% nominal coverage target).**
+**Table R-1b. Paired DeLong tests of ROC-AUC differences on the shared test split** (91 model pairs; 0 significant after Holm correction at 0.05). The ten smallest adjusted p-values are shown; the full table is `artifacts/model_comparison.csv`.
 
-| Evaluation Center | $N$ Samples | Disease Prevalence | Fixed Threshold Acc | 90% Conformal Coverage | Avg Set Size | Abstain Rate ($\{0, 1\}$) |
+| Model A | Model B | AUC A | AUC B | Difference [95% CI] | p (raw) | p (Holm) |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Cleveland Clinic (USA)** | 303 | 45.9% | 71.3% | **87.1%** | 1.28 | 27.7% |
-| **Hungarian Institute (Budapest)** | 293 | 36.2% | 80.5% | **93.2%** | 1.35 | 34.8% |
-| **University Hospital (Zurich, Switzerland)** | 123 | 93.5% | 54.5% | **82.1%** | 1.43 | 43.1% |
-| **V.A. Medical Center (Long Beach, USA)** | 199 | 74.4% | 69.8% | **84.4%** | 1.25 | 24.6% |
+| Ensemble base: PyTorch MLP | Hybrid Stacking Ensemble (Ours) | 0.877 | 0.900 | -0.024 [-0.044, -0.003] | 0.023 | 1.000 |
+| Logistic Regression | XGBoost | 0.884 | 0.909 | -0.025 [-0.047, -0.003] | 0.024 | 1.000 |
+| Ensemble base: PyTorch MLP | Hybrid Soft-Voting Ensemble | 0.877 | 0.900 | -0.024 [-0.044, -0.003] | 0.026 | 1.000 |
+| XGBoost | GAT (Velickovic et al.) | 0.909 | 0.882 | +0.028 [+0.003, +0.053] | 0.028 | 1.000 |
+| Ensemble base: XGBoost | Ensemble base: PyTorch MLP | 0.907 | 0.877 | +0.031 [+0.003, +0.058] | 0.029 | 1.000 |
+| XGBoost | TabTransformer | 0.909 | 0.885 | +0.024 [+0.001, +0.047] | 0.039 | 1.000 |
+| XGBoost | MLP_SGD | 0.909 | 0.879 | +0.030 [+0.001, +0.060] | 0.046 | 1.000 |
+| XGBoost | Ensemble base: Logistic Regression | 0.909 | 0.885 | +0.024 [+0.000, +0.048] | 0.048 | 1.000 |
+| XGBoost | Ensemble base: PyTorch MLP | 0.909 | 0.877 | +0.033 [-0.002, +0.068] | 0.068 | 1.000 |
+| Ensemble base: Logistic Regression | Hybrid Soft-Voting Ensemble | 0.885 | 0.900 | -0.015 [-0.032, +0.002] | 0.083 | 1.000 |
 
-**Key Empirical Findings from v1.2 Implementation Suite:**
-- **Graph Neural Reasoning (GCN / GAT):** Structuring patient cohorts as a $k$-NN clinical similarity graph yields strong ranking discrimination (GAT ROC-AUC `0.9037`, PR-AUC `0.8757`, Accuracy `0.8361`), demonstrating that anisotropic graph attention over patient neighborhoods effectively captures non-linear comorbidity profiles.
-- **Contextual Categorical Embeddings (TabTransformer):** TabTransformer achieves `0.9091` ROC-AUC, `0.8597` PR-AUC, and the lowest Brier score (`0.1211`) among reading-list architectures, confirming that multi-head self-attention over categorical embeddings enhances calibration and representation quality.
-- **Multimodal Fusion Feasibility:** The cross-attention fusion architecture combining tabular EHR records with a surrogate 1D physiological waveform verifies end-to-end numerical training dynamics and cross-modal gradient flow (ROC-AUC `0.7067`).
-- **Post-Hoc Probability Calibration (Guo et al., 2017):** Temperature scaling optimized strictly on the validation holdout ($T = 1.500$) adjusted holdout test Expected Calibration Error (ECE) from `0.1072` to `0.1198` (Validation ECE: `0.0959` $\rightarrow$ `0.1269`) while preserving exact ranking invariance (ROC-AUC and PR-AUC unchanged).
-- **Epistemic Uncertainty Quantification (Lakshminarayanan et al., 2017):** Deep Ensembles estimated an average predictive variance of `0.0144` across the 61 holdout patients, providing a quantitative epistemic filter for out-of-distribution physiological profiles.
-- **Split & Mondrian Conformal Triage (Angelopoulos & Bates, 2021):** At $\alpha = 0.10$, Mondrian conformal prediction achieved `0.9180` empirical test coverage (`1.0000` on positive disease cases, `0.8485` on controls) with an average set size of `1.574` and a `57.4%` abstention rate. Tuning along the efficiency-coverage frontier to $\alpha = 0.15$ cuts ambiguous clinician deferrals from `57.4%` down to `27.9%` while preserving `91.8%` empirical test coverage.
-- **Cross-Hospital Conformal Resilience (LOCO Table R-2):** Under severe external domain shift—most notably in the **Zurich (Switzerland)** cohort where disease prevalence surges to `93.5%` and fixed-threshold classification accuracy collapses to `54.5%`—Mondrian conformal prediction automatically detects out-of-distribution ambiguity, elevating its deferral rate to `43.1%` (average set size `1.43`) to preserve **`82.1%` empirical coverage** (`87.1%` in Cleveland, `93.2%` in Budapest, and `84.4%` in Long Beach VA).
-- **Causal Disentanglement & Doubly Robust AIPW (Pearl & Mackenzie, 2018; Chernozhukov et al., 2018; VanderWeele & Ding, 2017):** Baseline IPTW reduced the observational risk difference of `exang` from `+0.4623` to `+0.0657` (isolating `+0.3966` confounding bias). Cross-fitted Doubly Robust AIPW confirmed that symptomatic proxy `exang` has a near-zero direct causal effect ($\text{ATE} = -0.0060$, $95\%$ CI: `[-0.1844, 0.1724]`, $E\text{-value} = 1.130$), whereas modifiable Stage 2 systolic hypertension (`trestbps >= 140`) yields an estimated causal ATE of `+0.0712` ($95\%$ CI: `[-0.0420, 0.1845]`, point $E\text{-value} = 1.594$, CI $E\text{-value} = 1.000$) with all weighted covariates balanced within $|\text{SMD}| < 0.10$.
-- **Algorithmic Fairness & Post-Hoc Thresholding (Barocas et al., 2020):** Validation-tuned group-specific Equal Opportunity thresholds ($t_{\text{female}} = 0.614, t_{\text{male}} = 0.095$) shifted holdout test TPR disparity from `0.0952` to `0.1429`, empirically illustrating the sensitivity of post-hoc group threshold calibration to finite-sample variance in small demographic sub-cohorts.
-- **Closed-Loop Actionable Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `100.0%` recourse validity across high-risk test patients (`8.96` mean features modified, `-0.630` mean risk reduction, `0.000000` immutable demographic violation), successfully transitioning `100.0%` of Conformal High-Risk singletons ($\{1\}$) into Low-Risk ($\{0\}$) or Deferral ($\{0, 1\}$) states.
+**Table R-2. Leave-One-Center-Out conformal generalization (alpha = 0.10, 90% target).**
+
+| Held-out Center | N | Prevalence | Fixed-Threshold Accuracy | Conformal Coverage | Mean Set Size | Deferral Rate |
+| --- | --- | --- | --- | --- | --- | --- |
+| cleveland | 303 | 45.9% | 65.3% | 80.9% | 1.22 | 22.4% |
+| hungarian | 293 | 36.2% | 77.5% | 91.1% | 1.32 | 32.1% |
+| switzerland | 123 | 93.5% | 64.2% | 87.8% | 1.38 | 38.2% |
+| va_long_beach | 199 | 74.4% | 73.9% | 88.9% | 1.32 | 31.7% |
+
+**Table R-3. Sensitivity analysis on the Cleveland-only cohort (302 patients, 61 test patients).**
+
+| Model | Holdout ROC-AUC [95% CI] | CV ROC-AUC |
+| --- | --- | --- |
+| Random Forest | 0.877 [0.788, 0.953] | 0.913 ± 0.046 |
+| XGBoost | 0.900 [0.826, 0.965] | 0.907 ± 0.048 |
+| Logistic Regression | 0.900 [0.819, 0.968] | 0.898 ± 0.051 |
+| HeartMLP (SGD) | 0.869 [0.774, 0.951] | 0.816 ± 0.130 |
+| HeartMLP (ADAM) | 0.898 [0.813, 0.969] | 0.882 ± 0.063 |
+| TabTransformer | 0.908 [0.830, 0.972] | 0.894 ± 0.027 |
+| GCN (Kipf & Welling) | 0.910 [0.832, 0.972] | 0.915 ± 0.025 |
+| GAT (Velickovic et al.) | 0.897 [0.819, 0.963] | 0.910 ± 0.030 |
+
+**Key empirical findings (auto-generated from the reading-list suite run):**
+
+- **Temperature Scaling (Guo et al., 2017):** Validation-tuned optimal T `1.455` on trained `HeartMLP` reduced holdout test ECE from `0.0727` to `0.0674` (Validation ECE: `0.0731` -> `0.0641`).
+- **Deep Ensembles (Lakshminarayanan et al., 2017):** Average epistemic predictive variance is `0.0049` across 184 holdout patients.
+- **Split & Mondrian Conformal Prediction (Angelopoulos & Bates, 2021):** Calibrated and evaluated on the same (uncalibrated) MLP probabilities; the 90% finite-sample coverage target achieved `0.8859` empirical coverage (Case: `0.8725`, Control: `0.9024`) with average set size `1.255` and `0.255` clinical abstention rate.
+- **Conformal Efficiency-Coverage Trade-Off:** Operating at $\alpha=0.15$ (85% coverage guarantee) cuts the ambiguous deferral rate from `25.5%` down to `15.2%` with `86.4%` empirical test coverage.
+- **Causal IPTW Analysis (Pearl & Mackenzie, 2018):** Observational risk difference is `0.4463`, whereas confounder-isolated Inverse Probability Weighting (IPTW) reveals a causal ATE of `0.0750`, demonstrating a confounding bias of `0.3712`.
+- **Covariate Balance (IPTW, treatment `exang`):** maximum |SMD| fell from `0.961` to `0.264`, but `7` of `12` covariates remain at or above the 0.10 balance threshold (ca, cp, oldpeak, sex, slope, thal, trestbps), so residual measured confounding cannot be ruled out.
+- **Doubly Robust AIPW & E-Value (Chernozhukov et al., 2018; VanderWeele & Ding, 2017):**
+  - *Symptomatic Proxy (exang):* Cross-fitted AIPW ATE = `0.0596` (95% CI: [-0.0473, 0.1666]), E-value = `1.457`.
+  - *Modifiable Metabolic Treatment (Hypertension SBP >= 140):* Cross-fitted AIPW ATE = `-0.0133` (95% CI: [-0.0691, 0.0424]), E-value = `1.184` (CI E-value = `1.000`).
+- **Algorithmic Fairness (Barocas et al., 2020):** Validation-tuned Equal Opportunity thresholds (t0=0.295, t1=0.505) reduced holdout test TPR disparity from `0.2261` to `0.2154` (4.7% reduction), while the false-positive rate moved from `0.268` to `0.268` and accuracy from `0.788` to `0.783`.
+- **Clinical Counterfactual Recourse (Wachter et al., 2017; Ustun et al., 2019):** Achieved `80.0%` recourse validity across high-risk test patients with `7.76` average features modified, reducing mean predicted risk by `0.519` while strictly maintaining `0.000000` immutable demographic violation.
+- **Closed-Loop Conformal Recourse Transition:** `100.0%` of Conformal High-Risk patients ($\hat{C}(x) = \{1\}$) successfully transitioned into Low-Risk $\{0\}$ or Deferral $\{0, 1\}$ following sparse actionable recourse.
+
+<!-- AUTO_READING_LIST_END -->
+
+**Interpretation.** Three conclusions follow from these tables.
+- *No architecture is demonstrably better.* Holdout ROC-AUCs of the baselines, MLPs, ensembles and reading-list architectures fall between $0.877$ and $0.909$ with overlapping 95% intervals, and none of the 91 paired DeLong comparisons survives Holm correction (the smallest raw p-values, around $0.02$, are consistent with chance across 91 tests). The same holds on the Cleveland-only cohort (Table R-3, 0 of 91 pairs significant). The defensible claim is that graph and attention architectures match well-tuned classical baselines on these tabular cohorts, not that they exceed them.
+- *Conformal coverage degrades under hospital shift.* In LOCO evaluation (Table R-2), coverage on the unseen hospital ranges from $80.9\%$ (Cleveland) to $91.1\%$ (Budapest) against a $90\%$ target, falling short at three of four centers, while fixed-threshold accuracy drops to $64.2\%$ in Zurich. Deferral rises with shift ($22\%$–$38\%$), which is the intended behaviour, but exchangeability-based guarantees do not transfer across hospitals.
+- *Safety components work mechanically but need larger data.* Temperature scaling lowers holdout ECE ($0.073 \rightarrow 0.067$), conformal deferral is tunable, and recourse respects immutability, but the causal and fairness analyses are limited by sample size and residual imbalance (Sections 5 and 6).
 
 ### 9) Methodological Limitations & Preemptive Defense Considerations
 
 To ensure rigorous scientific transparency and guide clinical translation, several methodological and empirical limitations of this study must be explicitly contextualized:
 
-1. **Positivity Overlap and Finite-Sample Variance in Observational Causal Inference:**
-   While Cross-Fitted Doubly Robust AIPW protects against marginal model misspecification and achieved strict covariate balance ($|\text{SMD}| < 0.10$) across observed confounders, observational causal inference remains bounded by sample size ($N=302$ in the complete-case Cleveland cohort) and imperfect propensity overlap in extreme physiological strata. Consequently, the $95\%$ confidence intervals for both `exang` ($[-0.1844, +0.1724]$) and modifiable Stage 2 systolic hypertension `trestbps >= 140` ($[-0.0420, +0.1845]$) span zero, yielding a lower-bound confidence interval $E$-value of $1.000$. Furthermore, dichotomous thresholding of continuous blood pressure (`trestbps >= 140` mmHg) coarsens physiological severity and may violate strict consistency (SUTVA) if blood pressure reductions are achieved via disparate pharmacological mechanisms (e.g., beta-blockers vs. ACE inhibitors). These causal estimates serve as methodological demonstrations of confounding bias isolation rather than substitutes for randomized controlled trials (RCTs).
-2. **Sample Size Constraints and Post-Hoc Generalization Variance:**
-   Benchmark A utilizes the publicly accessible MIMIC-IV Clinical Database Demo ($N=275$ admissions across $100$ unique patients, with $15$ positive mortality events at a $5.45\%$ prevalence). In single-center evaluations (e.g., Cleveland holdout $N=61$), demographic subgroup sizes become acutely constrained ($N=18$ younger patients with only $5$ positive disease cases), inducing small-sample artifacts such as an apparent $0\%$ false negative rate ($100\%$ sensitivity). Scaling the fairness audit to the full multi-center consortium ($N=918$, with holdout test $N=184$ comprising $59$ younger, $35$ female, and $149$ male patients) eliminated this artifact, exposing a realistic $28.0\%$ missed disease rate in younger patients ($<50$ yrs) and a $25.0\%$ missed disease rate in females. Similarly, post-hoc calibration parameters optimized on validation splits (specifically single-parameter Temperature Scaling $T = 1.500$ and group-specific Equal Opportunity thresholds) exhibit finite-sample variance between validation and test partitions. Scaling this pipeline to the full credentialed MIMIC-IV repository ($>400,000$ hospitalizations) is a primary priority to stabilize minority-class calibration and subgroup threshold estimation.
+1. **Residual Confounding and Finite-Sample Variance in Observational Causal Inference:**
+   After weighting, 7 of 12 covariates in the 918-patient cohort (5 of 12 on Cleveland) remain above the $|\text{SMD}| = 0.10$ balance threshold, and the AIPW confidence intervals for both `exang` ($[-0.047, +0.167]$) and Stage 2 systolic hypertension ($[-0.069, +0.042]$) span zero, with CI-limit $E$-values of $1.000$. The point estimates also change sign between the Cleveland and multi-center cohorts. Furthermore, dichotomous thresholding of continuous blood pressure (`trestbps >= 140` mmHg) coarsens physiological severity and may violate consistency (SUTVA) if blood pressure reductions are achieved via disparate pharmacological mechanisms (e.g., beta-blockers vs. ACE inhibitors). These estimates demonstrate confounding adjustment rather than substitute for randomized controlled trials (RCTs).
+2. **Sample Size Constraints:**
+   Benchmark A uses the public MIMIC-IV Demo ($N=275$ admissions across $100$ patients, $15$ deaths, $3$ in the test split), so it is reported as a pipeline demonstration only; scaling to the full credentialed MIMIC-IV repository ($>400,000$ hospitalizations) is the main prerequisite for substantive mortality modelling. For Benchmark B, moving the primary analysis from Cleveland ($61$ test patients) to the multi-center cohort ($184$ test patients) roughly halved the width of the ROC-AUC confidence intervals (about $\pm 0.04$ instead of $\pm 0.08$), yet the intervals still overlap across all models. Subgroup estimates remain imprecise ($35$ female and $21$ senior test patients), and post-hoc parameters tuned on validation splits (temperature $T = 1.455$, group thresholds) carry finite-sample variance between validation and test.
 
-3. **Exchangeability Violations Under Extreme Cross-Hospital Shift:**
-   Standard split and Mondrian conformal prediction guarantees ($P(Y \in \mathcal{C}_{1-\alpha}(X)) \ge 1 - \alpha$) mathematically assume exchangeability between the calibration and test distributions. In our Leave-One-Center-Out (LOCO) evaluation (Table R-2), unseen hospitals violate exchangeability due to severe label shift (e.g., Zurich's $93.5\%$ CAD prevalence vs. Budapest's $36.2\%$) and systematic missingness in non-invasive testing (`ca` and `thal`). Although Mondrian class-conditional calibration substantially buffered this shift—maintaining $82.1\%\text{--}93.2\%$ coverage across all four centers by dynamically elevating the abstention rate—incorporating importance-weighted or covariate-shift-adapted conformal prediction (Tibshirani et al., 2019) would be required to guarantee exact finite-sample coverage under arbitrary hospital distribution shifts.
+3. **Exchangeability Violations Under Cross-Hospital Shift:**
+   Split and Mondrian conformal guarantees ($P(Y \in \mathcal{C}_{1-\alpha}(X)) \ge 1 - \alpha$) assume exchangeability between calibration and test data. Unseen hospitals violate it through label shift (Zurich's $93.5\%$ CAD prevalence vs. Budapest's $36.2\%$) and systematic missingness in invasive tests (`ca`, `thal`). In our LOCO evaluation (Table R-2) coverage fell below the $90\%$ target at three of four centers ($80.9\%$–$88.9\%$; $91.1\%$ in Budapest). Importance-weighted or covariate-shift-adapted conformal prediction (Tibshirani et al., 2019) would be required for coverage guarantees under hospital shift.
 4. **Surrogate Multimodal Signals and Static Similarity Graphs:**
    In our reading-list benchmark (Table R-1), the Multimodal Cross-Attention architecture fused structured tabular features with a synthesized 1D physiological waveform surrogate, and the GCN/GAT architectures operated transductively over a $k$-NN feature similarity graph. Future clinical deployments should replace surrogate signals with raw 12-lead bedside ECG waveforms and echocardiographic video clips, and transition from patient similarity graphs to inductive heterogenous knowledge graphs grounded in formal ICD-10 and SNOMED-CT medical ontologies.
-5. **Prospective Clinical Validation and Human-in-the-Loop Governance:**
+5. **Model Comparison and Selection Bias:**
+   Because the selected Random Forest and XGBoost configurations are scored with the same CV folds used to choose them, their CV means are slightly optimistic; the untouched holdout split and the paired DeLong tests provide the unbiased comparison. Nested cross-validation would remove this bias at higher computational cost.
+6. **Prospective Clinical Validation and Human-in-the-Loop Governance:**
    All evaluations in this thesis are retrospective. Before bedside integration as Software as a Medical Device (SaMD), the Conformal Triage and Counterfactual Recourse modules must undergo prospective "silent-mode" shadow trials to evaluate clinician alert fatigue, workflow latency when handling $\{0, 1\}$ abstention deferrals, and adherence to Good Machine Learning Practice (GMLP) regulatory standards.
 
 ---

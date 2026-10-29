@@ -1,0 +1,14 @@
+feature,pearson_corr_with_target,spearman_corr_with_target
+ca,0.4644,0.493
+exang,0.4356,0.4356
+cp,-0.4321,-0.4596
+oldpeak,0.4291,0.4196
+thalach,-0.42,-0.4264
+thal,0.3642,0.4101
+slope,-0.3439,-0.3694
+sex,0.2836,0.2836
+age,0.2215,0.2348
+trestbps,0.1463,0.1235
+restecg,-0.1349,-0.1462
+chol,0.0814,0.117
+fbs,0.0268,0.0268

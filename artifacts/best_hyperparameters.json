@@ -1,13 +1,13 @@
 {
-  "optimizer": "adam",
+  "optimizer": "sgd",
   "learning_rate": 0.005,
   "dropout": 0.3,
-  "grad_clip": 0.5,
+  "grad_clip": 1.0,
   "label_smoothing": 0.0,
   "status": "ok",
-  "cv_roc_auc_mean": 0.901010101010101,
-  "cv_roc_auc_std": 0.04525064007916141,
-  "best_val_loss": 0.6476590633392334,
-  "val_accuracy": 0.7346938848495483,
-  "test_accuracy": 0.819672131147541
+  "cv_roc_auc_mean": 0.8628686700231416,
+  "cv_roc_auc_std": 0.05112306953586299,
+  "best_val_loss": 0.4654107689857483,
+  "val_accuracy": 0.7823129296302795,
+  "test_accuracy": 0.8097826086956522
 }
