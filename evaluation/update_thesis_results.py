@@ -1,7 +1,12 @@
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 MIMIC_AUTO_START = "<!-- AUTO_RESULTS_START -->"
@@ -27,8 +32,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Update thesis draft with latest cohort summary and model comparison table."
     )
     parser.add_argument("--thesis", type=str, default="thesis_draft.md")
-    parser.add_argument("--dataset", type=str, default="mimic_hospital_mortality.csv")
-    parser.add_argument("--comparison", type=str, default="artifacts/mimic_baseline_comparison.csv")
+    parser.add_argument(
+        "--dataset", type=str, default=None,
+        help="Dataset for --task mimic/heart (defaults to --mimic-dataset / --heart-dataset).",
+    )
+    parser.add_argument(
+        "--comparison", type=str, default=None,
+        help="Comparison CSV for --task mimic/heart (defaults to --mimic-comparison / --heart-comparison).",
+    )
     parser.add_argument("--mimic-dataset", type=str, default="mimic_hospital_mortality.csv")
     parser.add_argument("--mimic-comparison", type=str, default="artifacts/mimic_baseline_comparison.csv")
     parser.add_argument("--heart-dataset", type=str, default="cleaned_heart_disease.csv")
@@ -111,6 +122,20 @@ def choose_primary_metric(df: pd.DataFrame) -> tuple[str, str]:
     return numeric_cols[0], numeric_cols[0]
 
 
+def small_sample_note(comparison_df: pd.DataFrame, min_events: int = 10) -> str:
+    """Warn when the test split has too few deaths for a stable holdout ranking."""
+    if "test_events" not in comparison_df.columns or comparison_df["test_events"].isna().all():
+        return ""
+    events = int(comparison_df["test_events"].max())
+    if events >= min_events:
+        return ""
+    return (
+        f"\n**Small-sample caveat:** the test split contains only {events} deaths, so holdout PR-AUC/ROC-AUC "
+        "are highly unstable (see the `_ci_low`/`_ci_high` bootstrap columns). Compare models on the "
+        "repeated patient-grouped CV columns (`cv_*_mean ± cv_*_std`) and treat the holdout ranking as indicative only.\n"
+    )
+
+
 def build_mimic_results_block(dataset_df: pd.DataFrame, comparison_df: pd.DataFrame) -> str:
     summary = cohort_summary_mimic(dataset_df)
     rank_col, rank_label = choose_primary_metric(comparison_df)
@@ -179,6 +204,7 @@ def build_mimic_results_block(dataset_df: pd.DataFrame, comparison_df: pd.DataFr
         "### 3) Interpretation of Findings (Auto-generated)\n"
         f"The best-ranked model by {rank_label} is **{best_model}** ({rank_label}={best_metric_value:.4f}). "
         "This ranking should be interpreted jointly with expired-class recall and F1 to ensure minority-case detection remains clinically useful.\n"
+        f"{small_sample_note(comparison_df)}"
         f"{clinical_section}"
         f"{calibration_figure}"
         f"{MIMIC_AUTO_END}"
@@ -419,7 +445,7 @@ def build_shap_block(
         summary_path = figures_dir / f"{prefix}_shap_summary.png"
         if summary_path.exists():
             rel_path = f"artifacts/figures/{prefix}_shap_summary.png"
-            lines.append(f"**Global Feature Importance (Beeswarm Plot):**")
+            lines.append("**Global Feature Importance (Beeswarm Plot):**")
             lines.append("")
             lines.append(f"![SHAP Summary — {display_model}]({rel_path})")
             lines.append("")
@@ -429,13 +455,13 @@ def build_shap_block(
         low_path = figures_dir / f"{prefix}_shap_waterfall_low_risk.png"
         if high_path.exists():
             rel_path = f"artifacts/figures/{prefix}_shap_waterfall_high_risk.png"
-            lines.append(f"**Local Explanation — Highest-Risk Patient:**")
+            lines.append("**Local Explanation — Highest-Risk Patient:**")
             lines.append("")
             lines.append(f"![Waterfall High Risk — {display_model}]({rel_path})")
             lines.append("")
         if low_path.exists():
             rel_path = f"artifacts/figures/{prefix}_shap_waterfall_low_risk.png"
-            lines.append(f"**Local Explanation — Lowest-Risk Patient:**")
+            lines.append("**Local Explanation — Lowest-Risk Patient:**")
             lines.append("")
             lines.append(f"![Waterfall Low Risk — {display_model}]({rel_path})")
             lines.append("")
@@ -625,11 +651,16 @@ def resolve_path(project_root: Path, value: str) -> Path:
     path_value = Path(value)
     if path_value.is_absolute():
         return path_value
+    if path_value.suffix == ".csv" and not (project_root / path_value).exists():
+        # Bare dataset names live under data/processed.
+        from project_paths import resolve_data_path
+
+        return resolve_data_path(path_value)
     return project_root / path_value
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
 
     project_root = Path(__file__).resolve().parent.parent
     thesis_path = resolve_path(project_root, args.thesis)
@@ -640,8 +671,8 @@ def main() -> None:
     thesis_text = thesis_path.read_text(encoding="utf-8")
 
     if args.task == "mimic":
-        dataset_path = resolve_path(project_root, args.dataset)
-        comparison_path = resolve_path(project_root, args.comparison)
+        dataset_path = resolve_path(project_root, args.dataset or args.mimic_dataset)
+        comparison_path = resolve_path(project_root, args.comparison or args.mimic_comparison)
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
         if not comparison_path.exists():
@@ -684,8 +715,8 @@ def main() -> None:
         return
 
     if args.task == "heart":
-        dataset_path = resolve_path(project_root, args.dataset)
-        comparison_path = resolve_path(project_root, args.comparison)
+        dataset_path = resolve_path(project_root, args.dataset or args.heart_dataset)
+        comparison_path = resolve_path(project_root, args.comparison or args.heart_comparison)
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
         if not comparison_path.exists():

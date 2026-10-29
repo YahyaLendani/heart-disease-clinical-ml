@@ -7,6 +7,7 @@ ICML 2017. PMLR 70:1321-1330. arXiv:1706.04599.
 """
 
 from __future__ import annotations
+
 import numpy as np
 import torch
 import torch.nn as nn

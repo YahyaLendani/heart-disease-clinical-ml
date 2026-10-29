@@ -5,12 +5,11 @@
 4. Demographic fairness and disparity calculations
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,15 +17,15 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from evaluation.fairness_analysis import compute_subgroup_metrics
 from evaluation.update_thesis_results import (
-    ENSEMBLE_AUTO_START,
     ENSEMBLE_AUTO_END,
-    LOCO_AUTO_START,
-    LOCO_AUTO_END,
-    FAIRNESS_AUTO_START,
+    ENSEMBLE_AUTO_START,
     FAIRNESS_AUTO_END,
+    FAIRNESS_AUTO_START,
+    LOCO_AUTO_END,
+    LOCO_AUTO_START,
     build_ensemble_results_block,
-    build_loco_results_block,
     build_fairness_results_block,
+    build_loco_results_block,
 )
 from models import add_cardiovascular_features
 from training.ensemble_models import SoftVotingEnsemble

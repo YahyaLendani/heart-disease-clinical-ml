@@ -31,8 +31,8 @@ def to_markdown_table(df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
     base_dir = Path(__file__).resolve().parent
     project_root = base_dir.parent
     input_path = project_root / args.input

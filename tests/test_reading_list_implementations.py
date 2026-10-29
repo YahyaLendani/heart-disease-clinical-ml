@@ -11,11 +11,10 @@ Tests:
 8. Fairness Mitigation (Barocas et al., 2020)
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 import torch.nn as nn
 
@@ -26,14 +25,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from evaluation import (
     GradCAM,
     compare_observational_vs_causal,
-    compute_iptw_ate,
     compute_propensity_scores,
     find_equal_opportunity_thresholds,
 )
 from models import (
     GATClassifier,
     GCNClassifier,
-    HeartMLP,
     ModelWithTemperature,
     MultimodalFusionClassifier,
     ResNet1DBlock,

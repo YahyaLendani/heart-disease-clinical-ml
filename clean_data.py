@@ -7,6 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from project_paths import HEART_CSV, RAW_DATA_DIR, resolve_data_path
 
 COLUMNS = [
     "age",
@@ -39,10 +40,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def load_raw_data(base_dir: Path, input_arg: str) -> tuple[pd.DataFrame, Path]:
+    """Load the raw heart data; ``base_dir`` is the folder holding heart.csv / cleve.mod."""
     if input_arg:
-        source_path = Path(input_arg)
-        if not source_path.is_absolute():
-            source_path = base_dir / source_path
+        source_path = resolve_data_path(input_arg)
     else:
         heart_csv = base_dir / "heart.csv"
         cleve_mod = base_dir / "cleve.mod"
@@ -123,12 +123,12 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
-    base_dir = Path(__file__).parent
-    output_path = base_dir / "cleaned_heart_disease.csv"
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
+    output_path = HEART_CSV
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df, source_path = load_raw_data(base_dir, args.input)
+    df, source_path = load_raw_data(RAW_DATA_DIR, args.input)
 
     cleaned_df = clean_dataset(df)
     cleaned_df.to_csv(output_path, index=False)
@@ -137,7 +137,7 @@ def main() -> None:
     print(f"Input rows: {len(df)}")
     print(f"Cleaned rows: {len(cleaned_df)}")
     print(f"Missing values after cleaning: {int(cleaned_df.isna().sum().sum())}")
-    print(f"Saved: {output_path.name}")
+    print(f"Saved: {output_path}")
 
 
 def build_preprocessing_pipeline(

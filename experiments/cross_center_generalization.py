@@ -15,17 +15,22 @@ For each hospital S:
 """
 
 from __future__ import annotations
+
 import argparse
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, average_precision_score, brier_score_loss, f1_score, roc_auc_score
-from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    brier_score_loss,
+    f1_score,
+    roc_auc_score,
+)
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
@@ -34,11 +39,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from clean_data import build_preprocessing_pipeline
+from evaluation.cv_utils import resolve_n_jobs, to_markdown_table
 from models import add_cardiovascular_features
+from project_paths import HEART_COMBINED_CSV, resolve_data_path, resolve_output_dir
 
 
-def get_models(seed: int = 42, n_jobs: int = -1) -> dict[str, callable]:
-    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
+def get_models(seed: int = 42, n_jobs: int = 1) -> dict[str, callable]:
+    """Model factories; ``n_jobs`` is the thread count inside each tree model."""
+    effective_jobs = resolve_n_jobs(n_jobs)
     return {
         "Logistic Regression": lambda pre: Pipeline([
             ("pre", pre),
@@ -66,6 +74,63 @@ def evaluate_split(y_true: np.ndarray, y_proba: np.ndarray) -> dict[str, float]:
     }
 
 
+def _evaluate_center(
+    test_center: str,
+    df: pd.DataFrame,
+    drop_cols: list[str],
+    seed: int,
+) -> tuple[list[dict], list[str]]:
+    """Train on every other center, test on ``test_center``; return rows and log lines."""
+    train_df = df[df["site"] != test_center]
+    test_df = df[df["site"] == test_center]
+
+    X_train = train_df.drop(columns=drop_cols)
+    y_train = train_df["target"].astype(int)
+    X_test = test_df.drop(columns=drop_cols)
+    y_test = test_df["target"].astype(int)
+
+    logs = [
+        f"\n--- Target Center: {test_center.upper()} ---",
+        f"  Train: {len(X_train)} patients (Prevalence: {y_train.mean() * 100.0:.1f}%)",
+        f"  Test:  {len(X_test)} patients (Prevalence: {y_test.mean() * 100.0:.1f}%)",
+    ]
+
+    pre_scaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=True)
+    pre_unscaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=False)
+
+    records: list[dict] = []
+    center_test_probas = []
+    for m_name, factory in get_models(seed=seed, n_jobs=1).items():
+        pre = pre_scaled if m_name == "Logistic Regression" else pre_unscaled
+        model = factory(pre)
+        model.fit(X_train, y_train)
+
+        y_proba = model.predict_proba(X_test)[:, 1]
+        center_test_probas.append(y_proba)
+        metrics = evaluate_split(y_test.values, y_proba)
+        records.append(_record(test_center, m_name, len(X_train), len(X_test), metrics))
+        logs.append(f"    [{m_name}] Test AUC: {metrics['roc_auc']:.4f} | Acc: {metrics['accuracy']:.4f}")
+
+    ens_metrics = evaluate_split(y_test.values, np.mean(center_test_probas, axis=0))
+    records.append(_record(test_center, "Ensemble (Transfer)", len(X_train), len(X_test), ens_metrics))
+    logs.append(f"    [Ensemble Transfer] Test AUC: {ens_metrics['roc_auc']:.4f} | Acc: {ens_metrics['accuracy']:.4f}")
+    return records, logs
+
+
+def _record(test_center: str, model: str, n_train: int, n_test: int, metrics: dict) -> dict:
+    return {
+        "test_center": test_center,
+        "model": model,
+        "train_size": n_train,
+        "test_size": n_test,
+        "transfer_accuracy": metrics["accuracy"],
+        "transfer_f1": metrics["f1"],
+        "transfer_roc_auc": metrics["roc_auc"],
+        "transfer_pr_auc": metrics["pr_auc"],
+        "transfer_brier": metrics["brier"],
+    }
+
+
 def run_cross_center_study(
     dataset_path: str = "cleaned_heart_disease_combined.csv",
     seed: int = 42,
@@ -76,13 +141,11 @@ def run_cross_center_study(
     print("LEAVE-ONE-CENTER-OUT (LOCO) DOMAIN GENERALIZATION STUDY")
     print("=" * 70)
 
-    path = Path(dataset_path)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
+    path = resolve_data_path(dataset_path)
 
     df = pd.read_csv(path)
     if "site" not in df.columns:
-        combined_path = PROJECT_ROOT / "cleaned_heart_disease_combined.csv"
+        combined_path = HEART_COMBINED_CSV
         if combined_path.exists():
             print(f"Warning: {path.name} lacks 'site' column. Falling back to multi-center cohort {combined_path.name} for LOCO evaluation.")
             df = pd.read_csv(combined_path)
@@ -97,87 +160,29 @@ def run_cross_center_study(
 
     drop_cols = [c for c in ["diagnosis", "disease_code", "target", "site"] if c in df.columns]
 
+    # Each held-out center is independent: run them in parallel, one thread per model.
+    workers = min(resolve_n_jobs(n_jobs), len(centers))
+    if workers > 1:
+        from joblib import Parallel, delayed
+
+        outputs = Parallel(n_jobs=workers)(
+            delayed(_evaluate_center)(center, df, drop_cols, seed) for center in centers
+        )
+    else:
+        outputs = [_evaluate_center(center, df, drop_cols, seed) for center in centers]
+
     loco_records = []
-
-    for test_center in centers:
-        train_df = df[df["site"] != test_center].copy()
-        test_df = df[df["site"] == test_center].copy()
-
-        X_train = train_df.drop(columns=drop_cols)
-        y_train = train_df["target"].astype(int)
-        X_test = test_df.drop(columns=drop_cols)
-        y_test = test_df["target"].astype(int)
-
-        prev_train = y_train.mean() * 100.0
-        prev_test = y_test.mean() * 100.0
-
-        print(f"\n--- Target Center: {test_center.upper()} ---")
-        print(f"  Train: {len(X_train)} patients (Prevalence: {prev_train:.1f}%)")
-        print(f"  Test:  {len(X_test)} patients (Prevalence: {prev_test:.1f}%)")
-
-        pre_scaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=True)
-        pre_unscaled, _, _ = build_preprocessing_pipeline(X_train, scale_numeric=False)
-
-        model_factories = get_models(seed=seed, n_jobs=n_jobs)
-        center_test_probas = []
-
-        for m_name, factory in model_factories.items():
-            pre = pre_scaled if m_name == "Logistic Regression" else pre_unscaled
-            model = factory(pre)
-            model.fit(X_train, y_train)
-
-            y_proba = model.predict_proba(X_test)[:, 1]
-            center_test_probas.append(y_proba)
-
-            metrics = evaluate_split(y_test.values, y_proba)
-            loco_records.append({
-                "test_center": test_center,
-                "model": m_name,
-                "train_size": len(X_train),
-                "test_size": len(X_test),
-                "transfer_accuracy": metrics["accuracy"],
-                "transfer_f1": metrics["f1"],
-                "transfer_roc_auc": metrics["roc_auc"],
-                "transfer_pr_auc": metrics["pr_auc"],
-                "transfer_brier": metrics["brier"],
-            })
-            print(f"    [{m_name}] Test AUC: {metrics['roc_auc']:.4f} | Acc: {metrics['accuracy']:.4f}")
-
-        # Evaluate ensemble on this center
-        ens_proba = np.mean(center_test_probas, axis=0)
-        ens_metrics = evaluate_split(y_test.values, ens_proba)
-        loco_records.append({
-            "test_center": test_center,
-            "model": "Ensemble (Transfer)",
-            "train_size": len(X_train),
-            "test_size": len(X_test),
-            "transfer_accuracy": ens_metrics["accuracy"],
-            "transfer_f1": ens_metrics["f1"],
-            "transfer_roc_auc": ens_metrics["roc_auc"],
-            "transfer_pr_auc": ens_metrics["pr_auc"],
-            "transfer_brier": ens_metrics["brier"],
-        })
-        print(f"    [Ensemble Transfer] Test AUC: {ens_metrics['roc_auc']:.4f} | Acc: {ens_metrics['accuracy']:.4f}")
+    for records, log_lines in outputs:
+        print("\n".join(log_lines))
+        loco_records.extend(records)
 
     loco_df = pd.DataFrame(loco_records)
 
-    out_p = Path(output_dir)
-    out_p.mkdir(parents=True, exist_ok=True)
+    out_p = resolve_output_dir(output_dir)
     csv_out = out_p / "cross_center_generalization.csv"
     md_out = out_p / "cross_center_generalization.md"
 
     loco_df.to_csv(csv_out, index=False)
-
-    def _to_md(frame: pd.DataFrame) -> str:
-        headers = list(frame.columns)
-        lines = [
-            "| " + " | ".join(headers) + " |",
-            "| " + " | ".join(["---"] * len(headers)) + " |",
-        ]
-        for _, row in frame.iterrows():
-            vals = [f"{row[h]:.4f}" if isinstance(row[h], float) else str(row[h]) for h in headers]
-            lines.append("| " + " | ".join(vals) + " |")
-        return "\n".join(lines)
 
     summary_pivot = loco_df.pivot(index="test_center", columns="model", values="transfer_roc_auc")
     summary_pivot["Mean ROC-AUC"] = summary_pivot.mean(axis=1)
@@ -186,9 +191,9 @@ def run_cross_center_study(
     md_content = "# Leave-One-Center-Out (LOCO) Cross-Hospital Generalization\n\n"
     md_content += "This experiment tests hospital generalizability by training on 3 clinical centers and testing on an unseen 4th center.\n\n"
     md_content += "### Transfer ROC-AUC by Unseen Hospital Center\n\n"
-    md_content += _to_md(summary_pivot_df) + "\n\n"
+    md_content += to_markdown_table(summary_pivot_df) + "\n\n"
     md_content += "### Complete Metric Breakdown\n\n"
-    md_content += _to_md(loco_df.round(4)) + "\n"
+    md_content += to_markdown_table(loco_df.round(4)) + "\n"
 
     md_out.write_text(md_content, encoding="utf-8")
     print(f"\nSaved LOCO generalization results to:\n  - {csv_out}\n  - {md_out}")
@@ -196,13 +201,13 @@ def run_cross_center_study(
     return loco_df
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run cross-center LOCO generalization experiment.")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     run_cross_center_study(dataset_path=args.dataset, seed=args.seed, n_jobs=args.n_jobs, output_dir=args.output_dir)
 

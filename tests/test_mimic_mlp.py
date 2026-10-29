@@ -1,11 +1,9 @@
 """Unit tests for MIMIC PyTorch MLP model and custom loss functions."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import pytest
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

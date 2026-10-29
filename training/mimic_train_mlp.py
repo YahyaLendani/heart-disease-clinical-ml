@@ -3,36 +3,38 @@
 Features:
 - Leakage-free preprocessing (ColumnTransformer + SimpleImputer + StandardScaler + OneHotEncoder)
 - Patient-level splitting (GroupShuffleSplit on subject_id for train/val/test)
-- Patient-level cross-validation (StratifiedGroupKFold on subject_id)
+- Patient-level cross-validation (StratifiedGroupKFold on subject_id); inside each
+  fold a separate patient-grouped split is used for early stopping, so the fold
+  that is scored never chooses the stopping epoch
+- Bootstrap 95% CIs on holdout metrics (the demo test split holds only a few deaths)
 - Imbalance-aware loss functions (Focal Loss and Weighted BCE)
 - Comprehensive clinical metrics (PR-AUC, ROC-AUC, Brier score, Youden's J, F1 at optimal threshold)
 - Calibration and PR curves generation
 """
 
 import argparse
-from copy import deepcopy
-from pathlib import Path
-import random
 import sys
+from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn.functional as F
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
     brier_score_loss,
-    classification_report,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
-import torch
+from sklearn.model_selection import StratifiedGroupKFold
 from torch import nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -44,17 +46,17 @@ from evaluation.clinical_metrics import (
     plot_calibration_curves,
     plot_precision_recall_curves,
 )
+from evaluation.cv_utils import add_bootstrap_cis
 from models import HeartMLP
-
-
-def set_seed(seed: int = 42) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+from project_paths import resolve_data_path, resolve_output_dir
+from training.device_utils import DEVICE_CHOICES, resolve_torch_device
+from training.torch_utils import (
+    clone_state,
+    iterate_minibatches,
+    predict_logits,
+    set_seed,
+    to_tensor,
+)
 
 
 class BinaryFocalLossWithLogits(nn.Module):
@@ -97,7 +99,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--val-size", type=float, default=0.2)
     parser.add_argument("--cv-folds", type=int, default=5)
-    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--cv-repeats", type=int, default=3)
+    parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     parser.add_argument("--seed", type=int, default=42)
     return parser
@@ -151,11 +154,18 @@ def split_data(
     X_val = X_train_val.iloc[val_idx]
     y_val = y_train_val.iloc[val_idx]
 
-    assert set(subject_ids.iloc[train_idx]).isdisjoint(set(subject_ids.iloc[test_idx])), (
+    # train_idx/val_idx index the train+val subset, test_idx indexes the full
+    # data, so compare subject IDs rather than mixing the two position spaces.
+    test_subjects = set(subject_ids.iloc[test_idx])
+    val_subjects = set(groups_train_val.iloc[val_idx])
+    assert set(groups_train.values).isdisjoint(test_subjects), (
         "CRITICAL LEAKAGE: subject_id overlap between train and test!"
     )
-    assert set(subject_ids.iloc[val_idx]).isdisjoint(set(subject_ids.iloc[test_idx])), (
+    assert val_subjects.isdisjoint(test_subjects), (
         "CRITICAL LEAKAGE: subject_id overlap between val and test!"
+    )
+    assert set(groups_train.values).isdisjoint(val_subjects), (
+        "CRITICAL LEAKAGE: subject_id overlap between train and val!"
     )
 
     return X_train, X_val, X_test, y_train, y_val, y_test, groups_train
@@ -175,44 +185,37 @@ def get_loss_criterion(loss_type: str, y_train: pd.Series, device: torch.device,
         return nn.BCEWithLogitsLoss()
 
 
-def train_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer, criterion: nn.Module, device: torch.device) -> float:
+def train_epoch(
+    model: nn.Module,
+    X: torch.Tensor,
+    y: torch.Tensor,
+    optimizer: torch.optim.Optimizer,
+    criterion: nn.Module,
+    batch_size: int,
+    generator: torch.Generator,
+) -> float:
     model.train()
-    total_loss = 0.0
+    total_loss = torch.zeros((), device=X.device)
     total_samples = 0
-    for X_batch, y_batch in loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+    for X_batch, y_batch in iterate_minibatches(X, y, batch_size, shuffle=True, generator=generator):
         optimizer.zero_grad()
-        logits = model(X_batch)
-        loss = criterion(logits, y_batch)
+        loss = criterion(model(X_batch), y_batch)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
-        total_loss += loss.item() * len(y_batch)
+        total_loss += loss.detach() * len(y_batch)
         total_samples += len(y_batch)
-    return total_loss / max(total_samples, 1)
+    return float(total_loss.item()) / max(total_samples, 1)
 
 
-@torch.no_grad()
-def evaluate_model(model: nn.Module, loader: DataLoader, criterion: nn.Module, device: torch.device) -> tuple[float, float, float, np.ndarray, np.ndarray]:
-    model.eval()
-    total_loss = 0.0
-    total_samples = 0
-    all_probs = []
-    all_targets = []
-    for X_batch, y_batch in loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        logits = model(X_batch)
-        loss = criterion(logits, y_batch)
-        probs = torch.sigmoid(logits)
-        total_loss += loss.item() * len(y_batch)
-        total_samples += len(y_batch)
-        all_probs.extend(probs.cpu().numpy().tolist())
-        all_targets.extend(y_batch.cpu().numpy().tolist())
-
-    y_prob = np.array(all_probs)
-    y_true = np.array(all_targets)
-    val_loss = total_loss / max(total_samples, 1)
-
+def evaluate_model(
+    model: nn.Module, X: torch.Tensor, y: torch.Tensor, criterion: nn.Module
+) -> tuple[float, float, float, np.ndarray, np.ndarray]:
+    """Full-batch evaluation: (loss, ROC-AUC, PR-AUC, probabilities, labels)."""
+    logits = predict_logits(model, X)
+    val_loss = float(criterion(logits, y).item())
+    y_prob = torch.sigmoid(logits).cpu().numpy()
+    y_true = y.cpu().numpy()
     try:
         roc_auc = float(roc_auc_score(y_true, y_prob))
     except ValueError:
@@ -221,8 +224,47 @@ def evaluate_model(model: nn.Module, loader: DataLoader, criterion: nn.Module, d
         pr_auc = float(average_precision_score(y_true, y_prob))
     except ValueError:
         pr_auc = float(np.mean(y_true))
-
     return val_loss, roc_auc, pr_auc, y_prob, y_true
+
+
+def _fit_fold(
+    X_fit: pd.DataFrame,
+    y_fit: pd.Series,
+    X_stop: pd.DataFrame,
+    y_stop: pd.Series,
+    args: argparse.Namespace,
+    device: torch.device,
+    seed: int,
+):
+    """Train with early stopping on (X_stop, y_stop); return the model and fitted preprocessor."""
+    generator = set_seed(seed)
+    preprocessor, _, _ = build_preprocessing_pipeline(X_fit, scale_numeric=True)
+    X_fit_t = to_tensor(preprocessor.fit_transform(X_fit), device)
+    X_stop_t = to_tensor(preprocessor.transform(X_stop), device)
+    y_fit_t = to_tensor(y_fit.values, device)
+    y_stop_t = to_tensor(y_stop.values, device)
+
+    model = HeartMLP(input_dim=X_fit_t.shape[1], hidden_dims=tuple(args.hidden_dims), dropout=args.dropout).to(device)
+    criterion = get_loss_criterion(args.loss, y_fit, device, args.focal_alpha, args.focal_gamma)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    best_pr_auc = -1.0
+    best_state = None
+    patience_counter = 0
+    for _ in range(args.epochs):
+        train_epoch(model, X_fit_t, y_fit_t, optimizer, criterion, args.batch_size, generator)
+        _, _, pr_auc, _, _ = evaluate_model(model, X_stop_t, y_stop_t, criterion)
+        if pr_auc > best_pr_auc:
+            best_pr_auc = pr_auc
+            best_state = clone_state(model)
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= args.patience:
+                break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model, preprocessor, criterion
 
 
 def cross_validate_mlp(
@@ -232,98 +274,55 @@ def cross_validate_mlp(
     args: argparse.Namespace,
     device: torch.device,
 ) -> dict:
-    sgkf = StratifiedGroupKFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
-    cv_metrics = {
-        "accuracy": [],
-        "f1": [],
-        "recall": [],
-        "precision": [],
-        "roc_auc": [],
-        "pr_auc": [],
-        "brier": [],
+    cv_metrics: dict[str, list[float]] = {
+        "accuracy": [], "f1": [], "recall": [], "precision": [], "roc_auc": [], "pr_auc": [], "brier": [],
     }
+    repeats = max(1, getattr(args, "cv_repeats", 1))
+    print(f"\n--- Running {args.cv_folds}-Fold x {repeats} Stratified Group CV for MIMIC MLP ---")
+    for repeat in range(repeats):
+        sgkf = StratifiedGroupKFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed + repeat)
+        for fold, (train_idx, val_idx) in enumerate(sgkf.split(X_train, y_train, groups=groups_train), 1):
+            X_tr, y_tr, g_tr = X_train.iloc[train_idx], y_train.iloc[train_idx], groups_train.iloc[train_idx]
+            X_v, y_v = X_train.iloc[val_idx], y_train.iloc[val_idx]
 
-    print(f"\n--- Running {args.cv_folds}-Fold Stratified Group CV for MIMIC MLP ---")
-    for fold, (train_idx, val_idx) in enumerate(sgkf.split(X_train, y_train, groups=groups_train), 1):
-        X_tr, y_tr = X_train.iloc[train_idx], y_train.iloc[train_idx]
-        X_v, y_v = X_train.iloc[val_idx], y_train.iloc[val_idx]
+            # Early stopping gets its own patient-grouped split of the training fold.
+            inner = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=args.seed + 100 * repeat + fold)
+            fit_idx, stop_idx = next(inner.split(X_tr, y_tr, groups=g_tr))
+            fold_seed = args.seed + 1000 * repeat + fold
+            model, preprocessor, criterion = _fit_fold(
+                X_tr.iloc[fit_idx], y_tr.iloc[fit_idx], X_tr.iloc[stop_idx], y_tr.iloc[stop_idx],
+                args, device, fold_seed,
+            )
 
-        preprocessor, _, _ = build_preprocessing_pipeline(X_tr, scale_numeric=True)
-        X_tr_proc = preprocessor.fit_transform(X_tr)
-        X_v_proc = preprocessor.transform(X_v)
+            X_v_t = to_tensor(preprocessor.transform(X_v), device)
+            _, roc_auc, pr_auc, y_prob, y_true = evaluate_model(model, X_v_t, to_tensor(y_v.values, device), criterion)
+            y_pred = (y_prob >= 0.5).astype(int)
 
-        train_ds = TensorDataset(torch.tensor(X_tr_proc, dtype=torch.float32), torch.tensor(y_tr.values, dtype=torch.float32))
-        val_ds = TensorDataset(torch.tensor(X_v_proc, dtype=torch.float32), torch.tensor(y_v.values, dtype=torch.float32))
+            cv_metrics["accuracy"].append(accuracy_score(y_true, y_pred))
+            cv_metrics["f1"].append(f1_score(y_true, y_pred, zero_division=0))
+            cv_metrics["recall"].append(recall_score(y_true, y_pred, zero_division=0))
+            cv_metrics["precision"].append(precision_score(y_true, y_pred, zero_division=0))
+            cv_metrics["roc_auc"].append(roc_auc)
+            cv_metrics["pr_auc"].append(pr_auc)
+            cv_metrics["brier"].append(brier_score_loss(y_true, y_prob))
 
-        train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
-        val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
-
-        model = HeartMLP(input_dim=X_tr_proc.shape[1], hidden_dims=tuple(args.hidden_dims), dropout=args.dropout).to(device)
-        criterion = get_loss_criterion(args.loss, y_tr, device, args.focal_alpha, args.focal_gamma)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
-        best_pr_auc = -1.0
-        best_state = None
-        patience_counter = 0
-
-        for epoch in range(args.epochs):
-            train_epoch(model, train_loader, optimizer, criterion, device)
-            _, roc_auc, pr_auc, _, _ = evaluate_model(model, val_loader, criterion, device)
-
-            if pr_auc > best_pr_auc:
-                best_pr_auc = pr_auc
-                best_state = deepcopy(model.state_dict())
-                patience_counter = 0
-            else:
-                patience_counter += 1
-                if patience_counter >= args.patience:
-                    break
-
-        if best_state is not None:
-            model.load_state_dict(best_state)
-
-        _, roc_auc, pr_auc, y_prob, y_true = evaluate_model(model, val_loader, criterion, device)
-        y_pred = (y_prob >= 0.5).astype(int)
-
-        cv_metrics["accuracy"].append(accuracy_score(y_true, y_pred))
-        cv_metrics["f1"].append(f1_score(y_true, y_pred, zero_division=0))
-        cv_metrics["recall"].append(recall_score(y_true, y_pred, zero_division=0))
-        cv_metrics["precision"].append(precision_score(y_true, y_pred, zero_division=0))
-        cv_metrics["roc_auc"].append(roc_auc)
-        cv_metrics["pr_auc"].append(pr_auc)
-        cv_metrics["brier"].append(brier_score_loss(y_true, y_prob))
-
-    return {
-        "cv_accuracy_mean": float(np.mean(cv_metrics["accuracy"])),
-        "cv_accuracy_std": float(np.std(cv_metrics["accuracy"])),
-        "cv_f1_expired_mean": float(np.mean(cv_metrics["f1"])),
-        "cv_f1_expired_std": float(np.std(cv_metrics["f1"])),
-        "cv_recall_expired_mean": float(np.mean(cv_metrics["recall"])),
-        "cv_recall_expired_std": float(np.std(cv_metrics["recall"])),
-        "cv_precision_expired_mean": float(np.mean(cv_metrics["precision"])),
-        "cv_precision_expired_std": float(np.std(cv_metrics["precision"])),
-        "cv_roc_auc_mean": float(np.mean(cv_metrics["roc_auc"])),
-        "cv_roc_auc_std": float(np.std(cv_metrics["roc_auc"])),
-        "cv_pr_auc_mean": float(np.mean(cv_metrics["pr_auc"])),
-        "cv_pr_auc_std": float(np.std(cv_metrics["pr_auc"])),
-        "cv_brier_mean": float(np.mean(cv_metrics["brier"])),
-        "cv_brier_std": float(np.std(cv_metrics["brier"])),
-    }
+    names = {"f1": "f1_expired", "recall": "recall_expired", "precision": "precision_expired"}
+    summary: dict[str, float] = {}
+    for metric, values in cv_metrics.items():
+        key = names.get(metric, metric)
+        summary[f"cv_{key}_mean"] = float(np.mean(values))
+        summary[f"cv_{key}_std"] = float(np.std(values))
+    summary["cv_n_folds_total"] = len(cv_metrics["accuracy"])
+    return summary
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
-    set_seed(args.seed)
-
-    if args.device == "cuda" and torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif args.device == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device("cpu")
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
+    generator = set_seed(args.seed)
+    device = resolve_torch_device(args.device)
     print(f"Using device: {device}")
 
-    input_path = PROJECT_ROOT / args.input if not Path(args.input).is_absolute() else Path(args.input)
+    input_path = resolve_data_path(args.input)
     X, y, subject_ids = load_data(input_path)
 
     X_train, X_val, X_test, y_train, y_val, y_test, groups_train = split_data(
@@ -340,14 +339,9 @@ def main() -> None:
     input_dim = X_train_proc.shape[1]
     print(f"Input feature dimension after preprocessing: {input_dim}")
 
-    # Datasets and Loaders
-    train_ds = TensorDataset(torch.tensor(X_train_proc, dtype=torch.float32), torch.tensor(y_train.values, dtype=torch.float32))
-    val_ds = TensorDataset(torch.tensor(X_val_proc, dtype=torch.float32), torch.tensor(y_val.values, dtype=torch.float32))
-    test_ds = TensorDataset(torch.tensor(X_test_proc, dtype=torch.float32), torch.tensor(y_test.values, dtype=torch.float32))
-
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False)
+    X_train_t, y_train_t = to_tensor(X_train_proc, device), to_tensor(y_train.values, device)
+    X_val_t, y_val_t = to_tensor(X_val_proc, device), to_tensor(y_val.values, device)
+    X_test_t, y_test_t = to_tensor(X_test_proc, device), to_tensor(y_test.values, device)
 
     # Cross-validation
     cv_summary = cross_validate_mlp(X_train, y_train, groups_train, args, device)
@@ -357,6 +351,7 @@ def main() -> None:
 
     # Holdout Training
     print("\n--- Training Holdout MIMIC MLP ---")
+    generator = set_seed(args.seed)
     model = HeartMLP(input_dim=input_dim, hidden_dims=tuple(args.hidden_dims), dropout=args.dropout).to(device)
     criterion = get_loss_criterion(args.loss, y_train, device, args.focal_alpha, args.focal_gamma)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -367,8 +362,8 @@ def main() -> None:
     history = []
 
     for epoch in range(1, args.epochs + 1):
-        tr_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        v_loss, v_roc, v_pr, _, _ = evaluate_model(model, val_loader, criterion, device)
+        tr_loss = train_epoch(model, X_train_t, y_train_t, optimizer, criterion, args.batch_size, generator)
+        v_loss, v_roc, v_pr, _, _ = evaluate_model(model, X_val_t, y_val_t, criterion)
 
         history.append({
             "epoch": epoch,
@@ -380,7 +375,7 @@ def main() -> None:
 
         if v_loss < best_val_loss:
             best_val_loss = v_loss
-            best_state = deepcopy(model.state_dict())
+            best_state = clone_state(model)
             patience_counter = 0
         else:
             patience_counter += 1
@@ -392,10 +387,10 @@ def main() -> None:
         model.load_state_dict(best_state)
 
     # Evaluate on validation split for out-of-sample threshold tuning
-    _, _, _, y_val_prob, y_val_true = evaluate_model(model, val_loader, criterion, device)
+    _, _, _, y_val_prob, y_val_true = evaluate_model(model, X_val_t, y_val_t, criterion)
 
     # Test set evaluation
-    t_loss, t_roc, t_pr, y_test_prob, y_test_true = evaluate_model(model, test_loader, criterion, device)
+    t_loss, t_roc, t_pr, y_test_prob, y_test_true = evaluate_model(model, X_test_t, y_test_t, criterion)
     y_test_pred = (y_test_prob >= 0.5).astype(int)
 
     clinical = compute_clinical_metrics(
@@ -404,6 +399,7 @@ def main() -> None:
 
     holdout_results = {
         "model": "PyTorch MLP (Ours)",
+        "test_events": int(np.sum(y_test_true)),
         "test_accuracy": float(accuracy_score(y_test_true, y_test_pred)),
         "test_f1_expired": float(f1_score(y_test_true, y_test_pred, zero_division=0)),
         "test_recall_expired": float(recall_score(y_test_true, y_test_pred, zero_division=0)),
@@ -416,6 +412,16 @@ def main() -> None:
         "optimal_threshold_youden": float(clinical["optimal_threshold_youden"]),
         "youden_j": float(clinical["youden_j"]),
     }
+    add_bootstrap_cis(
+        holdout_results, y_test_true, y_test_prob, seed=args.seed,
+        name_map={
+            "accuracy": "test_accuracy",
+            "f1": "test_f1_expired",
+            "roc_auc": "test_roc_auc",
+            "pr_auc": "test_pr_auc",
+            "brier": "test_brier_score",
+        },
+    )
     holdout_results.update(cv_summary)
 
     print("\n=== Holdout Test Performance (PyTorch MLP) ===")
@@ -426,8 +432,7 @@ def main() -> None:
             print(f"  {k}: {v}")
 
     # Output artifacts
-    output_dir = PROJECT_ROOT / args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = resolve_output_dir(args.output_dir)
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -470,7 +475,7 @@ def main() -> None:
         existing_df = existing_df[existing_df["model"] != "PyTorch MLP (Ours)"]
         combined_df = pd.concat([existing_df, pd.DataFrame([holdout_results])], ignore_index=True)
         combined_df = combined_df.sort_values(
-            by=["test_pr_auc", "test_f1_expired", "test_recall_expired", "test_roc_auc"],
+            by=["cv_pr_auc_mean", "cv_roc_auc_mean", "test_pr_auc"],
             ascending=False,
         )
         combined_df.to_csv(csv_path, index=False)

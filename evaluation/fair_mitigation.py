@@ -7,6 +7,7 @@ fairmlbook.org.
 """
 
 from __future__ import annotations
+
 import numpy as np
 from sklearn.metrics import confusion_matrix, f1_score
 

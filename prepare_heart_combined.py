@@ -10,11 +10,12 @@ Total raw cohort size: 920 patients across 4 international centers.
 Attributes: 14 standard clinical features + target + center/site origin.
 """
 
-from pathlib import Path
 import urllib.request
+from pathlib import Path
+
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+from project_paths import HEART_COMBINED_CSV, RAW_DATA_DIR
 
 DATASET_URLS = {
     "cleveland": "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data",
@@ -47,7 +48,8 @@ def download_raw_files() -> dict[str, Path]:
         fname = f"processed.{site}.data" if site != "cleveland" else "processed.cleveland.data"
         if site == "va_long_beach":
             fname = "processed.va.data"
-        local_path = PROJECT_ROOT / fname
+        RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        local_path = RAW_DATA_DIR / fname
         if not local_path.exists():
             print(f"Downloading {site} from {url}...")
             urllib.request.urlretrieve(url, local_path)
@@ -95,18 +97,19 @@ def build_combined_dataset() -> pd.DataFrame:
     return combined
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     print("=" * 60)
     print("Building 4-Center International Heart Disease Dataset (UCI)")
     print("=" * 60)
 
     combined_df = build_combined_dataset()
 
-    output_csv = PROJECT_ROOT / "cleaned_heart_disease_combined.csv"
+    output_csv = HEART_COMBINED_CSV
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
     combined_df.to_csv(output_csv, index=False)
 
     print("\nDataset generation complete!")
-    print(f"Output file: {output_csv.name}")
+    print(f"Output file: {output_csv}")
     print(f"Total patients: {len(combined_df)}")
     print(f"Healthy patients (target=0): {(combined_df['target'] == 0).sum()} ({((combined_df['target'] == 0).mean()*100):.1f}%)")
     print(f"Heart disease patients (target=1): {(combined_df['target'] == 1).sum()} ({((combined_df['target'] == 1).mean()*100):.1f}%)")

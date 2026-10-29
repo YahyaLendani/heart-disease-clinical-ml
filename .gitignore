@@ -96,3 +96,7 @@ coverage.xml
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+
+# Scratch output from CI smoke runs and tuning grids
+ci_artifacts/
+artifacts/tuning_runs/

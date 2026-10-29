@@ -1,7 +1,7 @@
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 def _compute_missingness(df: pd.DataFrame) -> pd.DataFrame:
@@ -184,8 +184,17 @@ def run_eda(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"\nSaved EDA artifacts to: {output_dir}")
 
 
-def main() -> None:
-    cleaned_path = Path(__file__).with_name("cleaned_heart_disease.csv")
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    from project_paths import resolve_data_path, resolve_output_dir
+
+    parser = argparse.ArgumentParser(description="Exploratory data analysis of the cleaned heart cohort.")
+    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv")
+    parser.add_argument("--output-dir", type=str, default="artifacts")
+    args = parser.parse_args(argv)
+
+    cleaned_path = resolve_data_path(args.dataset)
     if not cleaned_path.exists():
         raise FileNotFoundError(
             "cleaned_heart_disease.csv not found. Run clean_data.py first."
@@ -200,8 +209,7 @@ def main() -> None:
         raise ValueError("Dataset must contain either 'target' or 'diagnosis' column.")
     print(f"Loaded cleaned dataset: {cleaned_path.name}")
 
-    artifacts_dir = Path(__file__).with_name("artifacts")
-    run_eda(df, artifacts_dir)
+    run_eda(df, resolve_output_dir(args.output_dir))
 
 
 if __name__ == "__main__":

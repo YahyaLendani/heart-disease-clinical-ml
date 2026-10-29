@@ -1,48 +1,54 @@
+"""Grid search over HeartMLP training hyperparameters.
+
+Configurations are ranked by repeated-CV ROC-AUC (then validation loss).
+Test accuracy is recorded for reference but never used to choose a winner,
+since choosing on the test set would make the reported test score optimistic.
+"""
+
 import argparse
 import itertools
 import json
-import re
-import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 
 def save_learning_rate_plot(results: pd.DataFrame, output_path: Path) -> None:
-    if "learning_rate" not in results.columns or "test_accuracy" not in results.columns:
+    """Plot learning rate against the selection metric (repeated-CV ROC-AUC)."""
+    metric = "cv_roc_auc_mean"
+    if "learning_rate" not in results.columns or metric not in results.columns:
         return
 
-    plot_df = results.dropna(subset=["learning_rate", "test_accuracy"]).copy()
+    plot_df = results.dropna(subset=["learning_rate", metric]).copy()
     if plot_df.empty:
         return
 
     try:
+        import matplotlib
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         print("matplotlib is not installed; skipping learning-rate plot.")
         return
 
     fig, ax = plt.subplots(figsize=(7, 4))
-
-    if "optimizer" in plot_df.columns:
-        for optimizer_name, group in plot_df.groupby("optimizer"):
-            group = group.sort_values("learning_rate")
-            ax.plot(
-                group["learning_rate"],
-                group["test_accuracy"],
-                marker="o",
-                label=str(optimizer_name).upper(),
-            )
-    else:
-        group = plot_df.sort_values("learning_rate")
-        ax.plot(group["learning_rate"], group["test_accuracy"], marker="o", label="Model")
+    groups = plot_df.groupby("optimizer") if "optimizer" in plot_df.columns else [("model", plot_df)]
+    for optimizer_name, group in groups:
+        # Several dropout/clip settings share a learning rate: plot the best one per rate.
+        best = group.groupby("learning_rate", as_index=False)[metric].max().sort_values("learning_rate")
+        ax.plot(best["learning_rate"], best[metric], marker="o", label=str(optimizer_name).upper())
 
     ax.set_xscale("log")
     ax.set_xlabel("Learning Rate (log scale)")
-    ax.set_ylabel("Test Accuracy")
-    ax.set_title("Learning Rate vs Test Accuracy")
-    ax.set_ylim(0, 1)
+    ax.set_ylabel("Best CV ROC-AUC")
+    ax.set_title("Learning Rate vs Cross-Validated ROC-AUC")
+    ax.set_ylim(0.5, 1)
     ax.grid(alpha=0.3)
     ax.legend()
     fig.tight_layout()
@@ -66,88 +72,76 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-clips", nargs="+", type=float, default=[0.5, 1.0])
     parser.add_argument("--label-smoothings", nargs="+", type=float, default=[0.0, 0.02])
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--cv-folds", type=int, default=5)
+    parser.add_argument("--cv-repeats", type=int, default=1)
+    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv")
     parser.add_argument("--output-dir", type=str, default="artifacts")
     return parser
 
 
-def parse_metrics(stdout: str, optimizer: str) -> tuple[float, float] | None:
-    pattern = re.compile(
-        rf"{optimizer.upper()} \| Best Epoch: .*?\| Best Val Loss: .*?\| Best Val Acc: ([0-9.]+) \| Test Accuracy: ([0-9.]+)"
-    )
-    match = pattern.search(stdout)
-    if not match:
-        return None
-    return float(match.group(1)), float(match.group(2))
-
-
 def run_trial(
-    train_script: Path,
     optimizer: str,
     learning_rate: float,
     dropout: float,
     grad_clip: float,
     label_smoothing: float,
     args: argparse.Namespace,
+    trial_output_dir: Path,
 ) -> dict:
-    command = [
-        sys.executable,
-        str(train_script),
-        "--optimizer",
-        optimizer,
-        "--epochs",
-        str(args.epochs),
-        "--patience",
-        str(args.patience),
-        "--loss",
-        args.loss,
-        "--batch-size",
-        str(args.batch_size),
-        "--lr",
-        str(learning_rate),
-        "--weight-decay",
-        str(args.weight_decay),
-        "--dropout",
-        str(dropout),
-        "--grad-clip",
-        str(grad_clip),
-        "--label-smoothing",
-        str(label_smoothing),
-        "--seed",
-        str(args.seed),
+    from training.train_model import main as train_main
+
+    argv = [
+        "--optimizer", optimizer,
+        "--epochs", str(args.epochs),
+        "--patience", str(args.patience),
+        "--loss", args.loss,
+        "--batch-size", str(args.batch_size),
+        "--lr", str(learning_rate),
+        "--weight-decay", str(args.weight_decay),
+        "--dropout", str(dropout),
+        "--grad-clip", str(grad_clip),
+        "--label-smoothing", str(label_smoothing),
+        "--seed", str(args.seed),
+        "--cv-folds", str(args.cv_folds),
+        "--cv-repeats", str(args.cv_repeats),
+        "--dataset", args.dataset,
+        "--output-dir", str(trial_output_dir),
     ]
-
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    parsed = parse_metrics(result.stdout, optimizer)
-
     row = {
         "optimizer": optimizer,
         "learning_rate": learning_rate,
         "dropout": dropout,
         "grad_clip": grad_clip,
         "label_smoothing": label_smoothing,
-        "exit_code": result.returncode,
+        "status": "ok",
+        "cv_roc_auc_mean": None,
+        "cv_roc_auc_std": None,
+        "best_val_loss": None,
         "val_accuracy": None,
         "test_accuracy": None,
     }
+    try:
+        result = train_main(argv)[0]
+    except Exception as error:  # keep the grid going; record the failure
+        row["status"] = f"failed: {error}"
+        return row
 
-    if parsed is not None:
-        row["val_accuracy"] = parsed[0]
-        row["test_accuracy"] = parsed[1]
-
-    if result.returncode != 0:
-        row["stderr_tail"] = result.stderr[-1000:]
-
+    row.update(
+        {
+            "cv_roc_auc_mean": result["cv_roc_auc_mean"],
+            "cv_roc_auc_std": result["cv_roc_auc_std"],
+            "best_val_loss": result["best_val_loss"],
+            "val_accuracy": result["best_val_accuracy"],
+            "test_accuracy": result["test_accuracy"],
+        }
+    )
     return row
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
     base_dir = Path(__file__).resolve().parent
     project_root = base_dir.parent
-    train_script = project_root / "training" / "train_model.py"
-    if not train_script.exists():
-        raise FileNotFoundError("train_model.py not found.")
-
     output_dir = project_root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -172,25 +166,27 @@ def main() -> None:
         )
         rows.append(
             run_trial(
-                train_script,
                 optimizer,
                 learning_rate,
                 dropout,
                 grad_clip,
                 label_smoothing,
                 args,
+                output_dir / "tuning_runs" / f"trial_{idx:03d}",
             )
         )
 
     results = pd.DataFrame(rows)
-    ok_results = results.dropna(subset=["test_accuracy", "val_accuracy"]).copy()
+    ok_results = results[results["status"] == "ok"].copy()
 
     if ok_results.empty:
         results_path = output_dir / "tuning_results.csv"
         results.to_csv(results_path, index=False)
         raise RuntimeError(f"No successful tuning runs. See {results_path}")
 
-    ranked = ok_results.sort_values(by=["test_accuracy", "val_accuracy"], ascending=False).reset_index(drop=True)
+    ranked = ok_results.sort_values(
+        by=["cv_roc_auc_mean", "best_val_loss"], ascending=[False, True]
+    ).reset_index(drop=True)
 
     results_path = output_dir / "tuning_results.csv"
     ranked.to_csv(results_path, index=False)

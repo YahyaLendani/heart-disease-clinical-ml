@@ -7,6 +7,7 @@ ICCV 2017, 618-626. arXiv:1610.02391.
 """
 
 from __future__ import annotations
+
 import numpy as np
 import torch
 import torch.nn as nn

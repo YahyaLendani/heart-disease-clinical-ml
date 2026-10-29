@@ -6,16 +6,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
+from matplotlib.lines import Line2D
 from sklearn.base import clone
 from sklearn.covariance import LedoitWolf
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -23,9 +26,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-import torch
-import torch.nn as nn
-
 
 # =============================================================================
 # UPGRADE 1: DOUBLY ROBUST AIPW CAUSAL INFERENCE & E-VALUE SENSITIVITY
@@ -401,99 +401,115 @@ class ClinicalCounterfactualGenerator:
 
     def generate(self, x_factual: np.ndarray) -> dict[str, np.ndarray | float | bool | dict[str, float]]:
         """Generate an actionable counterfactual for a single patient vector x_factual."""
+        x0 = np.asarray(x_factual, dtype=np.float32).reshape(1, -1)
+        return self.generate_batch(x0)[0]
+
+    def generate_batch(self, X_factual: np.ndarray) -> list[dict[str, np.ndarray | float | bool | dict[str, float]]]:
+        """Generate counterfactuals for many patients in one optimisation.
+
+        Every patient's loss term depends only on that patient's row and Adam
+        updates each coordinate independently, so optimising the rows together
+        follows the same per-patient trajectories as one-at-a-time calls while
+        running the model once per step for the whole batch.
+        """
         if self.lower_bounds_ is None or self.mad_weights_ is None or self.precision_matrix_ is None:
             raise RuntimeError("ClinicalCounterfactualGenerator must be fitted on X_train first.")
 
         self.model.eval()
         device = next(self.model.parameters()).device
 
-        x0_np = np.asarray(x_factual, dtype=np.float32).ravel()
-        x0_t = torch.tensor(x0_np, dtype=torch.float32, device=device).unsqueeze(0)
+        x0_np = np.asarray(X_factual, dtype=np.float32)
+        if x0_np.ndim == 1:
+            x0_np = x0_np.reshape(1, -1)
+        n_rows = x0_np.shape[0]
+        if n_rows == 0:
+            return []
+        x0_t = torch.tensor(x0_np, dtype=torch.float32, device=device)
 
         with torch.no_grad():
-            orig_logit = self.model(x0_t).view(-1)
-            orig_prob = float(torch.sigmoid(orig_logit).item())
+            orig_probs = torch.sigmoid(self.model(x0_t).view(-1)).cpu().numpy()
 
         target_logit = float(np.log(self.target_probability / (1.0 - self.target_probability)))
         x_cf = x0_t.clone().detach().requires_grad_(True)
 
         w_t = torch.tensor(self.mad_weights_, dtype=torch.float32, device=device)
         prec_t = torch.tensor(self.precision_matrix_, dtype=torch.float32, device=device)
-        lo_t = torch.tensor(self.lower_bounds_, dtype=torch.float32, device=device)
-        hi_t = torch.tensor(self.upper_bounds_, dtype=torch.float32, device=device)
+        lo_t = torch.tensor(self.lower_bounds_, dtype=torch.float32, device=device).unsqueeze(0)
+        hi_t = torch.tensor(self.upper_bounds_, dtype=torch.float32, device=device).unsqueeze(0)
+        immutable = self.immutable_indices_
 
         optimizer = torch.optim.Adam([x_cf], lr=self.lr)
 
         best_cf = x0_t.clone().detach()
-        best_cost = float("inf")
-        found_valid = False
+        best_cost = torch.full((n_rows,), float("inf"), device=device)
+        found_valid = torch.zeros(n_rows, dtype=torch.bool, device=device)
 
         for _ in range(self.max_iter):
             optimizer.zero_grad()
             logit = self.model(x_cf).view(-1)
-            prob = torch.sigmoid(logit)
 
             # Hinge-logit validity loss with safety margin kappa
-            validity_loss = torch.relu(logit - target_logit + self.margin_kappa).squeeze()
+            validity_loss = torch.relu(logit - target_logit + self.margin_kappa)
 
-            diff = (x_cf - x0_t).squeeze(0)
+            diff = x_cf - x0_t
             weighted_diff = w_t * diff
-            l1_loss = torch.sum(torch.abs(weighted_diff))
-            l2_loss = torch.sum(weighted_diff**2)
-            mahal_loss = torch.matmul(diff.unsqueeze(0), torch.matmul(prec_t, diff.unsqueeze(1))).squeeze()
+            l1_loss = torch.sum(torch.abs(weighted_diff), dim=1)
+            l2_loss = torch.sum(weighted_diff**2, dim=1)
+            mahal_loss = torch.sum((diff @ prec_t) * diff, dim=1)
 
             reg_cost = (
                 self.lambda_l1 * l1_loss
                 + self.lambda_l2 * l2_loss
                 + self.lambda_mahalanobis * mahal_loss
             )
-            total_loss = validity_loss + reg_cost
+            total_loss = torch.sum(validity_loss + reg_cost)
             total_loss.backward()
             optimizer.step()
 
             # Hard projection step: enforce physiological bounds & strict immutability
             with torch.no_grad():
-                x_cf.data = torch.max(torch.min(x_cf.data, hi_t.unsqueeze(0)), lo_t.unsqueeze(0))
-                if self.immutable_indices_:
-                    x_cf.data[:, self.immutable_indices_] = x0_t[:, self.immutable_indices_]
+                x_cf.data = torch.max(torch.min(x_cf.data, hi_t), lo_t)
+                if immutable:
+                    x_cf.data[:, immutable] = x0_t[:, immutable]
 
-                curr_prob = float(torch.sigmoid(self.model(x_cf).view(-1)).item())
-                curr_reg = float(reg_cost.item())
-                if curr_prob <= self.target_probability and curr_reg < best_cost:
-                    best_cost = curr_reg
-                    best_cf = x_cf.clone().detach()
-                    found_valid = True
-
-        if not found_valid:
-            best_cf = x_cf.clone().detach()
+                curr_prob = torch.sigmoid(self.model(x_cf).view(-1))
+                curr_reg = reg_cost.detach()
+                improved = (curr_prob <= self.target_probability) & (curr_reg < best_cost)
+                best_cost = torch.where(improved, curr_reg, best_cost)
+                best_cf = torch.where(improved.unsqueeze(1), x_cf.detach(), best_cf)
+                found_valid |= improved
 
         with torch.no_grad():
-            cf_logit = self.model(best_cf).view(-1)
-            cf_prob = float(torch.sigmoid(cf_logit).item())
+            # Rows that never reached the target keep their final iterate.
+            best_cf = torch.where(found_valid.unsqueeze(1), best_cf, x_cf.detach())
+            cf_probs = torch.sigmoid(self.model(best_cf).view(-1)).cpu().numpy()
 
-        cf_np = best_cf.cpu().numpy().ravel()
-        delta = cf_np - x0_np
-        mahal_dist = float(np.sqrt(max(0.0, float(delta @ self.precision_matrix_ @ delta))))
-        active_changes = {
-            self.feature_names[i]: float(delta[i])
-            for i in self.actionable_indices_
-            if abs(delta[i]) > 1e-3
-        }
-
-        return {
-            "x_factual": x0_np,
-            "x_counterfactual": cf_np,
-            "delta": delta,
-            "original_probability": orig_prob,
-            "counterfactual_probability": cf_prob,
-            "validity_achieved": bool(cf_prob <= self.target_probability),
-            "sparsity_count": len(active_changes),
-            "mahalanobis_distance": mahal_dist,
-            "immutable_violation_max": float(
-                np.max(np.abs(delta[self.immutable_indices_])) if self.immutable_indices_ else 0.0
-            ),
-            "recommended_interventions": active_changes,
-        }
+        cf_np = best_cf.cpu().numpy()
+        results = []
+        for row in range(n_rows):
+            delta = cf_np[row] - x0_np[row]
+            mahal_dist = float(np.sqrt(max(0.0, float(delta @ self.precision_matrix_ @ delta))))
+            active_changes = {
+                self.feature_names[i]: float(delta[i])
+                for i in self.actionable_indices_
+                if abs(delta[i]) > 1e-3
+            }
+            cf_prob = float(cf_probs[row])
+            results.append({
+                "x_factual": x0_np[row],
+                "x_counterfactual": cf_np[row],
+                "delta": delta,
+                "original_probability": float(orig_probs[row]),
+                "counterfactual_probability": cf_prob,
+                "validity_achieved": bool(cf_prob <= self.target_probability),
+                "sparsity_count": len(active_changes),
+                "mahalanobis_distance": mahal_dist,
+                "immutable_violation_max": float(
+                    np.max(np.abs(delta[immutable])) if immutable else 0.0
+                ),
+                "recommended_interventions": active_changes,
+            })
+        return results
 
     def evaluate_cohort_recourse(
         self,
@@ -518,19 +534,12 @@ class ClinicalCounterfactualGenerator:
         if len(high_risk_idx) == 0:
             high_risk_idx = np.argsort(probs)[::-1][: min(10, len(X_arr))]
 
-        validities = []
-        sparsities = []
-        mahal_dists = []
-        risk_drops = []
-        immut_violations = []
-
-        for idx in high_risk_idx:
-            res = self.generate(X_arr[idx])
-            validities.append(float(res["validity_achieved"]))
-            sparsities.append(float(res["sparsity_count"]))
-            mahal_dists.append(float(res["mahalanobis_distance"]))
-            risk_drops.append(float(res["original_probability"] - res["counterfactual_probability"]))
-            immut_violations.append(float(res["immutable_violation_max"]))
+        batch = self.generate_batch(X_arr[high_risk_idx])
+        validities = [float(res["validity_achieved"]) for res in batch]
+        sparsities = [float(res["sparsity_count"]) for res in batch]
+        mahal_dists = [float(res["mahalanobis_distance"]) for res in batch]
+        risk_drops = [float(res["original_probability"] - res["counterfactual_probability"]) for res in batch]
+        immut_violations = [float(res["immutable_violation_max"]) for res in batch]
 
         return {
             "n_evaluated": int(len(high_risk_idx)),
@@ -783,11 +792,12 @@ def plot_counterfactual_case_study(
 
     # Select a representative high-risk patient that achieves valid recourse
     sorted_indices = np.argsort(probs)[::-1]
-    selected_idx = int(sorted_indices[0])
-    cf_result = generator.generate(X_arr[selected_idx])
+    candidates_idx = sorted_indices[: min(25, len(sorted_indices))]
+    candidates = generator.generate_batch(X_arr[candidates_idx])
+    selected_idx = int(candidates_idx[0])
+    cf_result = candidates[0]
 
-    for idx in sorted_indices[: min(25, len(sorted_indices))]:
-        candidate = generator.generate(X_arr[int(idx)])
+    for idx, candidate in zip(candidates_idx, candidates, strict=True):
         if candidate["validity_achieved"] and candidate["sparsity_count"] >= 1:
             selected_idx = int(idx)
             cf_result = candidate
@@ -945,7 +955,7 @@ def plot_counterfactual_case_study(
         zorder=3,
     )
 
-    for bar, val in zip(bars, [orig_p, cf_p]):
+    for bar, val in zip(bars, [orig_p, cf_p], strict=True):
         ax2.text(
             bar.get_x() + bar.get_width() / 2.0,
             val + 2.2,
@@ -1090,7 +1100,7 @@ def plot_aipw_love_plot(
     y_pos = np.arange(n_features)
 
     # Horizontal connecting lines showing bias reduction per confounder
-    for y, u_val, w_val in zip(y_pos, sorted_unadj, sorted_iptw):
+    for y, u_val, w_val in zip(y_pos, sorted_unadj, sorted_iptw, strict=True):
         ax.plot([w_val, u_val], [y, y], color="#888888", linestyle="-", linewidth=1.4, zorder=2)
 
     ax.scatter(

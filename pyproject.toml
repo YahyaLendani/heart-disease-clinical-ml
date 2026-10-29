@@ -41,7 +41,9 @@ classifiers = [
 dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
+    "scipy>=1.10.0",
     "scikit-learn>=1.3.0",
+    "joblib>=1.3.0",
     "torch>=2.0.0",
     "xgboost>=2.0.0",
     "shap>=0.43.0",
@@ -66,17 +68,12 @@ Issues = "https://github.com/YahyaLendani/heart-disease-clinical-ml/issues"
 [tool.setuptools]
 py-modules = [
     "run_pipeline",
+    "project_paths",
     "clean_data",
     "eda",
-    "train_model",
-    "baseline_models",
+    "prepare_heart_combined",
     "mimic_prepare_dataset",
-    "mimic_train_baselines",
-    "update_thesis_results",
-    "run_reading_list_suite",
-    "tune_train_model",
-    "compare_separate_runs",
-    "analyze_overfitting_network_size",
+    "validate_scratch_mlp",
 ]
 
 [tool.setuptools.packages.find]
@@ -117,6 +114,15 @@ select = [
 ignore = [
     "E501", # line length handled by formatter
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts put the project root on sys.path before importing project modules,
+# so they can be run directly (python training/train_model.py) as well as via the CLI.
+"training/*.py" = ["E402"]
+"evaluation/*.py" = ["E402"]
+"experiments/*.py" = ["E402"]
+"tests/*.py" = ["E402"]
+"run_pipeline.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["models", "training", "evaluation", "experiments"]
