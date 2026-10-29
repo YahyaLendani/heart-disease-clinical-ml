@@ -1,10 +1,12 @@
 import argparse
-import re
-import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -49,18 +51,7 @@ def parse_architectures(items: list[str]) -> list[tuple[str, tuple[int, int]]]:
     return parsed
 
 
-def parse_eval_metrics(stdout: str, optimizer: str) -> tuple[float, float, int] | None:
-    pattern = re.compile(
-        rf"{optimizer.upper()} \| Best Epoch: ([0-9]+) \| Best Val Loss: [0-9.]+ \| Best Val Acc: ([0-9.]+) \| Test Accuracy: ([0-9.]+)"
-    )
-    match = pattern.search(stdout)
-    if not match:
-        return None
-    return float(match.group(2)), float(match.group(3)), int(match.group(1))
-
-
 def run_one_architecture(
-    train_script: Path,
     output_root: Path,
     label: str,
     hidden_dims: tuple[int, int],
@@ -69,9 +60,9 @@ def run_one_architecture(
     run_output_dir = output_root / f"overfit_{label}"
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
+    from training.train_model import main as train_main
+
     command = [
-        sys.executable,
-        str(train_script),
         "--optimizer",
         args.optimizer,
         "--epochs",
@@ -101,14 +92,19 @@ def run_one_architecture(
         str(run_output_dir),
     ]
 
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    parsed = parse_eval_metrics(result.stdout, args.optimizer)
+    try:
+        run_result = train_main(command)[0]
+        exit_code = 0
+    except Exception as error:  # record the failure and continue with other sizes
+        print(f"Architecture {label} failed: {error}")
+        run_result = None
+        exit_code = 1
 
     row: dict = {
         "label": label,
         "hidden_dims": f"{hidden_dims[0]},{hidden_dims[1]}",
         "parameters_scale": hidden_dims[0] * hidden_dims[1],
-        "exit_code": result.returncode,
+        "exit_code": exit_code,
         "best_epoch": None,
         "best_val_accuracy": None,
         "test_accuracy": None,
@@ -123,9 +119,10 @@ def run_one_architecture(
         "cv_accuracy_std": None,
     }
 
-    if parsed is not None:
-        best_val_accuracy, test_accuracy, best_epoch = parsed
-        row["best_epoch"] = best_epoch
+    if run_result is not None:
+        best_val_accuracy = run_result["best_val_accuracy"]
+        test_accuracy = run_result["test_accuracy"]
+        row["best_epoch"] = run_result["best_epoch"]
         row["best_val_accuracy"] = best_val_accuracy
         row["test_accuracy"] = test_accuracy
         row["generalization_gap"] = best_val_accuracy - test_accuracy
@@ -148,9 +145,6 @@ def run_one_architecture(
         if not cv_summary.empty:
             row["cv_accuracy_mean"] = float(cv_summary.iloc[0]["cv_accuracy_mean"])
             row["cv_accuracy_std"] = float(cv_summary.iloc[0]["cv_accuracy_std"])
-
-    if result.returncode != 0:
-        row["stderr_tail"] = result.stderr[-1000:]
 
     return row
 
@@ -180,14 +174,10 @@ def save_markdown_table(df: pd.DataFrame, output_path: Path) -> None:
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
     base_dir = Path(__file__).resolve().parent
     project_root = base_dir.parent
-    train_script = project_root / "training" / "train_model.py"
-    if not train_script.exists():
-        raise FileNotFoundError("train_model.py not found.")
-
     architectures = parse_architectures(args.architectures)
     output_root = project_root / args.output_dir
     output_root.mkdir(parents=True, exist_ok=True)
@@ -196,7 +186,7 @@ def main() -> None:
     print(f"Running overfitting analysis on {len(architectures)} architectures...")
     for index, (label, hidden_dims) in enumerate(architectures, start=1):
         print(f"[{index}/{len(architectures)}] {label} ({hidden_dims[0]},{hidden_dims[1]})")
-        rows.append(run_one_architecture(train_script, output_root, label, hidden_dims, args))
+        rows.append(run_one_architecture(output_root, label, hidden_dims, args))
 
     results = pd.DataFrame(rows)
     valid = results[results["exit_code"] == 0].copy()

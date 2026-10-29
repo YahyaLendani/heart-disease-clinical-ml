@@ -20,13 +20,18 @@ imputed inside the training pipelines (fit on training folds only).
 """
 
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from project_paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
-DEFAULT_MIMIC_ROOT = Path("c:/Users/yahya/Downloads/mimic-iv-clinical-database-demo-2.2")
+# Set MIMIC_IV_ROOT or pass --mimic-root to point at the extracted MIMIC-IV demo.
+DEFAULT_MIMIC_ROOT = Path(
+    os.environ.get("MIMIC_IV_ROOT", RAW_DATA_DIR / "mimic-iv-clinical-database-demo-2.2")
+)
 
 ID_AND_TARGET = ["subject_id", "hadm_id", "hospital_expire_flag"]
 
@@ -215,13 +220,14 @@ def build_dataset(mimic_root: Path, feature_set: str = "admission") -> pd.DataFr
     return model_df.drop_duplicates(subset=["hadm_id"]).reset_index(drop=True)
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
     mimic_root = Path(args.mimic_root)
     default_name = (
         "mimic_hospital_mortality.csv" if args.feature_set == "admission" else "mimic_hospital_mortality_discharge.csv"
     )
-    output_path = Path(__file__).with_name(args.output or default_name)
+    output_path = PROCESSED_DATA_DIR / (args.output or default_name)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     dataset = build_dataset(mimic_root, feature_set=args.feature_set)
     dataset.to_csv(output_path, index=False)

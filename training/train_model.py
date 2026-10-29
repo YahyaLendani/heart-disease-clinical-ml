@@ -1,55 +1,65 @@
-from pathlib import Path
+"""PyTorch HeartMLP training for the heart-disease cohort (SGD vs Adam).
+
+Evaluation protocol
+-------------------
+* 80/20 stratified train+val / test split, then an inner train/val split.
+* Repeated stratified k-fold CV on the train+val part. Inside every fold a
+  separate early-stopping split is carved out of the training portion, so
+  the fold used for scoring is never used to pick the stopping epoch.
+* When both optimizers run, the reported "best optimizer" is chosen by
+  validation loss, never by test accuracy.
+* Thresholds are tuned on the validation split and applied to the test split;
+  test metrics carry stratified bootstrap 95% confidence intervals.
+
+Speed: the data stays in tensors (no ``DataLoader``), each epoch runs one
+validation forward pass, and CV folds run in parallel processes.
+"""
+
+from __future__ import annotations
+
 import argparse
-from copy import deepcopy
-import random
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    brier_score_loss,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import StratifiedKFold, train_test_split
 import torch
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
-
-try:
-    from clean_data import build_preprocessing_pipeline
-    from evaluation.clinical_metrics import (
-        compute_clinical_metrics,
-        plot_calibration_curves,
-        plot_precision_recall_curves,
-    )
-    from models import HeartMLP
-except ModuleNotFoundError:
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from clean_data import build_preprocessing_pipeline
-    from evaluation.clinical_metrics import (
-        compute_clinical_metrics,
-        plot_calibration_curves,
-        plot_precision_recall_curves,
-    )
-    from models import HeartMLP
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
+from clean_data import build_preprocessing_pipeline
+from evaluation.clinical_metrics import (
+    compute_clinical_metrics,
+    plot_calibration_curves,
+    plot_precision_recall_curves,
+)
+from evaluation.cv_utils import add_bootstrap_cis, binary_metrics, resolve_n_jobs
+from models import HeartMLP
+from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
+from training.device_utils import DEVICE_CHOICES, resolve_torch_device
+from training.torch_utils import (
+    clone_state,
+    iterate_minibatches,
+    predict_logits,
+    set_seed,
+    single_thread,
+    to_tensor,
+)
 
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+__all__ = ["set_seed", "train_one_optimizer", "main"]
+
+TEST_METRIC_COLUMNS = {
+    "accuracy": "test_accuracy",
+    "f1": "test_f1",
+    "roc_auc": "test_roc_auc",
+    "pr_auc": "test_pr_auc",
+    "brier": "test_brier_score",
+}
 
 
 def smooth_binary_targets(targets: torch.Tensor, smoothing: float) -> torch.Tensor:
@@ -71,61 +81,19 @@ def make_loss(loss_name: str, y_train_tensor: torch.Tensor) -> nn.Module:
     raise ValueError(f"Unsupported loss: {loss_name}")
 
 
-def evaluate_loss(model: nn.Module, data_loader: DataLoader, criterion: nn.Module, device: torch.device) -> float:
-    model.eval()
-    losses: list[float] = []
-    with torch.no_grad():
-        for xb, yb in data_loader:
-            xb = xb.to(device)
-            yb = yb.to(device)
-            logits = model(xb)
-            loss = criterion(logits, yb)
-            losses.append(loss.item())
-    return float(sum(losses) / max(len(losses), 1))
-
-
-def evaluate_accuracy(model: nn.Module, data_loader: DataLoader, device: torch.device) -> float:
-    model.eval()
-    all_preds: list[int] = []
-    all_true: list[int] = []
-    with torch.no_grad():
-        for xb, yb in data_loader:
-            xb = xb.to(device)
-            logits = model(xb)
-            probs = torch.sigmoid(logits)
-            preds = (probs >= 0.5).int().cpu().tolist()
-            all_preds.extend(preds)
-            all_true.extend(yb.int().cpu().tolist())
-    return accuracy_score(all_true, all_preds)
-
-
-def predict_binary(model: nn.Module, data_loader: DataLoader, device: torch.device) -> list[int]:
-    model.eval()
-    all_predictions: list[int] = []
-    with torch.no_grad():
-        for xb, _ in data_loader:
-            xb = xb.to(device)
-            logits = model(xb)
-            probs = torch.sigmoid(logits)
-            preds = (probs >= 0.5).int().cpu().tolist()
-            all_predictions.extend(preds)
-    return all_predictions
-
-
-def predict_probabilities(model: nn.Module, data_loader: DataLoader, device: torch.device) -> list[float]:
-    model.eval()
-    all_probabilities: list[float] = []
-    with torch.no_grad():
-        for xb, _ in data_loader:
-            xb = xb.to(device)
-            logits = model(xb)
-            probs = torch.sigmoid(logits).cpu().tolist()
-            all_probabilities.extend([float(value) for value in probs])
-    return all_probabilities
+def make_optimizer(name: str, model: nn.Module, lr: float, weight_decay: float) -> torch.optim.Optimizer:
+    if name == "sgd":
+        return torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
+    if name == "adam":
+        return torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=weight_decay)
+    raise ValueError(f"Unsupported optimizer: {name}")
 
 
 def save_training_curves(history_rows: list[dict], output_path: Path, optimizer_name: str) -> None:
     try:
+        import matplotlib
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         print("matplotlib is not installed; skipping training-curve visualization.")
@@ -160,78 +128,59 @@ def save_training_curves(history_rows: list[dict], output_path: Path, optimizer_
     print(f"Saved training curves: {output_path}")
 
 
-def train_one_optimizer(
+def fit_with_early_stopping(
     optimizer_name: str,
     model: nn.Module,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    test_loader: DataLoader,
-    y_test: pd.Series,
+    X_train: torch.Tensor,
+    y_train: torch.Tensor,
+    X_val: torch.Tensor,
+    y_val: torch.Tensor,
     criterion: nn.Module,
     lr: float,
     weight_decay: float,
     epochs: int,
     patience: int,
-    device: torch.device,
-    checkpoint_path: Path | None = None,
-    confusion_matrix_path: Path | None = None,
-    history_path: Path | None = None,
+    batch_size: int,
+    generator: torch.Generator,
     grad_clip: float = 1.0,
     label_smoothing: float = 0.0,
     min_delta: float = 0.0,
-    curve_path: Path | None = None,
+    verbose: bool = True,
 ) -> dict:
-    if optimizer_name == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
-    elif optimizer_name == "adam":
-        optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=lr,
-            betas=(0.9, 0.999),
-            eps=1e-8,
-            weight_decay=weight_decay,
-        )
-    else:
-        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
-
+    """Train with early stopping on (X_val, y_val); restore the best weights."""
+    optimizer = make_optimizer(optimizer_name, model, lr, weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=4,
-        min_lr=1e-6,
+        optimizer, mode="min", factor=0.5, patience=4, min_lr=1e-6
     )
 
     best_val_loss = float("inf")
     best_val_accuracy = 0.0
     best_epoch = 0
-    best_state = deepcopy(model.state_dict())
+    best_state = clone_state(model)
     wait = 0
     history_rows: list[dict] = []
 
-    print(f"\n=== Training with {optimizer_name.upper()} ===")
     for epoch in range(1, epochs + 1):
         model.train()
-        epoch_losses: list[float] = []
-
-        for xb, yb in train_loader:
-            xb = xb.to(device)
-            yb = yb.to(device)
-            yb_train = smooth_binary_targets(yb, label_smoothing)
-
+        loss_sum = torch.zeros((), device=X_train.device)
+        n_batches = 0
+        for xb, yb in iterate_minibatches(
+            X_train, y_train, batch_size, shuffle=True, drop_last=True, generator=generator
+        ):
             optimizer.zero_grad()
-            logits = model(xb)
-            loss = criterion(logits, yb_train)
+            loss = criterion(model(xb), smooth_binary_targets(yb, label_smoothing))
             loss.backward()
             if grad_clip > 0:
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
+            loss_sum += loss.detach()
+            n_batches += 1
 
-            epoch_losses.append(loss.item())
-
-        train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
-        val_loss = evaluate_loss(model, val_loader, criterion, device)
-        val_accuracy = evaluate_accuracy(model, val_loader, device)
+        train_loss = float(loss_sum.item()) / max(n_batches, 1)
+        # One forward pass gives both validation loss and accuracy.
+        val_logits = predict_logits(model, X_val)
+        val_loss = float(criterion(val_logits, y_val).item())
+        val_accuracy = float(((val_logits >= 0).float() == y_val).float().mean().item())
         current_lr = optimizer.param_groups[0]["lr"]
         scheduler.step(val_loss)
 
@@ -244,62 +193,110 @@ def train_one_optimizer(
                 "learning_rate": current_lr,
             }
         )
-
-        print(
-            f"Epoch {epoch:03d} | Train Loss: {train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} | Val Acc: {val_accuracy:.4f} | LR: {current_lr:.6f}"
-        )
+        if verbose:
+            print(
+                f"Epoch {epoch:03d} | Train Loss: {train_loss:.4f} | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_accuracy:.4f} | LR: {current_lr:.6f}"
+            )
 
         if val_loss < best_val_loss - min_delta:
             best_val_loss = val_loss
             best_val_accuracy = val_accuracy
             best_epoch = epoch
-            best_state = deepcopy(model.state_dict())
+            best_state = clone_state(model)
             wait = 0
         else:
             wait += 1
             if wait >= patience:
-                print(f"Early stopping triggered at epoch {epoch}.")
+                if verbose:
+                    print(f"Early stopping triggered at epoch {epoch}.")
                 break
 
+    model.load_state_dict(best_state)
+    return {
+        "best_val_loss": best_val_loss,
+        "best_val_accuracy": best_val_accuracy,
+        "best_epoch": best_epoch,
+        "best_state": best_state,
+        "history": history_rows,
+    }
+
+
+def predict_proba(model: nn.Module, X: torch.Tensor) -> np.ndarray:
+    return torch.sigmoid(predict_logits(model, X)).cpu().numpy().ravel()
+
+
+def train_one_optimizer(
+    optimizer_name: str,
+    model: nn.Module,
+    X_train: torch.Tensor,
+    y_train: torch.Tensor,
+    X_val: torch.Tensor,
+    y_val: torch.Tensor,
+    X_test: torch.Tensor,
+    y_test: pd.Series,
+    criterion: nn.Module,
+    lr: float,
+    weight_decay: float,
+    epochs: int,
+    patience: int,
+    batch_size: int,
+    generator: torch.Generator,
+    checkpoint_path: Path | None = None,
+    confusion_matrix_path: Path | None = None,
+    history_path: Path | None = None,
+    grad_clip: float = 1.0,
+    label_smoothing: float = 0.0,
+    min_delta: float = 0.0,
+    curve_path: Path | None = None,
+    seed: int = 42,
+) -> dict:
+    """Train on the holdout split, then report test metrics with val-tuned thresholds."""
+    print(f"\n=== Training with {optimizer_name.upper()} ===")
+    fit = fit_with_early_stopping(
+        optimizer_name, model, X_train, y_train, X_val, y_val, criterion,
+        lr, weight_decay, epochs, patience, batch_size, generator,
+        grad_clip=grad_clip, label_smoothing=label_smoothing, min_delta=min_delta,
+    )
     print(
-        f"Best validation checkpoint for {optimizer_name.upper()}: "
-        f"epoch={best_epoch}, val_loss={best_val_loss:.4f}, val_accuracy={best_val_accuracy:.4f}"
+        f"Best validation checkpoint for {optimizer_name.upper()}: epoch={fit['best_epoch']}, "
+        f"val_loss={fit['best_val_loss']:.4f}, val_accuracy={fit['best_val_accuracy']:.4f}"
     )
 
-    model.load_state_dict(best_state)
-    y_pred = predict_binary(model, test_loader, device)
-    y_prob = predict_probabilities(model, test_loader, device)
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-    try:
-        roc_auc = roc_auc_score(y_test, y_prob)
-    except ValueError:
-        roc_auc = float("nan")
+    y_prob = predict_proba(model, X_test)
+    y_val_prob = predict_proba(model, X_val)
+    y_val_np = y_val.cpu().numpy().astype(int)
+    y_pred = (y_prob >= 0.5).astype(int)
 
-    # Clinical metrics
-    try:
-        clinical = compute_clinical_metrics(y_test, y_prob)
-    except Exception:
-        clinical = {
-            "pr_auc": float("nan"),
-            "brier_score": float("nan"),
-            "optimal_threshold_f1": 0.5,
-            "f1_at_optimal": float("nan"),
-            "optimal_threshold_youden": 0.5,
-            "youden_j": float("nan"),
-        }
-
+    base = binary_metrics(y_test, y_prob)
+    clinical = compute_clinical_metrics(y_test, y_prob, y_val_true=y_val_np, y_val_prob=y_val_prob)
     cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
 
-    print(f"\n{optimizer_name.upper()} Test Accuracy: {accuracy:.4f}")
-    print(f"{optimizer_name.upper()} Test F1: {f1:.4f}")
-    print(f"{optimizer_name.upper()} Test ROC-AUC: {roc_auc:.4f}")
-    print(f"{optimizer_name.upper()} Test PR-AUC: {clinical['pr_auc']:.4f}")
-    print(f"{optimizer_name.upper()} Test Brier Score: {clinical['brier_score']:.4f}")
+    result = {
+        "optimizer": optimizer_name,
+        "best_val_loss": fit["best_val_loss"],
+        "best_val_accuracy": fit["best_val_accuracy"],
+        **{column: base[metric] for metric, column in TEST_METRIC_COLUMNS.items()},
+        "optimal_threshold_f1": clinical["optimal_threshold_f1"],
+        "f1_at_optimal_threshold": clinical["f1_at_optimal"],
+        "optimal_threshold_youden": clinical["optimal_threshold_youden"],
+        "youden_j": clinical["youden_j"],
+        "best_epoch": fit["best_epoch"],
+    }
+    add_bootstrap_cis(result, y_test, y_prob, seed=seed, name_map=TEST_METRIC_COLUMNS)
+
+    name = optimizer_name.upper()
+    print(f"\n{name} Test Accuracy: {result['test_accuracy']:.4f}")
+    print(f"{name} Test F1: {result['test_f1']:.4f}")
     print(
-        f"{optimizer_name.upper()} Optimal threshold (F1): {clinical['optimal_threshold_f1']:.3f} "
-        f"(F1={clinical['f1_at_optimal']:.4f})"
+        f"{name} Test ROC-AUC: {result['test_roc_auc']:.4f} "
+        f"(95% CI {result['test_roc_auc_ci_low']:.4f}-{result['test_roc_auc_ci_high']:.4f})"
+    )
+    print(f"{name} Test PR-AUC: {result['test_pr_auc']:.4f}")
+    print(f"{name} Test Brier Score: {result['test_brier_score']:.4f}")
+    print(
+        f"{name} Validation-tuned threshold (F1): {result['optimal_threshold_f1']:.3f} "
+        f"(test F1={result['f1_at_optimal_threshold']:.4f})"
     )
     print(classification_report(y_test, y_pred, target_names=["healthy", "sick"]))
     cm_df = pd.DataFrame(cm, index=["actual_healthy", "actual_sick"], columns=["pred_healthy", "pred_sick"])
@@ -308,41 +305,22 @@ def train_one_optimizer(
 
     if checkpoint_path is not None:
         torch.save(
-            {
-                "optimizer": optimizer_name,
-                "best_val_loss": best_val_loss,
-                "model_state_dict": best_state,
-            },
+            {"optimizer": optimizer_name, "best_val_loss": fit["best_val_loss"], "model_state_dict": fit["best_state"]},
             checkpoint_path,
         )
         print(f"Saved checkpoint: {checkpoint_path}")
-
     if confusion_matrix_path is not None:
         cm_df.to_csv(confusion_matrix_path)
         print(f"Saved confusion matrix: {confusion_matrix_path}")
-
     if history_path is not None:
-        pd.DataFrame(history_rows).to_csv(history_path, index=False)
+        pd.DataFrame(fit["history"]).to_csv(history_path, index=False)
         print(f"Saved training history: {history_path}")
-
     if curve_path is not None:
-        save_training_curves(history_rows, curve_path, optimizer_name)
+        save_training_curves(fit["history"], curve_path, optimizer_name)
 
-    return {
-        "optimizer": optimizer_name,
-        "best_val_loss": best_val_loss,
-        "best_val_accuracy": best_val_accuracy,
-        "test_accuracy": accuracy,
-        "test_f1": f1,
-        "test_roc_auc": roc_auc,
-        "test_pr_auc": clinical["pr_auc"],
-        "test_brier_score": clinical["brier_score"],
-        "optimal_threshold_f1": clinical["optimal_threshold_f1"],
-        "f1_at_optimal_threshold": clinical["f1_at_optimal"],
-        "best_epoch": best_epoch,
-        "y_prob": y_prob,
-        "model_state_dict": best_state,
-    }
+    result["y_prob"] = y_prob
+    result["model_state_dict"] = fit["best_state"]
+    return result
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -363,24 +341,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--label-smoothing", type=float, default=0.0)
     parser.add_argument("--min-delta", type=float, default=0.0)
-    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto")
     parser.add_argument("--save-run-metrics", action="store_true")
     parser.add_argument("--comparison-file", type=str, default="artifacts/separate_model_runs.csv")
     parser.add_argument("--val-size", type=float, default=0.2)
     parser.add_argument("--cv-folds", type=int, default=5)
-    parser.add_argument("--dataset", type=str, default="cleaned_heart_disease.csv", help="Path to cleaned dataset CSV file.")
+    parser.add_argument("--cv-repeats", type=int, default=3, help="Repeats of stratified k-fold CV.")
+    parser.add_argument(
+        "--n-jobs", type=int, default=1,
+        help="Parallel CV fold processes (default 1: serial is faster for this small MLP; results do not depend on it).",
+    )
+    parser.add_argument("--dataset", type=str, default=PRIMARY_HEART_DATASET, help="Cleaned dataset CSV (default: 918-patient 4-center cohort).")
     parser.add_argument("--run-xai", action="store_true", help="Run SHAP explainability analysis after training.")
     return parser
-
-
-def resolve_torch_device(requested_device: str) -> torch.device:
-    if requested_device == "cpu":
-        return torch.device("cpu")
-    if requested_device == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested, but no CUDA-compatible GPU is available.")
-        return torch.device("cuda")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def append_run_metrics(output_path: Path, rows: list[dict]) -> None:
@@ -392,111 +365,134 @@ def append_run_metrics(output_path: Path, rows: list[dict]) -> None:
     frame.to_csv(output_path, index=False)
 
 
+def _run_cv_fold(
+    fold_id: int,
+    train_idx: np.ndarray,
+    score_idx: np.ndarray,
+    X_full: pd.DataFrame,
+    y_full: pd.Series,
+    optimizer_name: str,
+    hparams: dict,
+    seed: int,
+    device_name: str,
+) -> dict:
+    """Train one CV fold. Module-level so it can run in a worker process."""
+    with single_thread():
+        return _train_cv_fold(fold_id, train_idx, score_idx, X_full, y_full, optimizer_name, hparams, seed, device_name)
+
+
+def _train_cv_fold(
+    fold_id: int,
+    train_idx: np.ndarray,
+    score_idx: np.ndarray,
+    X_full: pd.DataFrame,
+    y_full: pd.Series,
+    optimizer_name: str,
+    hparams: dict,
+    seed: int,
+    device_name: str,
+) -> dict:
+    fold_seed = seed + 1000 * fold_id
+    generator = set_seed(fold_seed)
+    device = torch.device(device_name)
+
+    X_fit_all, y_fit_all = X_full.iloc[train_idx], y_full.iloc[train_idx]
+    X_score, y_score = X_full.iloc[score_idx], y_full.iloc[score_idx]
+    # Early stopping uses its own split of the training portion.
+    X_fit, X_stop, y_fit, y_stop = train_test_split(
+        X_fit_all, y_fit_all, test_size=hparams["val_size"], random_state=fold_seed, stratify=y_fit_all
+    )
+
+    preprocessor, _, _ = build_preprocessing_pipeline(X_fit, scale_numeric=True)
+    X_fit_t = to_tensor(preprocessor.fit_transform(X_fit), device)
+    X_stop_t = to_tensor(preprocessor.transform(X_stop), device)
+    X_score_t = to_tensor(preprocessor.transform(X_score), device)
+    y_fit_t = to_tensor(y_fit.values, device)
+    y_stop_t = to_tensor(y_stop.values, device)
+
+    model = HeartMLP(input_dim=X_fit_t.shape[1], hidden_dims=hparams["hidden_dims"], dropout=hparams["dropout"]).to(device)
+    criterion = make_loss(hparams["loss"], y_fit_t.cpu()).to(device)
+    fit = fit_with_early_stopping(
+        optimizer_name, model, X_fit_t, y_fit_t, X_stop_t, y_stop_t, criterion,
+        hparams["lr"], hparams["weight_decay"], hparams["epochs"], hparams["patience"],
+        hparams["batch_size"], generator,
+        grad_clip=hparams["grad_clip"], label_smoothing=hparams["label_smoothing"],
+        min_delta=hparams["min_delta"], verbose=False,
+    )
+    metrics = binary_metrics(y_score, predict_proba(model, X_score_t))
+    return {
+        "optimizer": optimizer_name,
+        "fold": fold_id,
+        "best_epoch": fit["best_epoch"],
+        "best_val_loss": fit["best_val_loss"],
+        "best_val_accuracy": fit["best_val_accuracy"],
+        "cv_accuracy": metrics["accuracy"],
+        "cv_f1": metrics["f1"],
+        "cv_roc_auc": metrics["roc_auc"],
+        "cv_pr_auc": metrics["pr_auc"],
+        "cv_brier_score": metrics["brier"],
+    }
+
+
 def run_mlp_cross_validation(
     optimizer_name: str,
     args: argparse.Namespace,
     X_full: pd.DataFrame,
     y_full: pd.Series,
-    categorical_features: list[str],
-    numeric_features: list[str],
     device: torch.device,
     hidden_dims: tuple[int, int],
 ) -> tuple[list[dict], dict]:
-    print(f"\n=== {args.cv_folds}-Fold Cross-Validation ({optimizer_name.upper()}) ===")
-    skf = StratifiedKFold(n_splits=args.cv_folds, shuffle=True, random_state=args.seed)
-    fold_rows: list[dict] = []
+    repeats = max(1, args.cv_repeats)
+    print(f"\n=== {args.cv_folds}-Fold x {repeats} Cross-Validation ({optimizer_name.upper()}) ===")
+    splitter = RepeatedStratifiedKFold(n_splits=args.cv_folds, n_repeats=repeats, random_state=args.seed)
+    splits = list(splitter.split(X_full, y_full))
+    hparams = {
+        "hidden_dims": hidden_dims,
+        "dropout": args.dropout,
+        "loss": args.loss,
+        "lr": args.lr,
+        "weight_decay": args.weight_decay,
+        "epochs": args.epochs,
+        "patience": args.patience,
+        "batch_size": args.batch_size,
+        "grad_clip": args.grad_clip,
+        "label_smoothing": args.label_smoothing,
+        "min_delta": args.min_delta,
+        "val_size": args.val_size,
+    }
 
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X_full, y_full), start=1):
-        X_train_fold = X_full.iloc[train_idx]
-        X_val_fold = X_full.iloc[val_idx]
-        y_train_fold = y_full.iloc[train_idx]
-        y_val_fold = y_full.iloc[val_idx]
+    # Folds run serially by default: each fold trains in about a second, so
+    # starting worker processes (each importing PyTorch) costs more than it saves.
+    # GPU runs always stay in one process.
+    workers = 1 if device.type == "cuda" else min(resolve_n_jobs(args.n_jobs), len(splits))
+    job_args = [
+        (fold_id, tr, sc, X_full, y_full, optimizer_name, hparams, args.seed, device.type)
+        for fold_id, (tr, sc) in enumerate(splits, start=1)
+    ]
+    if workers > 1:
+        from joblib import Parallel, delayed
 
-        preprocessor, _, _ = build_preprocessing_pipeline(X_train_fold, scale_numeric=True)
+        fold_rows = Parallel(n_jobs=workers)(delayed(_run_cv_fold)(*job) for job in job_args)
+    else:
+        fold_rows = [_run_cv_fold(*job) for job in job_args]
 
-        X_train_np = preprocessor.fit_transform(X_train_fold)
-        X_val_np = preprocessor.transform(X_val_fold)
-
-        X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
-        X_val_tensor = torch.tensor(X_val_np, dtype=torch.float32)
-        y_train_tensor = torch.tensor(y_train_fold.values, dtype=torch.float32)
-        y_val_tensor = torch.tensor(y_val_fold.values, dtype=torch.float32)
-
-        pin_memory = device.type == "cuda"
-        train_loader = DataLoader(
-            TensorDataset(X_train_tensor, y_train_tensor),
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=True,
-            pin_memory=pin_memory,
-        )
-        val_loader = DataLoader(
-            TensorDataset(X_val_tensor, y_val_tensor),
-            batch_size=args.batch_size,
-            shuffle=False,
-            pin_memory=pin_memory,
-        )
-
-        model = HeartMLP(input_dim=X_train_tensor.shape[1], hidden_dims=hidden_dims, dropout=args.dropout).to(device)
-        criterion = make_loss(args.loss, y_train_tensor).to(device)
-
-        result = train_one_optimizer(
-            optimizer_name=optimizer_name,
-            model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            test_loader=val_loader,
-            y_test=y_val_fold,
-            criterion=criterion,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            epochs=args.epochs,
-            patience=args.patience,
-            device=device,
-            checkpoint_path=None,
-            confusion_matrix_path=None,
-            history_path=None,
-            grad_clip=args.grad_clip,
-            label_smoothing=args.label_smoothing,
-            min_delta=args.min_delta,
-            curve_path=None,
-        )
-
-        fold_row = {
-            "optimizer": optimizer_name,
-            "fold": fold_idx,
-            "best_epoch": result["best_epoch"],
-            "best_val_loss": result["best_val_loss"],
-            "best_val_accuracy": result["best_val_accuracy"],
-            "cv_accuracy": result["test_accuracy"],
-            "cv_f1": result["test_f1"],
-            "cv_roc_auc": result["test_roc_auc"],
-            "cv_pr_auc": result["test_pr_auc"],
-            "cv_brier_score": result["test_brier_score"],
-        }
-        fold_rows.append(fold_row)
+    for row in fold_rows:
         print(
-            f"Fold {fold_idx}/{args.cv_folds} | "
-            f"Accuracy: {fold_row['cv_accuracy']:.4f} | "
-            f"F1: {fold_row['cv_f1']:.4f} | "
-            f"ROC-AUC: {fold_row['cv_roc_auc']:.4f}"
+            f"Fold {row['fold']}/{len(splits)} | Accuracy: {row['cv_accuracy']:.4f} | "
+            f"F1: {row['cv_f1']:.4f} | ROC-AUC: {row['cv_roc_auc']:.4f}"
         )
 
     fold_df = pd.DataFrame(fold_rows)
-    summary = {
-        "optimizer": optimizer_name,
-        "cv_folds": args.cv_folds,
-        "cv_accuracy_mean": float(np.nanmean(fold_df["cv_accuracy"])),
-        "cv_accuracy_std": float(np.nanstd(fold_df["cv_accuracy"])),
-        "cv_f1_mean": float(np.nanmean(fold_df["cv_f1"])),
-        "cv_f1_std": float(np.nanstd(fold_df["cv_f1"])),
-        "cv_roc_auc_mean": float(np.nanmean(fold_df["cv_roc_auc"])),
-        "cv_roc_auc_std": float(np.nanstd(fold_df["cv_roc_auc"])),
-        "cv_pr_auc_mean": float(np.nanmean(fold_df["cv_pr_auc"])),
-        "cv_pr_auc_std": float(np.nanstd(fold_df["cv_pr_auc"])),
-        "cv_brier_mean": float(np.nanmean(fold_df["cv_brier_score"])),
-        "cv_brier_std": float(np.nanstd(fold_df["cv_brier_score"])),
-    }
+    summary = {"optimizer": optimizer_name, "cv_folds": args.cv_folds, "cv_repeats": repeats}
+    for metric, column in (
+        ("accuracy", "cv_accuracy"),
+        ("f1", "cv_f1"),
+        ("roc_auc", "cv_roc_auc"),
+        ("pr_auc", "cv_pr_auc"),
+        ("brier", "cv_brier_score"),
+    ):
+        summary[f"cv_{metric}_mean"] = float(np.nanmean(fold_df[column]))
+        summary[f"cv_{metric}_std"] = float(np.nanstd(fold_df[column]))
 
     print(
         f"CV Summary ({optimizer_name.upper()}): "
@@ -506,13 +502,28 @@ def run_mlp_cross_validation(
         f"PR-AUC {summary['cv_pr_auc_mean']:.4f} ± {summary['cv_pr_auc_std']:.4f}, "
         f"Brier {summary['cv_brier_mean']:.4f} ± {summary['cv_brier_std']:.4f}"
     )
-
     return fold_rows, summary
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
-    set_seed(args.seed)
+def load_heart_dataset(dataset: str) -> tuple[pd.DataFrame, pd.Series, Path]:
+    cleaned_path = resolve_data_path(dataset)
+    if not cleaned_path.exists():
+        raise FileNotFoundError(
+            f"{cleaned_path.name} not found. Run clean_data.py or prepare_heart_combined.py first."
+        )
+    df = pd.read_csv(cleaned_path)
+    if "target" in df.columns:
+        df["target"] = pd.to_numeric(df["target"], errors="coerce").fillna(0).astype(int)
+    elif "diagnosis" in df.columns:
+        df["target"] = (df["diagnosis"].astype(str).str.lower() == "sick").astype(int)
+    else:
+        raise ValueError("Dataset must contain either 'target' or 'diagnosis' column.")
+    drop_cols = [col for col in ["diagnosis", "disease_code", "target", "site"] if col in df.columns]
+    return df.drop(columns=drop_cols), df["target"], cleaned_path
+
+
+def main(argv: list[str] | None = None) -> list[dict]:
+    args = build_arg_parser().parse_args(argv)
 
     if not 0 < args.val_size < 0.5:
         raise ValueError("--val-size must be between 0 and 0.5.")
@@ -522,26 +533,8 @@ def main() -> None:
         raise ValueError("--hidden-dims values must be positive integers.")
     hidden_dims = (args.hidden_dims[0], args.hidden_dims[1])
 
-    cleaned_path = Path(args.dataset)
-    if not cleaned_path.is_absolute():
-        cleaned_path = PROJECT_ROOT / cleaned_path
-    if not cleaned_path.exists():
-        raise FileNotFoundError(
-            f"{cleaned_path.name} not found. Run clean_data.py or prepare_heart_combined.py first."
-        )
-
-    df = pd.read_csv(cleaned_path)
-    if "target" in df.columns:
-        df["target"] = pd.to_numeric(df["target"], errors="coerce").fillna(0).astype(int)
-    elif "diagnosis" in df.columns:
-        df["target"] = (df["diagnosis"].astype(str).str.lower() == "sick").astype(int)
-    else:
-        raise ValueError("Dataset must contain either 'target' or 'diagnosis' column.")
-    print(f"Loaded cleaned dataset: {cleaned_path.name} ({len(df)} rows)")
-
-    drop_cols = [col for col in ["diagnosis", "disease_code", "target", "site"] if col in df.columns]
-    X = df.drop(columns=drop_cols)
-    y = df["target"]
+    X, y, cleaned_path = load_heart_dataset(args.dataset)
+    print(f"Loaded cleaned dataset: {cleaned_path.name} ({len(X)} rows)")
 
     X_train_full, X_test, y_train_full, y_test = train_test_split(
         X, y, test_size=0.2, random_state=args.seed, stratify=y
@@ -555,58 +548,29 @@ def main() -> None:
         X_train_full, y_train_full, test_size=args.val_size, random_state=args.seed, stratify=y_train_full
     )
 
-    preprocessor, numeric_features, categorical_features = build_preprocessing_pipeline(
-        X, scale_numeric=True
-    )
+    preprocessor, numeric_features, _ = build_preprocessing_pipeline(X, scale_numeric=True)
     print(f"Feature scaling: StandardScaler on {numeric_features}")
 
-    X_train_np = preprocessor.fit_transform(X_train)
-    X_val_np = preprocessor.transform(X_val)
-    X_test_np = preprocessor.transform(X_test)
-
-    X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
-    X_val_tensor = torch.tensor(X_val_np, dtype=torch.float32)
-    X_test_tensor = torch.tensor(X_test_np, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32)
-    y_val_tensor = torch.tensor(y_val.values, dtype=torch.float32)
     device = resolve_torch_device(args.device)
-    pin_memory = device.type == "cuda"
-    train_loader = DataLoader(
-        TensorDataset(X_train_tensor, y_train_tensor),
-        batch_size=args.batch_size,
-        shuffle=True,
-        drop_last=True,
-        pin_memory=pin_memory,
-    )
-    val_loader = DataLoader(
-        TensorDataset(X_val_tensor, y_val_tensor),
-        batch_size=args.batch_size,
-        shuffle=False,
-        pin_memory=pin_memory,
-    )
-    test_loader = DataLoader(
-        TensorDataset(X_test_tensor, torch.tensor(y_test.values, dtype=torch.float32)),
-        batch_size=args.batch_size,
-        shuffle=False,
-        pin_memory=pin_memory,
-    )
+    X_train_np = preprocessor.fit_transform(X_train)
+    X_test_np = preprocessor.transform(X_test)
+    X_train_t = to_tensor(X_train_np, device)
+    X_val_t = to_tensor(preprocessor.transform(X_val), device)
+    X_test_t = to_tensor(X_test_np, device)
+    y_train_t = to_tensor(y_train.values, device)
+    y_val_t = to_tensor(y_val.values, device)
 
-    criterion = make_loss(args.loss, y_train_tensor).to(device)
+    criterion = make_loss(args.loss, y_train_t.cpu()).to(device)
     print(f"Device: {device.type}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"Loss function: {criterion.__class__.__name__}")
-    print(f"Gradient clipping max norm: {args.grad_clip}")
-    print(f"Label smoothing: {args.label_smoothing}")
-    print(f"Early stopping min delta: {args.min_delta}")
     print(f"Hidden dimensions: {hidden_dims}")
 
     optimizers_to_run = ["sgd", "adam"] if args.optimizer == "both" else [args.optimizer]
     results: list[dict] = []
     cv_summaries: list[dict] = []
-    output_dir_arg = Path(args.output_dir)
-    output_dir = output_dir_arg if output_dir_arg.is_absolute() else PROJECT_ROOT / output_dir_arg
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = resolve_output_dir(args.output_dir)
 
     for optimizer_name in optimizers_to_run:
         cv_fold_rows, cv_summary = run_mlp_cross_validation(
@@ -614,8 +578,6 @@ def main() -> None:
             args=args,
             X_full=X_train_full,
             y_full=y_train_full,
-            categorical_features=categorical_features,
-            numeric_features=numeric_features,
             device=device,
             hidden_dims=hidden_dims,
         )
@@ -624,37 +586,49 @@ def main() -> None:
         print(f"Saved CV fold metrics: {cv_fold_path}")
         cv_summaries.append(cv_summary)
 
-        model = HeartMLP(input_dim=X_train_tensor.shape[1], hidden_dims=hidden_dims, dropout=args.dropout).to(device)
-        checkpoint_path = output_dir / f"heart_mlp_{optimizer_name}.pt" if args.save_checkpoint else None
-        confusion_matrix_path = output_dir / f"confusion_matrix_{optimizer_name}.csv" if args.save_confusion else None
-        history_path = output_dir / f"training_history_{optimizer_name}.csv"
-        curve_path = output_dir / f"training_curves_{optimizer_name}.png"
+        generator = set_seed(args.seed)
+        model = HeartMLP(input_dim=X_train_t.shape[1], hidden_dims=hidden_dims, dropout=args.dropout).to(device)
         result = train_one_optimizer(
             optimizer_name=optimizer_name,
             model=model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            test_loader=test_loader,
+            X_train=X_train_t,
+            y_train=y_train_t,
+            X_val=X_val_t,
+            y_val=y_val_t,
+            X_test=X_test_t,
             y_test=y_test,
             criterion=criterion,
             lr=args.lr,
             weight_decay=args.weight_decay,
             epochs=args.epochs,
             patience=args.patience,
-            device=device,
-            checkpoint_path=checkpoint_path,
-            confusion_matrix_path=confusion_matrix_path,
-            history_path=history_path,
+            batch_size=args.batch_size,
+            generator=generator,
+            checkpoint_path=output_dir / f"heart_mlp_{optimizer_name}.pt" if args.save_checkpoint else None,
+            confusion_matrix_path=output_dir / f"confusion_matrix_{optimizer_name}.csv" if args.save_confusion else None,
+            history_path=output_dir / f"training_history_{optimizer_name}.csv",
             grad_clip=args.grad_clip,
             label_smoothing=args.label_smoothing,
             min_delta=args.min_delta,
-            curve_path=curve_path,
+            curve_path=output_dir / f"training_curves_{optimizer_name}.png",
+            seed=args.seed,
         )
+        result.update({k: v for k, v in cv_summary.items() if k.startswith("cv_")})
         results.append(result)
 
     cv_summary_path = output_dir / "mlp_cv_summary.csv"
     pd.DataFrame(cv_summaries).to_csv(cv_summary_path, index=False)
     print(f"Saved CV summary metrics: {cv_summary_path}")
+
+    holdout_columns = [
+        "optimizer", "best_epoch", "best_val_loss", "best_val_accuracy",
+        *TEST_METRIC_COLUMNS.values(),
+        *[f"{c}_ci_{side}" for c in TEST_METRIC_COLUMNS.values() for side in ("low", "high")],
+        "optimal_threshold_f1", "f1_at_optimal_threshold", "optimal_threshold_youden", "youden_j",
+    ]
+    holdout_path = output_dir / "mlp_holdout_summary.csv"
+    pd.DataFrame([{k: r[k] for k in holdout_columns} for r in results]).to_csv(holdout_path, index=False)
+    print(f"Saved holdout summary metrics: {holdout_path}")
 
     print("\n=== Optimizer Comparison ===")
     for item in results:
@@ -664,65 +638,40 @@ def main() -> None:
             f"Test Accuracy: {item['test_accuracy']:.4f}"
         )
 
-    best = max(results, key=lambda x: x["test_accuracy"])
-    print(f"Best optimizer on this run: {best['optimizer'].upper()}")
+    # Model selection uses validation data only; the test set is reported, not consulted.
+    best = min(results, key=lambda x: x["best_val_loss"])
+    print(f"Best optimizer on this run (lowest validation loss): {best['optimizer'].upper()}")
 
-    # --- Calibration & PR Curves ---
     figures_dir = output_dir / "figures"
-    model_probas: dict[str, list[float]] = {}
-    for item in results:
-        if "y_prob" in item:
-            model_probas[f"MLP_{item['optimizer'].upper()}"] = item["y_prob"]
+    model_probas = {f"MLP_{item['optimizer'].upper()}": item["y_prob"] for item in results}
     if model_probas:
+        from evaluation.model_comparison import save_test_predictions
+
+        save_test_predictions(output_dir, "mlp", args.dataset, X_test.index, y_test, model_probas)
         plot_calibration_curves(y_test, model_probas, "heart_mlp", figures_dir)
         plot_precision_recall_curves(y_test, model_probas, "heart_mlp", figures_dir)
 
-    # --- SHAP Explainability ---
     if args.run_xai:
         try:
-            try:
-                from evaluation.xai_analysis import generate_shap_mlp, save_xai_summary_csv
-            except ModuleNotFoundError:
-                sys.path.append(str(PROJECT_ROOT))
-                from evaluation.xai_analysis import generate_shap_mlp, save_xai_summary_csv
+            from evaluation.xai_analysis import generate_shap_mlp, save_xai_summary_csv
 
-            best_optimizer_name = best["optimizer"]
-            checkpoint_file = output_dir / f"heart_mlp_{best_optimizer_name}.pt"
-
-            # Rebuild model from best optimizer and load best state
-            best_model = HeartMLP(
-                input_dim=X_train_tensor.shape[1],
-                hidden_dims=hidden_dims,
-                dropout=args.dropout,
-            ).to(device)
-            if "model_state_dict" in best and best["model_state_dict"] is not None:
-                best_model.load_state_dict(best["model_state_dict"])
-            elif checkpoint_file.exists():
-                try:
-                    checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=True)
-                    best_model.load_state_dict(checkpoint["model_state_dict"])
-                except Exception as load_err:
-                    print(f"Warning: could not load checkpoint ({load_err})")
-            else:
-                print(f"Warning: checkpoint not found at {checkpoint_file}")
-
-            feature_names = list(preprocessor.get_feature_names_out())
-
-            print(f"\n=== SHAP Analysis: MLP {best_optimizer_name.upper()} (Heart) ===")
+            best_model = HeartMLP(input_dim=X_train_t.shape[1], hidden_dims=hidden_dims, dropout=args.dropout).to(device)
+            best_model.load_state_dict(best["model_state_dict"])
+            print(f"\n=== SHAP Analysis: MLP {best['optimizer'].upper()} (Heart) ===")
             mlp_shap_result = generate_shap_mlp(
                 model=best_model,
                 X_train_np=X_train_np,
                 X_test_np=X_test_np,
-                feature_names=feature_names,
+                feature_names=list(preprocessor.get_feature_names_out()),
                 dataset_name="heart",
-                model_name=f"mlp_{best_optimizer_name}",
+                model_name=f"mlp_{best['optimizer']}",
                 output_dir=output_dir,
             )
             save_xai_summary_csv([mlp_shap_result], output_dir)
-
         except Exception as xai_error:
             print(f"Warning: SHAP analysis failed: {xai_error}")
             import traceback
+
             traceback.print_exc()
 
     if args.save_run_metrics:
@@ -743,6 +692,8 @@ def main() -> None:
         ]
         append_run_metrics(comparison_path, rows)
         print(f"Saved/updated separate run metrics: {comparison_path}")
+
+    return results
 
 
 if __name__ == "__main__":

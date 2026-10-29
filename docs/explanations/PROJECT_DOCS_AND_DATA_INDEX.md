@@ -25,7 +25,7 @@ This file keeps the same guide-style format but focuses on project documentation
 ### `thesis_draft.md`
 - Main thesis manuscript draft.
 - Contains manually written narrative + auto-generated blocks.
-- Auto-updated sections are inserted by `update_thesis_results.py` using markers.
+- Auto-updated sections are inserted by `evaluation/update_thesis_results.py` using markers.
 
 ### `AI_Thesis_Reading-List.csv`
 - Primary literature and theoretical reading list for the thesis.
@@ -55,20 +55,26 @@ This file keeps the same guide-style format but focuses on project documentation
 
 ## 4) Core Dataset Files
 
-### `heart.csv`
+### `data/raw/heart.csv`
 - Main heart dataset source (preferred when present).
 
-### `cleve.mod`
+### `data/raw/cleve.mod`
 - Fallback heart dataset source.
 
-### `cleaned_heart_disease.csv`
+### `data/raw/processed.{cleveland,hungarian,switzerland,va}.data`
+- UCI per-center files used by `prepare_heart_combined.py`.
+
+### `data/processed/cleaned_heart_disease.csv`
 - Canonical cleaned heart dataset produced by `clean_data.py`.
 - Input to EDA, PyTorch training, and heart baselines.
 
-### `mimic_hospital_mortality.csv`
-- Engineered admissions-level MIMIC mortality dataset.
+### `data/processed/cleaned_heart_disease_combined.csv`
+- 918-patient 4-center cohort produced by `prepare_heart_combined.py` (used by LOCO, fairness, ensembles).
+
+### `data/processed/mimic_hospital_mortality.csv`
+- Engineered admissions-level MIMIC mortality dataset (275 admissions, 15 deaths in the demo extract).
 - Produced by `mimic_prepare_dataset.py`.
-- Input to `mimic_train_baselines.py`.
+- Input to `training/mimic_train_baselines.py` and `training/mimic_train_mlp.py`.
 
 ---
 
@@ -118,7 +124,7 @@ This file keeps the same guide-style format but focuses on project documentation
   - `AUTO_HEART_EDA_START`
   - `AUTO_HEART_EDA_END`
 
-These markers are read/written by `update_thesis_results.py`.
+These markers are read/written by `evaluation/update_thesis_results.py`.
 
 ---
 
@@ -126,8 +132,8 @@ These markers are read/written by `update_thesis_results.py`.
 
 1. `README.md`
 2. `requirements.txt`
-3. `cleaned_heart_disease.csv` (inspect columns)
-4. `mimic_hospital_mortality.csv` (inspect columns)
+3. `data/processed/cleaned_heart_disease.csv` (inspect columns)
+4. `data/processed/mimic_hospital_mortality.csv` (inspect columns)
 5. `artifacts/baseline_comparison.csv`
 6. `artifacts/mimic_baseline_comparison.csv`
 7. `thesis_draft.md`

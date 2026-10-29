@@ -1,8 +1,16 @@
+"""Classical baselines for MIMIC-IV in-hospital mortality.
+
+The bundled MIMIC-IV demo extract is very small (275 admissions, 15 deaths),
+so a 20% test split holds only a handful of deaths. Results therefore carry
+bootstrap confidence intervals, CV is repeated, and the script warns when the
+test split has too few events for a stable ranking.
+"""
+
+from __future__ import annotations
+
 import argparse
-import os
-from pathlib import Path
-import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,7 +19,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
-    brier_score_loss,
     classification_report,
     f1_score,
     precision_score,
@@ -19,7 +26,6 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import (
-    GroupShuffleSplit,
     StratifiedGroupKFold,
     StratifiedKFold,
     cross_validate,
@@ -27,27 +33,33 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
-from xgboost.core import XGBoostError
-import torch
-
-try:
-    from clean_data import build_preprocessing_pipeline
-    from evaluation.clinical_metrics import (
-        compute_clinical_metrics,
-        plot_calibration_curves,
-        plot_precision_recall_curves,
-    )
-except ModuleNotFoundError:
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from clean_data import build_preprocessing_pipeline
-    from evaluation.clinical_metrics import (
-        compute_clinical_metrics,
-        plot_calibration_curves,
-        plot_precision_recall_curves,
-    )
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from clean_data import build_preprocessing_pipeline
+from evaluation.clinical_metrics import (
+    compute_clinical_metrics,
+    plot_calibration_curves,
+    plot_precision_recall_curves,
+)
+from evaluation.cv_utils import (
+    add_bootstrap_cis,
+    multi_metric_scorer,
+    summarize_cv_scores,
+    to_markdown_table,
+)
+from project_paths import resolve_data_path, resolve_output_dir
+from training.device_utils import (
+    DEVICE_CHOICES,
+    align_xgb_inference_device,
+    cv_n_jobs_for,
+    resolve_xgb_device,
+)
+
+CV_METRICS = ("accuracy", "f1", "recall", "precision", "roc_auc", "pr_auc", "brier")
+MIN_TEST_EVENTS_FOR_RANKING = 10
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -58,42 +70,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cv-folds", type=int, default=5)
     parser.add_argument("--output-dir", type=str, default="artifacts")
     parser.add_argument("--update-thesis", action="store_true")
-    parser.add_argument("--xgb-device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--cv-repeats", type=int, default=3, help="Repeats of (group) stratified k-fold CV.")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--xgb-device", choices=DEVICE_CHOICES, default="auto")
     parser.add_argument("--run-xai", action="store_true", help="Run SHAP explainability analysis after training.")
     parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers for parallel CV (-1 = all cores).")
     return parser
-
-
-def resolve_xgb_device(requested_device: str) -> str:
-    if requested_device == "cpu":
-        return "cpu"
-
-    if requested_device == "auto" and not torch.cuda.is_available():
-        return "cpu"
-
-    try:
-        test_model = XGBClassifier(
-            n_estimators=1,
-            max_depth=1,
-            learning_rate=0.1,
-            objective="binary:logistic",
-            eval_metric="logloss",
-            tree_method="hist",
-            device="cuda",
-            n_jobs=1,
-        )
-        X_test_gpu = np.array([[0.0], [1.0], [2.0], [3.0]], dtype=np.float32)
-        y_test_gpu = np.array([0, 1, 0, 1], dtype=np.int32)
-        test_model.fit(X_test_gpu, y_test_gpu, verbose=False)
-        return "cuda"
-    except (XGBoostError, ValueError) as error:
-        if requested_device == "cuda":
-            raise RuntimeError(
-                "CUDA was requested for XGBoost, but GPU execution is unavailable. "
-                "Ensure your XGBoost build supports CUDA."
-            ) from error
-        print("XGBoost GPU not available; falling back to CPU.")
-        return "cpu"
 
 
 def load_data(path: Path) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
@@ -124,10 +106,11 @@ def evaluate_holdout(
     y_test: pd.Series,
     X_val: pd.DataFrame | None = None,
     y_val: pd.Series | None = None,
+    seed: int = 42,
 ) -> tuple[dict, np.ndarray]:
     align_xgb_inference_device(model)
-    y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
+    y_pred = (y_prob >= 0.5).astype(int)
 
     accuracy = accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred, zero_division=0)
@@ -157,8 +140,9 @@ def evaluate_holdout(
     )
     print(classification_report(y_test, y_pred, target_names=["survived", "expired"], zero_division=0))
 
-    return {
+    row = {
         "model": name,
+        "test_events": int(np.sum(y_test)),
         "test_accuracy": accuracy,
         "test_f1_expired": f1,
         "test_recall_expired": recall_expired,
@@ -170,7 +154,25 @@ def evaluate_holdout(
         "f1_at_optimal_threshold": clinical["f1_at_optimal"],
         "optimal_threshold_youden": clinical["optimal_threshold_youden"],
         "youden_j": clinical["youden_j"],
-    }, y_prob
+    }
+    add_bootstrap_cis(
+        row,
+        y_test,
+        y_prob,
+        seed=seed,
+        name_map={
+            "accuracy": "test_accuracy",
+            "f1": "test_f1_expired",
+            "roc_auc": "test_roc_auc",
+            "pr_auc": "test_pr_auc",
+            "brier": "test_brier_score",
+        },
+    )
+    print(
+        f"95% bootstrap CI -> ROC-AUC [{row['test_roc_auc_ci_low']:.3f}, {row['test_roc_auc_ci_high']:.3f}] | "
+        f"PR-AUC [{row['test_pr_auc_ci_low']:.3f}, {row['test_pr_auc_ci_high']:.3f}]"
+    )
+    return row, y_prob
 
 
 def evaluate_cv(
@@ -181,77 +183,33 @@ def evaluate_cv(
     folds: int,
     groups: pd.Series | None = None,
     n_jobs: int = -1,
+    repeats: int = 1,
+    seed: int = 42,
 ) -> dict:
-    def _score_accuracy(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return accuracy_score(y_batch, estimator.predict(X_batch))
+    """Repeated (group-aware) stratified k-fold CV with one prediction per fold."""
+    scorer = multi_metric_scorer(extended=True, before_predict=align_xgb_inference_device)
+    cv_jobs = cv_n_jobs_for(model, n_jobs)
+    collected: dict[str, list[float]] = {}
+    for repeat in range(repeats):
+        if groups is not None:
+            cv = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=seed + repeat)
+        else:
+            cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed + repeat)
+        scores = cross_validate(model, X, y, groups=groups, cv=cv, scoring=scorer, n_jobs=cv_jobs)
+        for key, values in scores.items():
+            if key.startswith("test_"):
+                collected.setdefault(key, []).extend(np.asarray(values, dtype=float).tolist())
 
-    def _score_f1(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return f1_score(y_batch, estimator.predict(X_batch), zero_division=0)
-
-    def _score_recall(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return recall_score(y_batch, estimator.predict(X_batch), zero_division=0)
-
-    def _score_precision(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return precision_score(y_batch, estimator.predict(X_batch), zero_division=0)
-
-    def _score_roc_auc(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return roc_auc_score(y_batch, estimator.predict_proba(X_batch)[:, 1])
-
-    def _score_average_precision(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return average_precision_score(y_batch, estimator.predict_proba(X_batch)[:, 1])
-
-    def _score_brier(estimator, X_batch, y_batch):
-        align_xgb_inference_device(estimator)
-        return brier_score_loss(y_batch, estimator.predict_proba(X_batch)[:, 1])
-
-    if groups is not None:
-        cv = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=42)
-    else:
-        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
-
-    clf = model.named_steps.get("classifier") if isinstance(model, Pipeline) else model
-    cv_jobs = 1 if getattr(clf, "n_jobs", 1) not in (None, 1) else (os.cpu_count() or 1 if n_jobs == -1 else n_jobs)
-
-    scores = cross_validate(
-        model,
-        X,
-        y,
-        groups=groups,
-        cv=cv,
-        scoring={
-            "accuracy": _score_accuracy,
-            "f1": _score_f1,
-            "recall": _score_recall,
-            "precision": _score_precision,
-            "roc_auc": _score_roc_auc,
-            "average_precision": _score_average_precision,
-            "brier": _score_brier,
-        },
-        n_jobs=cv_jobs,
-    )
-
-    return {
-        "cv_accuracy_mean": float(scores["test_accuracy"].mean()),
-        "cv_accuracy_std": float(scores["test_accuracy"].std()),
-        "cv_f1_expired_mean": float(scores["test_f1"].mean()),
-        "cv_f1_expired_std": float(scores["test_f1"].std()),
-        "cv_recall_expired_mean": float(scores["test_recall"].mean()),
-        "cv_recall_expired_std": float(scores["test_recall"].std()),
-        "cv_precision_expired_mean": float(scores["test_precision"].mean()),
-        "cv_precision_expired_std": float(scores["test_precision"].std()),
-        "cv_roc_auc_mean": float(scores["test_roc_auc"].mean()),
-        "cv_roc_auc_std": float(scores["test_roc_auc"].std()),
-        "cv_pr_auc_mean": float(scores["test_average_precision"].mean()),
-        "cv_pr_auc_std": float(scores["test_average_precision"].std()),
-        "cv_brier_mean": float(scores["test_brier"].mean()),
-        "cv_brier_std": float(scores["test_brier"].std()),
-    }
+    summary = summarize_cv_scores(collected, metrics=CV_METRICS)
+    # Keep the historical column names used by the thesis updater.
+    renamed = {}
+    for key, value in summary.items():
+        for old, new in (("_f1_", "_f1_expired_"), ("_recall_", "_recall_expired_"), ("_precision_", "_precision_expired_")):
+            if old in key:
+                key = key.replace(old, new)
+        renamed[key] = value
+    renamed["cv_n_folds_total"] = folds * repeats
+    return renamed
 
 
 def split_train_val_test(
@@ -303,12 +261,18 @@ def split_train_val_test(
         y_val = y_train_val.iloc[val_idx]
         groups_train = groups_train_val.iloc[train_idx]
 
-        # Explicit verification against patient leakage
-        assert set(groups.iloc[train_idx]).isdisjoint(set(groups.iloc[test_idx])), (
+        # Explicit verification against patient leakage. train_idx/val_idx are
+        # positions inside the train+val subset, so compare actual subject IDs.
+        test_subjects = set(groups.iloc[test_idx])
+        val_subjects = set(groups_train_val.iloc[val_idx])
+        assert set(groups_train.values).isdisjoint(test_subjects), (
             "CRITICAL LEAKAGE: subject_id overlap between train and test!"
         )
-        assert set(groups.iloc[val_idx]).isdisjoint(set(groups.iloc[test_idx])), (
+        assert val_subjects.isdisjoint(test_subjects), (
             "CRITICAL LEAKAGE: subject_id overlap between val and test!"
+        )
+        assert set(groups_train.values).isdisjoint(val_subjects), (
+            "CRITICAL LEAKAGE: subject_id overlap between train and val!"
         )
     else:
         # --- Row-level stratified splitting (no group info) ---
@@ -328,28 +292,9 @@ def split_train_val_test(
     return X_train, X_val, X_test, y_train, y_val, y_test, groups_train
 
 
-def align_xgb_inference_device(model) -> None:
-    classifier = model
-    if isinstance(model, Pipeline):
-        classifier = model.named_steps.get("classifier")
-
-    if not isinstance(classifier, XGBClassifier):
-        return
-
-    xgb_params = classifier.get_xgb_params()
-    if xgb_params.get("device") != "cuda":
-        return
-
-    try:
-        classifier.get_booster().set_param({"device": "cpu"})
-    except (XGBoostError, ValueError):
-        return
-
-
-def main() -> None:
-    args = build_arg_parser().parse_args()
-    input_path_arg = Path(args.input)
-    input_path = input_path_arg if input_path_arg.is_absolute() else PROJECT_ROOT / input_path_arg
+def main(argv: list[str] | None = None) -> pd.DataFrame:
+    args = build_arg_parser().parse_args(argv)
+    input_path = resolve_data_path(args.input)
     X, y, subject_ids = load_data(input_path)
     xgb_device = resolve_xgb_device(args.xgb_device)
     print(f"XGBoost device: {xgb_device}")
@@ -359,12 +304,20 @@ def main() -> None:
         y,
         test_size=args.test_size,
         val_size=args.val_size,
-        random_state=42,
+        random_state=args.seed,
         groups=subject_ids,
     )
     print(
         f"Data split sizes -> train: {len(X_train)}, val: {len(X_val)}, test: {len(X_test)}"
     )
+    test_events = int(y_test.sum())
+    print(f"Deaths per split -> train: {int(y_train.sum())}, val: {int(y_val.sum())}, test: {test_events}")
+    if test_events < MIN_TEST_EVENTS_FOR_RANKING:
+        print(
+            f"WARNING: the test split contains only {test_events} deaths. Holdout ROC-AUC/PR-AUC are "
+            "unstable at this size; compare models on the repeated-CV means and the bootstrap CIs, "
+            "not on point estimates."
+        )
 
     positives = int(y_train.sum())
     negatives = int(len(y_train) - positives)
@@ -386,7 +339,7 @@ def main() -> None:
                         "classifier",
                         LogisticRegression(
                             max_iter=2000,
-                            random_state=42,
+                            random_state=args.seed,
                             class_weight="balanced",
                         ),
                     ),
@@ -404,7 +357,7 @@ def main() -> None:
                             n_estimators=300,
                             max_depth=5,
                             min_samples_split=5,
-                            random_state=42,
+                            random_state=args.seed,
                             class_weight="balanced_subsample",
                         ),
                     ),
@@ -425,7 +378,7 @@ def main() -> None:
                             subsample=0.8,
                             colsample_bytree=0.8,
                             eval_metric="logloss",
-                            random_state=42,
+                            random_state=args.seed,
                             scale_pos_weight=scale_pos_weight,
                             tree_method="hist",
                             device=xgb_device,
@@ -441,7 +394,10 @@ def main() -> None:
     model_probas: dict[str, np.ndarray] = {}
     print(f"\n=== MIMIC Cross-Validation ({args.cv_folds}-fold) ===")
     for name, model in models:
-        cv_result = evaluate_cv(name, model, X_train, y_train, args.cv_folds, groups=groups_train, n_jobs=args.n_jobs)
+        cv_result = evaluate_cv(
+            name, model, X_train, y_train, args.cv_folds, groups=groups_train,
+            n_jobs=args.n_jobs, repeats=args.cv_repeats, seed=args.seed,
+        )
         print(
             f"{name}: Accuracy={cv_result['cv_accuracy_mean']:.4f}±{cv_result['cv_accuracy_std']:.4f}, "
             f"F1(expired)={cv_result['cv_f1_expired_mean']:.4f}±{cv_result['cv_f1_expired_std']:.4f}, "
@@ -452,44 +408,33 @@ def main() -> None:
         )
 
         model.fit(X_train, y_train)
-        holdout_result, y_proba = evaluate_holdout(name, model, X_test, y_test, X_val=X_val, y_val=y_val)
+        holdout_result, y_proba = evaluate_holdout(
+            name, model, X_test, y_test, X_val=X_val, y_val=y_val, seed=args.seed
+        )
         holdout_result.update(cv_result)
         results.append(holdout_result)
         fitted_models[name] = model
         model_probas[name] = y_proba
 
     summary = pd.DataFrame(results).sort_values(
-        by=["test_pr_auc", "test_f1_expired", "test_recall_expired", "test_roc_auc"],
+        by=["cv_pr_auc_mean", "cv_roc_auc_mean", "test_pr_auc"],
         ascending=False,
     )
 
     print("\n=== MIMIC Baseline Comparison ===")
     print(summary.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
 
-    output_dir = PROJECT_ROOT / args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = resolve_output_dir(args.output_dir)
 
     csv_path = output_dir / "mimic_baseline_comparison.csv"
     md_path = output_dir / "mimic_baseline_comparison.md"
 
     summary.to_csv(csv_path, index=False)
 
-    display = summary.copy()
-    for col in display.columns:
-        if col != "model":
-            display[col] = display[col].map(lambda value: f"{value:.4f}")
-
-    headers = display.columns.tolist()
-    lines = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(["---"] * len(headers)) + " |",
-    ]
-    for _, row in display.iterrows():
-        lines.append("| " + " | ".join(str(row[h]) for h in headers) + " |")
-    md_path.write_text("\n".join(lines), encoding="utf-8")
+    md_path.write_text(to_markdown_table(summary), encoding="utf-8")
 
     # --- Calibration & PR Curves ---
-    figures_dir = PROJECT_ROOT / args.output_dir / "figures"
+    figures_dir = output_dir / "figures"
     if model_probas:
         plot_calibration_curves(y_test, model_probas, "mimic", figures_dir)
         plot_precision_recall_curves(y_test, model_probas, "mimic", figures_dir)
@@ -500,13 +445,9 @@ def main() -> None:
     # --- SHAP Explainability ---
     if args.run_xai:
         try:
-            try:
-                from evaluation.xai_analysis import generate_shap_tree, save_xai_summary_csv
-            except ModuleNotFoundError:
-                sys.path.append(str(PROJECT_ROOT))
-                from evaluation.xai_analysis import generate_shap_tree, save_xai_summary_csv
+            from evaluation.xai_analysis import generate_shap_tree, save_xai_summary_csv
 
-            xai_output_dir = PROJECT_ROOT / args.output_dir
+            xai_output_dir = output_dir
             xai_results: list[dict] = []
 
             for model_label, shap_name in [("XGBoost", "xgboost"), ("Random Forest", "random_forest")]:
@@ -532,23 +473,20 @@ def main() -> None:
             traceback.print_exc()
 
     if args.update_thesis:
-        updater_path = PROJECT_ROOT / "evaluation" / "update_thesis_results.py"
-        if not updater_path.exists():
-            raise FileNotFoundError("update_thesis_results.py not found.")
+        from evaluation import update_thesis_results
 
-        update_command = [
-            sys.executable,
-            str(updater_path),
-            "--dataset",
-            args.input,
-            "--comparison",
-            str(Path(args.output_dir) / "mimic_baseline_comparison.csv"),
-        ]
-        result = subprocess.run(update_command, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"update_thesis_results.py failed with exit code {result.returncode}"
-            )
+        update_thesis_results.main(
+            [
+                "--task",
+                "mimic",
+                "--mimic-dataset",
+                args.input,
+                "--mimic-comparison",
+                str(Path(args.output_dir) / "mimic_baseline_comparison.csv"),
+            ]
+        )
+
+    return summary
 
 
 if __name__ == "__main__":

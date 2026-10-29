@@ -7,19 +7,24 @@ Combines complementary model paradigms:
 4. Deep Neural Network: PyTorch HeartMLP (ScratchLinear autograd)
 
 Ensemble strategies evaluated:
-- Weighted Soft-Voting (weights proportional to CV ROC-AUC)
+- Weighted Soft-Voting (weights optimised on Out-Of-Fold probabilities)
 - Stacking Classifier (Meta-Learner trained on Out-Of-Fold probabilities)
+
+Decision thresholds are tuned on out-of-fold training predictions, never on
+the test split, and every test metric carries a bootstrap 95% CI. The
+fold-by-model fits are independent, so they run in parallel processes.
 """
 
 from __future__ import annotations
+
 import argparse
 import copy
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 from scipy.optimize import minimize
 from scipy.special import softmax
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -29,15 +34,12 @@ from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
     brier_score_loss,
-    classification_report,
     f1_score,
     log_loss,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
 from sklearn.pipeline import Pipeline
-import torch
-from torch.utils.data import DataLoader, TensorDataset
 from xgboost import XGBClassifier
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -46,7 +48,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from clean_data import build_preprocessing_pipeline
 from evaluation.clinical_metrics import compute_clinical_metrics
+from evaluation.cv_utils import add_bootstrap_cis, resolve_n_jobs, to_markdown_table
 from models import HeartMLP, add_cardiovascular_features
+from project_paths import resolve_data_path, resolve_output_dir
+from training.torch_utils import iterate_minibatches, single_thread
 
 
 class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
@@ -89,12 +94,10 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
         X_np = np.asarray(X, dtype=np.float32)
         y_np = np.asarray(y, dtype=np.float32)
 
-        X_t = torch.tensor(X_np, dtype=torch.float32)
-        y_t = torch.tensor(y_np, dtype=torch.float32)
-
-        dataset = TensorDataset(X_t, y_t)
-        drop_last = len(dataset) > self.batch_size and (len(dataset) % self.batch_size == 1)
-        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
+        X_t = torch.tensor(X_np, dtype=torch.float32, device=dev)
+        y_t = torch.tensor(y_np, dtype=torch.float32, device=dev)
+        generator = torch.Generator()
+        generator.manual_seed(self.random_state)
 
         self.model_ = HeartMLP(
             input_dim=X_np.shape[1],
@@ -110,10 +113,8 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
 
         self.model_.train()
         for _ in range(self.epochs):
-            for xb, yb in loader:
-                if xb.shape[0] == 1 and len(loader) > 1:
-                    continue
-                xb, yb = xb.to(dev), yb.to(dev)
+            # Data is already on the device; batches are tensor slices.
+            for xb, yb in iterate_minibatches(X_t, y_t, self.batch_size, shuffle=True, generator=generator):
                 optimizer.zero_grad()
                 logits = self.model_(xb)
                 loss = criterion(logits, yb)
@@ -140,32 +141,57 @@ class PyTorchMLPClassifier(BaseEstimator, ClassifierMixin):
         return (proba >= 0.5).astype(int)
 
 
+def _fit_and_predict(model_proto, X_fit, y_fit, X_pred):
+    """Fit a fresh copy of ``model_proto``; return (fitted model, P(y=1) on X_pred).
+
+    One PyTorch thread in every case, so results do not depend on ``n_jobs``.
+    """
+    with single_thread():
+        model = copy.deepcopy(model_proto)
+        model.fit(X_fit, y_fit)
+        proba = model.predict_proba(X_pred)[:, 1] if X_pred is not None else None
+    return model, proba
+
+
 def generate_oof_and_fit_base_models(
     base_specs: list[tuple[str, any]],
     X: pd.DataFrame,
     y: pd.Series,
     cv_folds: int = 5,
     random_state: int = 42,
+    n_jobs: int = 1,
 ) -> tuple[np.ndarray, list[tuple[str, any]]]:
-    """Compute leak-free Out-Of-Fold (OOF) probabilities and fit full base models once."""
+    """Compute leak-free Out-Of-Fold (OOF) probabilities and fit full base models once.
+
+    The ``folds x models`` fits plus the final full-data fits are independent,
+    so they are dispatched together to ``n_jobs`` worker processes.
+    """
     skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    folds = list(skf.split(X, y))
     oof_preds = np.zeros((len(X), len(base_specs)), dtype=np.float64)
 
-    for train_idx, val_idx in skf.split(X, y):
-        X_train_f, X_val_f = X.iloc[train_idx], X.iloc[val_idx]
-        y_train_f = y.iloc[train_idx]
+    jobs = []
+    for train_idx, val_idx in folds:
+        for _, model_proto in base_specs:
+            jobs.append((model_proto, X.iloc[train_idx], y.iloc[train_idx], X.iloc[val_idx]))
+    for _, model_proto in base_specs:
+        jobs.append((model_proto, X, y, None))
 
-        for m_idx, (_, model_proto) in enumerate(base_specs):
-            fold_model = copy.deepcopy(model_proto)
-            fold_model.fit(X_train_f, y_train_f)
-            oof_preds[val_idx, m_idx] = fold_model.predict_proba(X_val_f)[:, 1]
+    workers = min(resolve_n_jobs(n_jobs), len(jobs))
+    if workers > 1:
+        from joblib import Parallel, delayed
 
-    fitted_base_models = []
-    for name, model_proto in base_specs:
-        full_model = copy.deepcopy(model_proto)
-        full_model.fit(X, y)
-        fitted_base_models.append((name, full_model))
+        outputs = Parallel(n_jobs=workers)(delayed(_fit_and_predict)(*job) for job in jobs)
+    else:
+        outputs = [_fit_and_predict(*job) for job in jobs]
 
+    n_models = len(base_specs)
+    for fold_pos, (_, val_idx) in enumerate(folds):
+        for m_idx in range(n_models):
+            oof_preds[val_idx, m_idx] = outputs[fold_pos * n_models + m_idx][1]
+
+    final_outputs = outputs[len(folds) * n_models:]
+    fitted_base_models = [(name, final_outputs[m_idx][0]) for m_idx, (name, _) in enumerate(base_specs)]
     return oof_preds, fitted_base_models
 
 
@@ -223,7 +249,7 @@ class SoftVotingEnsemble:
 
     def predict_proba(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
         probas = np.zeros((len(X), 2), dtype=np.float64)
-        for weight, (_, model) in zip(self.weights, self.models):
+        for weight, (_, model) in zip(self.weights, self.models, strict=True):
             if weight > 0:
                 probas += weight * model.predict_proba(X)
         return probas
@@ -273,28 +299,34 @@ class StackingEnsemble:
 
 
 def evaluate_predictions(
-    name: str, y_true: np.ndarray, y_proba: np.ndarray, threshold: float = 0.5
+    name: str,
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    y_tune: np.ndarray,
+    y_tune_proba: np.ndarray,
+    threshold: float = 0.5,
+    seed: int = 42,
 ) -> dict:
+    """Test metrics; thresholds are tuned on (y_tune, y_tune_proba), i.e. OOF training data."""
     y_pred = (y_proba >= threshold).astype(int)
-    acc = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
-    roc = roc_auc_score(y_true, y_proba)
-    pr = average_precision_score(y_true, y_proba)
-    brier = brier_score_loss(y_true, y_proba)
-    clinical = compute_clinical_metrics(y_true, y_proba)
-
-    return {
+    clinical = compute_clinical_metrics(y_true, y_proba, y_val_true=y_tune, y_val_prob=y_tune_proba)
+    row = {
         "model": name,
-        "test_accuracy": acc,
-        "test_f1": f1,
-        "test_roc_auc": roc,
-        "test_pr_auc": pr,
-        "test_brier_score": brier,
+        "test_accuracy": accuracy_score(y_true, y_pred),
+        "test_f1": f1_score(y_true, y_pred),
+        "test_roc_auc": roc_auc_score(y_true, y_proba),
+        "test_pr_auc": average_precision_score(y_true, y_proba),
+        "test_brier_score": brier_score_loss(y_true, y_proba),
         "optimal_threshold_f1": clinical["optimal_threshold_f1"],
         "f1_at_optimal_threshold": clinical["f1_at_optimal"],
         "optimal_threshold_youden": clinical["optimal_threshold_youden"],
         "youden_j": clinical["youden_j"],
     }
+    add_bootstrap_cis(
+        row, y_true, y_proba, seed=seed,
+        name_map={"brier": "test_brier_score"},
+    )
+    return row
 
 
 def run_ensemble_benchmark(
@@ -309,11 +341,8 @@ def run_ensemble_benchmark(
     print("HYBRID CLINICAL ENSEMBLE BENCHMARK (PyTorch MLP + XGBoost + RF + LogReg)")
     print("=" * 70)
 
-    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
-
-    path = Path(dataset_path)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
+    effective_jobs = resolve_n_jobs(n_jobs)
+    path = resolve_data_path(dataset_path)
 
     df = pd.read_csv(path)
     if use_feature_engineering:
@@ -344,14 +373,14 @@ def run_ensemble_benchmark(
             "Random Forest",
             Pipeline([
                 ("pre", pre_unscaled),
-                ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=effective_jobs)),
+                ("clf", RandomForestClassifier(n_estimators=300, max_depth=6, random_state=seed, n_jobs=1)),
             ]),
         ),
         (
             "XGBoost",
             Pipeline([
                 ("pre", pre_unscaled),
-                ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=effective_jobs, eval_metric="logloss")),
+                ("clf", XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=seed, n_jobs=1, eval_metric="logloss")),
             ]),
         ),
         (
@@ -363,15 +392,20 @@ def run_ensemble_benchmark(
         ),
     ]
 
-    print(f"\nGenerating {cv_folds}-fold OOF predictions and fitting base models (multi-core n_jobs={effective_jobs})...")
+    print(f"\nGenerating {cv_folds}-fold OOF predictions and fitting base models ({effective_jobs} parallel workers)...")
+    # A GPU MLP must stay in the main process.
+    oof_jobs = 1 if device_str == "cuda" else effective_jobs
     oof_preds, trained_base = generate_oof_and_fit_base_models(
-        base_specs, X_train, y_train, cv_folds=cv_folds, random_state=seed
+        base_specs, X_train, y_train, cv_folds=cv_folds, random_state=seed, n_jobs=oof_jobs
     )
+    y_train_np = y_train.values
 
     results = []
+    test_probas: dict[str, np.ndarray] = {}
     for m_idx, (name, pipe) in enumerate(trained_base):
         proba = pipe.predict_proba(X_test)[:, 1]
-        row = evaluate_predictions(name, y_test.values, proba)
+        test_probas[f"Ensemble base: {name}"] = proba
+        row = evaluate_predictions(name, y_test.values, proba, y_train_np, oof_preds[:, m_idx], seed=seed)
         results.append(row)
         print(
             f"  -> {name:<20} | Accuracy: {row['test_accuracy']:.4f} | F1: {row['test_f1']:.4f} | "
@@ -382,12 +416,14 @@ def run_ensemble_benchmark(
     soft_voting = SoftVotingEnsemble(trained_base, metric="roc_auc")
     soft_voting.fit_weights(oof_preds, y_train.values, metric="roc_auc")
     weight_str = ", ".join(
-        f"{name}: {w:.3f}" for (name, _), w in zip(trained_base, soft_voting.weights)
+        f"{name}: {w:.3f}" for (name, _), w in zip(trained_base, soft_voting.weights, strict=True)
     )
     print(f"\n[Nelder-Mead Simplex Weights] {weight_str}")
 
     sv_proba = soft_voting.predict_proba(X_test)[:, 1]
-    sv_row = evaluate_predictions("Hybrid Soft-Voting Ensemble", y_test.values, sv_proba)
+    test_probas["Hybrid Soft-Voting Ensemble"] = sv_proba
+    sv_oof = np.clip(oof_preds @ soft_voting.weights, 0.0, 1.0)
+    sv_row = evaluate_predictions("Hybrid Soft-Voting Ensemble", y_test.values, sv_proba, y_train_np, sv_oof, seed=seed)
     results.append(sv_row)
     print(
         f"[Hybrid Soft-Voting] Accuracy: {sv_row['test_accuracy']:.4f} | "
@@ -406,7 +442,13 @@ def run_ensemble_benchmark(
         precomputed_fitted_models=trained_base,
     )
     st_proba = stacking.predict_proba(X_test)[:, 1]
-    st_row = evaluate_predictions("Hybrid Stacking Ensemble (Ours)", y_test.values, st_proba)
+    test_probas["Hybrid Stacking Ensemble (Ours)"] = st_proba
+    # Out-of-fold meta-learner predictions give a leak-free set for threshold tuning.
+    st_oof = cross_val_predict(
+        LogisticRegression(C=1.0, random_state=seed), oof_preds, y_train_np,
+        cv=StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=seed), method="predict_proba",
+    )[:, 1]
+    st_row = evaluate_predictions("Hybrid Stacking Ensemble (Ours)", y_test.values, st_proba, y_train_np, st_oof, seed=seed)
     results.append(st_row)
     print(
         f"[Hybrid Stacking]    Accuracy: {st_row['test_accuracy']:.4f} | "
@@ -416,30 +458,21 @@ def run_ensemble_benchmark(
 
     res_df = pd.DataFrame(results).sort_values("test_roc_auc", ascending=False).reset_index(drop=True)
 
-    out_p = Path(output_dir)
-    out_p.mkdir(parents=True, exist_ok=True)
-    def _to_md(frame: pd.DataFrame) -> str:
-        headers = list(frame.columns)
-        lines = [
-            "| " + " | ".join(headers) + " |",
-            "| " + " | ".join(["---"] * len(headers)) + " |",
-        ]
-        for _, row in frame.iterrows():
-            vals = [f"{row[h]:.4f}" if isinstance(row[h], float) else str(row[h]) for h in headers]
-            lines.append("| " + " | ".join(vals) + " |")
-        return "\n".join(lines)
+    out_p = resolve_output_dir(output_dir)
+    from evaluation.model_comparison import save_test_predictions
 
+    save_test_predictions(out_p, "ensemble", dataset_path, X_test.index, y_test, test_probas)
     csv_file = out_p / "ensemble_comparison.csv"
     md_file = out_p / "ensemble_comparison.md"
 
     res_df.to_csv(csv_file, index=False)
-    md_file.write_text(_to_md(res_df), encoding="utf-8")
+    md_file.write_text(to_markdown_table(res_df), encoding="utf-8")
     print(f"\nSaved ensemble results to:\n  - {csv_file}\n  - {md_file}")
 
     return res_df, {"soft_voting": sv_row, "stacking": st_row}
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run hybrid ensemble benchmark.")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
     parser.add_argument("--no-fe", action="store_true", help="Disable clinical feature engineering.")
@@ -447,7 +480,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-jobs", type=int, default=-1, help="Number of parallel CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     run_ensemble_benchmark(
         dataset_path=args.dataset,

@@ -1,10 +1,13 @@
 {
-  "optimizer": "adam",
-  "learning_rate": 0.001,
-  "dropout": 0.2,
-  "grad_clip": 0.5,
+  "optimizer": "sgd",
+  "learning_rate": 0.005,
+  "dropout": 0.3,
+  "grad_clip": 1.0,
   "label_smoothing": 0.0,
-  "exit_code": 0,
-  "val_accuracy": 0.7551,
-  "test_accuracy": 0.8361
+  "status": "ok",
+  "cv_roc_auc_mean": 0.8628686700231416,
+  "cv_roc_auc_std": 0.05112306953586299,
+  "best_val_loss": 0.4654107689857483,
+  "val_accuracy": 0.7823129296302795,
+  "test_accuracy": 0.8097826086956522
 }

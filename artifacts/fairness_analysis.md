@@ -6,15 +6,15 @@ Evaluates whether the clinical risk model demonstrates parity across biological 
 
 | subgroup | n_samples | prevalence_pct | accuracy | f1 | roc_auc | sensitivity_tpr | specificity_tnr | false_negative_rate | false_positive_rate | selection_rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| All Patients | 184 | 55.4348 | 0.8533 | 0.8708 | 0.9303 | 0.8922 | 0.8049 | 0.1078 | 0.1951 | 0.5815 |
-| Female Patients (sex=0) | 35 | 22.8571 | 0.9143 | 0.8000 | 0.9074 | 0.7500 | 0.9630 | 0.2500 | 0.0370 | 0.2000 |
-| Male Patients (sex=1) | 149 | 63.0872 | 0.8389 | 0.8763 | 0.9217 | 0.9043 | 0.7273 | 0.0957 | 0.2727 | 0.6711 |
-| Younger (<50 yrs) | 59 | 42.3729 | 0.8644 | 0.8182 | 0.9741 | 0.7200 | 0.9706 | 0.2800 | 0.0294 | 0.3220 |
-| Middle-aged (50-64 yrs) | 104 | 57.6923 | 0.8558 | 0.8855 | 0.9193 | 0.9667 | 0.7045 | 0.0333 | 0.2955 | 0.6827 |
-| Senior (>=65 yrs) | 21 | 80.9524 | 0.8095 | 0.8824 | 0.9412 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
+| All Patients | 184 | 55.4348 | 0.8478 | 0.8692 | 0.9075 | 0.9118 | 0.7683 | 0.0882 | 0.2317 | 0.6087 |
+| Female Patients (sex=0) | 35 | 22.8571 | 0.8857 | 0.7500 | 0.9213 | 0.7500 | 0.9259 | 0.2500 | 0.0741 | 0.2286 |
+| Male Patients (sex=1) | 149 | 63.0872 | 0.8389 | 0.8788 | 0.8870 | 0.9255 | 0.6909 | 0.0745 | 0.3091 | 0.6980 |
+| Younger (<50 yrs) | 59 | 42.3729 | 0.8983 | 0.8750 | 0.9482 | 0.8400 | 0.9412 | 0.1600 | 0.0588 | 0.3898 |
+| Middle-aged (50-64 yrs) | 104 | 57.6923 | 0.8269 | 0.8636 | 0.8807 | 0.9500 | 0.6591 | 0.0500 | 0.3409 | 0.6923 |
+| Senior (>=65 yrs) | 21 | 80.9524 | 0.8095 | 0.8824 | 0.9118 | 0.8824 | 0.5000 | 0.1176 | 0.5000 | 0.8095 |
 
 ### Key Demographic Fairness Findings
 
-- **Equal Opportunity Difference (Sex):** `0.1543`
-- **Disparate Impact Ratio (Female vs. Male):** `0.2980`
-- **Missed Disease Rate (FNR):** Female = `25.0%`, Male = `9.6%`
+- **Equal Opportunity Difference (Sex):** `0.1755`
+- **Disparate Impact Ratio (Female vs. Male):** `0.3275`
+- **Missed Disease Rate (FNR):** Female = `25.0%`, Male = `7.4%`

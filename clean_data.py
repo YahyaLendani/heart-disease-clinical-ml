@@ -7,6 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from project_paths import HEART_CSV, RAW_DATA_DIR, resolve_data_path
 
 COLUMNS = [
     "age",
@@ -39,10 +40,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def load_raw_data(base_dir: Path, input_arg: str) -> tuple[pd.DataFrame, Path]:
+    """Load the raw heart data; ``base_dir`` is the folder holding heart.csv / cleve.mod."""
     if input_arg:
-        source_path = Path(input_arg)
-        if not source_path.is_absolute():
-            source_path = base_dir / source_path
+        source_path = resolve_data_path(input_arg)
     else:
         heart_csv = base_dir / "heart.csv"
         cleve_mod = base_dir / "cleve.mod"
@@ -65,6 +65,26 @@ def load_raw_data(base_dir: Path, input_arg: str) -> tuple[pd.DataFrame, Path]:
         )
 
     return df, source_path
+
+
+def recode_invalid_codes(df: pd.DataFrame) -> pd.DataFrame:
+    """Turn the Kaggle heart.csv placeholder codes back into missing values.
+
+    In the Kaggle export, ``ca`` (0-3 vessels) uses 4 and ``thal`` (1-3) uses 0
+    where the original UCI Cleveland file has '?'. Zero cholesterol or resting
+    blood pressure is also physiologically impossible and means "not measured".
+    """
+    out = df.copy()
+    if "ca" in out.columns and pd.api.types.is_numeric_dtype(out["ca"]):
+        out.loc[out["ca"] == 4, "ca"] = pd.NA
+    if "thal" in out.columns and pd.api.types.is_numeric_dtype(out["thal"]):
+        values = set(out["thal"].dropna().unique())
+        if values and values <= {0, 1, 2, 3}:  # Kaggle 0-3 coding, not UCI 3/6/7
+            out.loc[out["thal"] == 0, "thal"] = pd.NA
+    for col in ("chol", "trestbps"):
+        if col in out.columns and pd.api.types.is_numeric_dtype(out[col]):
+            out.loc[out[col] == 0, col] = pd.NA
+    return out
 
 
 def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
@@ -97,6 +117,7 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
             cleaned[col] = pd.to_numeric(cleaned[col], errors="coerce")
 
     cleaned = cleaned.drop_duplicates().reset_index(drop=True)
+    cleaned = recode_invalid_codes(cleaned)
 
     # NOTE: Imputation is deliberately NOT done here.
     # Missing values are preserved so that imputation can be performed
@@ -123,12 +144,12 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
-    base_dir = Path(__file__).parent
-    output_path = base_dir / "cleaned_heart_disease.csv"
+def main(argv: list[str] | None = None) -> None:
+    args = build_arg_parser().parse_args(argv)
+    output_path = HEART_CSV
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df, source_path = load_raw_data(base_dir, args.input)
+    df, source_path = load_raw_data(RAW_DATA_DIR, args.input)
 
     cleaned_df = clean_dataset(df)
     cleaned_df.to_csv(output_path, index=False)
@@ -137,7 +158,7 @@ def main() -> None:
     print(f"Input rows: {len(df)}")
     print(f"Cleaned rows: {len(cleaned_df)}")
     print(f"Missing values after cleaning: {int(cleaned_df.isna().sum().sum())}")
-    print(f"Saved: {output_path.name}")
+    print(f"Saved: {output_path}")
 
 
 def build_preprocessing_pipeline(

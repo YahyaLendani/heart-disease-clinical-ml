@@ -4,15 +4,17 @@ This file explains the project from start to finish and then explains each sourc
 
 ## 1) Big-Picture Step-by-Step Flow
 
-1. Install dependencies from `requirements.txt`.
-2. Run `clean_data.py` to build `cleaned_heart_disease.csv` from `heart.csv` (or fallback `cleve.mod`).
-3. Run `eda.py` to print EDA and export EDA artifact CSV files in `artifacts/`.
-4. Run `train_model.py` to train the scratch PyTorch MLP (SGD/Adam) and save training artifacts.
-5. Optionally run `baseline_models.py` to train LR/RF/XGBoost heart baselines.
-6. Optionally run `mimic_prepare_dataset.py` to build MIMIC mortality dataset.
-7. Optionally run `mimic_train_baselines.py` for MIMIC baseline modeling.
-8. Optionally run `update_thesis_results.py` to auto-refresh thesis result sections.
-9. Or run `run_pipeline.py` to orchestrate steps 2–5 (and thesis update flags).
+1. Install the package and dependencies: `pip install -e ".[dev]"`.
+2. `heart-pipeline clean` builds `data/processed/cleaned_heart_disease.csv` from `data/raw/heart.csv` (or fallback `data/raw/cleve.mod`).
+3. `heart-pipeline eda` prints EDA and exports EDA CSV files in `artifacts/`.
+4. `heart-pipeline train-mlp` trains the scratch PyTorch MLP (SGD/Adam) with repeated CV and saves training artifacts.
+5. Optionally `heart-pipeline baselines` trains LR/RF/XGBoost heart baselines.
+6. Optionally `heart-pipeline prepare-mimic` builds the MIMIC mortality dataset.
+7. Optionally `heart-pipeline mimic-baselines` / `mimic-mlp` for MIMIC modeling.
+8. Optionally `heart-pipeline update-thesis` refreshes thesis result sections.
+9. Or run `heart-pipeline` with flags to orchestrate steps 2–5 (and the optional stages) in one process.
+
+All file locations come from `project_paths.py`; dataset arguments accept bare names that are looked up in `data/processed` and `data/raw`.
 
 ---
 
@@ -23,6 +25,8 @@ This file explains the project from start to finish and then explains each sourc
 - `scikit-learn`: preprocessing, splitting, metrics, CV, classical models.
 - `torch`: scratch MLP, autograd training loop.
 - `xgboost`: gradient-boosted tree baseline model.
+- `scipy`, `joblib`: rank statistics for fast bootstrap AUCs; process-parallel CV folds.
+- `shap`, `matplotlib`: explanations and figures.
 
 ---
 
@@ -139,151 +143,63 @@ This file explains the project from start to finish and then explains each sourc
 
 ---
 
-## 5) `train_model.py` line-by-line (top to bottom)
+## 5) `training/train_model.py` step by step
 
-### Imports
-- Standard libs: paths, arg parsing, deep copy, RNG.
-- Data/scikit tools for preprocessing and metrics.
-- PyTorch core, nn, functional, and data utilities.
+`HeartMLP` and `ScratchLinear` live in `models/heart_mlp.py`; seeding and tensor batching live in `training/torch_utils.py`.
 
-### `set_seed(seed)`
-- Seeds Python, NumPy, and Torch RNG.
-- Seeds all CUDA devices if available.
-- Sets deterministic cuDNN mode for reproducibility.
+### `make_loss`, `make_optimizer`, `smooth_binary_targets`
+- `bce` or `bce_weighted` (`pos_weight = negatives / positives`).
+- SGD (momentum 0.9) or Adam, both with weight decay.
+- Optional label smoothing toward 0.5.
 
-### `ScratchLinear`
-- Defines a custom linear layer using explicit trainable tensors (`nn.Parameter`).
-- `reset_parameters`: Kaiming init for weights, zero init for bias.
-- `forward`: manual matrix multiply + bias.
-
-### `HeartMLP`
-- Defines 3-layer scratch MLP:
-  - `fc1`: input -> 64
-  - `fc2`: 64 -> 32
-  - `fc3`: 32 -> 1
-- Forward pass:
-  - linear -> ReLU -> dropout
-  - linear -> ReLU -> dropout
-  - final linear -> squeeze to shape `(batch,)`.
-
-### `smooth_binary_targets(targets, smoothing)`
-- Applies label smoothing for binary targets.
-- If smoothing is 0, returns original targets unchanged.
-
-### `make_loss(loss_name, y_train_tensor)`
-- Returns `BCEWithLogitsLoss` for `bce`.
-- For `bce_weighted`, computes `pos_weight = negatives/positives` and returns weighted BCE loss.
-
-### `evaluate_loss(...)`
-- Sets eval mode.
-- Runs no-grad pass over loader.
-- Moves batch tensors to selected device.
-- Computes average validation/test loss.
-
-### `evaluate_accuracy(...)`
-- Eval mode + no-grad.
-- Computes sigmoid probabilities.
-- Thresholds at 0.5.
-- Returns sklearn accuracy.
-
-### `predict_binary(...)`
-- Same as evaluation path, but returns binary predictions list only.
+### `fit_with_early_stopping(...)`
+- Data stays in tensors on the target device; `iterate_minibatches` shuffles an index with a seeded generator (no `DataLoader`).
+- Each epoch: mini-batch updates with optional gradient clipping, then **one** full-batch validation pass that yields both validation loss and accuracy.
+- `ReduceLROnPlateau` on validation loss; early stopping with patience; the best weights are restored.
 
 ### `train_one_optimizer(...)`
-- Creates optimizer (`SGD` or `Adam`) from CLI choice.
-- Creates `ReduceLROnPlateau` scheduler.
-- Initializes best-checkpoint trackers.
-- Epoch loop:
-  - train mode.
-  - batch loop: move to device, optional label smoothing, forward, loss, backward, optional grad clipping, optimizer step.
-  - computes train and validation metrics.
-  - scheduler step on val loss.
-  - appends history row.
-  - early stopping by patience.
-- Loads best weights.
-- Evaluates on test split.
-- Prints report and confusion matrix.
-- Saves optional checkpoint and confusion matrix; always saves history if path passed.
-- Returns metrics dictionary.
+- Trains on the holdout train split with early stopping on the validation split.
+- Predicts test and validation probabilities once each.
+- Decision thresholds (F1, Youden) are tuned on validation and applied to test.
+- Adds stratified bootstrap 95% CIs to every test metric; saves checkpoint, confusion matrix, history and curves when asked.
 
-### `build_arg_parser()`
-- Defines CLI options for optimizer/loss/epochs/training controls.
-- Includes regularization controls (`dropout`, `weight_decay`, `grad_clip`, `label_smoothing`).
-- Includes GPU control flag `--device` (`auto`, `cpu`, `cuda`).
+### `_run_cv_fold(...)` and `run_mlp_cross_validation(...)`
+- Repeated stratified k-fold (`--cv-folds`, `--cv-repeats`) on train+val.
+- Inside each fold, a separate split of the training portion is used for early stopping, so the scored fold never picks the stopping epoch.
+- Each fold has its own seed (`seed + 1000 * fold`), so results do not depend on run order; on CPU the folds run in parallel processes with one thread each.
 
-### `resolve_torch_device(requested_device)`
-- Enforces CPU if requested.
-- Enforces CUDA and raises if unavailable when explicitly requested.
-- Uses auto-detect for `auto`.
-
-### `main()`
-- Parses args and seeds all RNGs.
-- Loads cleaned dataset and normalizes target.
-- Splits into train/val/test with stratification.
-- Builds `ColumnTransformer`:
-  - StandardScaler on numeric.
-  - OneHotEncoder on categorical.
-- Transforms train/val/test.
-- Converts arrays to tensors.
-- Resolves device and sets DataLoader `pin_memory` for GPU.
-- Builds criterion and moves it to selected device.
-- Runs selected optimizer(s).
-- Saves artifacts into output directory.
-- Prints optimizer comparison and best optimizer.
+### `main(argv=None)`
+- Loads the dataset via `project_paths.resolve_data_path`, makes an 80/20 train+val / test split and an inner train/val split.
+- Runs CV and holdout training per optimizer; writes `mlp_cv_fold_metrics_*.csv`, `mlp_cv_summary.csv`, `mlp_holdout_summary.csv`.
+- The "best optimizer" is the one with the lowest **validation** loss; the test split is never consulted for selection.
+- Optional SHAP analysis on the selected model. Returns the result rows (used by `tune` and `overfit`).
 
 ---
 
-## 6) `baseline_models.py` line-by-line (top to bottom)
+## 6) `training/baseline_models.py` step by step
 
 ### Imports and parameter dictionaries
-- Imports ML stack and XGBoost + GPU detection dependencies.
-- Defines RF/XGB baseline and candidate parameter sets.
+- RF/XGB baseline and candidate parameter sets, all with `n_jobs=1`: on a few hundred rows thread start-up costs more than it saves, so parallelism happens across CV folds instead.
 
-### `load_data()`
-- Reads cleaned heart dataset.
-- Ensures binary `target` exists.
-- Splits into features `X` and labels `y`.
-
-### `build_preprocessors(X)`
-- Returns two preprocessors:
-  - scaled numeric + OHE categorical for linear models.
-  - passthrough numeric + OHE categorical for tree models.
-
-### `evaluate_model(...)`
-- Predicts class and probabilities.
-- Computes accuracy, F1, ROC-AUC.
-- Prints classification report.
-- Returns summary dict.
+### `load_data()` / `build_preprocessors(X)`
+- Reads the cleaned dataset and builds scaled (linear models) and unscaled (trees) preprocessors; imputation is fit inside each fold.
 
 ### `cross_validate_model(...)`
-- Stratified K-fold CV.
-- Computes mean/std for accuracy, F1, ROC-AUC.
+- Repeated stratified k-fold CV using `evaluation.cv_utils.multi_metric_scorer`, which calls `predict_proba` once per fold and returns all five metrics.
+- Folds run in parallel (`training.device_utils.cv_n_jobs_for`), except for GPU XGBoost.
 
 ### `select_best_params(...)`
-- Builds baseline and candidate pipelines.
-- CV-evaluates both.
-- Chooses param set with better CV ROC-AUC.
+- Cross-validates the baseline and candidate configurations and keeps the better CV ROC-AUC.
+- Returns the chosen parameters **and** their CV scores, so the chosen configuration is not cross-validated a second time.
 
-### `build_arg_parser()`
-- Adds baseline CLI options: early stopping rounds, eval split, folds, output dir, thesis update flag, XGBoost device flag.
+### `holdout_result(...)` / `evaluate_model(...)`
+- Test metrics at the 0.5 threshold, validation-tuned F1/Youden thresholds applied to test, and bootstrap 95% CIs.
 
-### `resolve_xgb_device(requested_device)`
-- CPU immediate if requested.
-- Auto: CPU if no torch CUDA.
-- Else attempts tiny XGBoost CUDA fit probe.
-- Falls back to CPU for `auto`; raises for strict `cuda` if unavailable.
+### `main(argv=None)`
+- Splits 60/20/20, selects RF/XGB parameters, fits LR and RF, fits XGBoost with early stopping on the validation split.
+- Sorts the summary by CV ROC-AUC, writes `baseline_comparison.{csv,md}` and figures; `--update-thesis` calls `evaluation.update_thesis_results.main` in-process.
 
-### `main()`
-- Parses args and loads data.
-- Resolves XGBoost device and prints it.
-- Builds train/test split and XGB train/val split for early stopping.
-- Selects best RF and XGB params by CV.
-- Builds and CV-evaluates models.
-- Fits LR and RF pipelines and evaluates holdout.
-- Fits XGBoost separately with early stopping.
-- Builds summary table and sorts by holdout metrics.
-- Saves CSV + markdown comparison to artifacts.
-- If `--update-thesis`, runs `update_thesis_results.py` for heart block refresh.
+Device selection (`--xgb-device auto|cpu|cuda`) lives in `training/device_utils.py`.
 
 ---
 
@@ -328,179 +244,99 @@ This file explains the project from start to finish and then explains each sourc
 
 ---
 
-## 8) `mimic_train_baselines.py` line-by-line (top to bottom)
+## 8) `training/mimic_train_baselines.py` step by step
 
-### Imports and parser
-- Similar ML stack to heart baselines.
-- Includes metrics tailored for class imbalance and probability ranking.
-- Parser accepts input file, folds, output dir, thesis update, and XGB device.
+### Imports, constants and parser
+- Shares scoring (`evaluation.cv_utils`) and device logic (`training.device_utils`) with the heart scripts.
+- `MIN_TEST_EVENTS_FOR_RANKING = 10`: below this many test deaths the script warns that holdout rankings are unstable.
+- Parser: input file, folds, `--cv-repeats`, `--seed`, output dir, thesis update, XGB device, SHAP flag.
 
-### `resolve_xgb_device(...)`
-- Same GPU probe/fallback logic as heart baseline script.
+### `load_data(path)` / `make_preprocessor(X)`
+- Reads the admissions dataset, separates `hospital_expire_flag`, keeps `subject_id` for patient-grouped splitting.
 
-### `load_data(path)`
-- Reads MIMIC admissions dataset.
-- Splits target `hospital_expire_flag` from features.
-- Drops ID columns from feature matrix.
-
-### `make_preprocessor(X)`
-- StandardScaler for numeric + OHE for categorical.
+### `split_train_val_test(...)`
+- `StratifiedGroupKFold` on `subject_id` for test and validation, so no patient appears in two partitions.
+- The leakage assertions compare actual subject IDs (an earlier version mixed index spaces and failed every run).
 
 ### `evaluate_holdout(...)`
-- Computes holdout metrics:
-  - accuracy
-  - expired-class F1/recall/precision
-  - ROC-AUC
-  - PR-AUC
-- Prints classification report and returns dict.
+- Expired-class F1/recall/precision, ROC-AUC, PR-AUC, Brier; thresholds tuned on validation; bootstrap 95% CIs; `test_events` column.
 
 ### `evaluate_cv(...)`
-- Stratified CV with same mortality-aware metric set.
-- Returns mean/std for all tracked metrics.
+- Repeated patient-grouped stratified CV with the single-pass scorer.
 
-### `main()`
-- Parses args.
-- Loads data and resolves XGB device.
-- Creates stratified train/test split.
-- Computes `scale_pos_weight` from class imbalance.
-- Builds LR/RF/XGB pipelines.
-- Runs CV + holdout evaluation per model.
-- Sorts summary prioritizing PR-AUC and minority metrics.
-- Saves CSV and markdown tables.
-- If `--update-thesis`, triggers thesis updater for MIMIC block.
+### `main(argv=None)`
+- Splits, reports deaths per split (and the small-sample warning), fits LR/RF/XGB, sorts by CV PR-AUC, writes tables and figures, optional SHAP and thesis update.
+
+The companion `training/mimic_train_mlp.py` uses the same split; its CV early-stops on a separate patient-grouped split inside each fold.
+
+> The bundled MIMIC-IV demo has 275 admissions and 15 deaths. Treat MIMIC outputs as a demonstration that the pipeline runs on ICU data, not as model rankings.
 
 ---
 
-## 9) `run_pipeline.py` line-by-line (top to bottom)
+## 9) `run_pipeline.py` (the `heart-pipeline` command)
 
-### Imports
-- Parser + subprocess + interpreter path handling.
+### `STEPS`
+- Maps each subcommand (`clean`, `prepare-combined`, `eda`, `train-mlp`, `baselines`, `ensemble`, `loco`, `fairness`, `reading-list`, `compare-models`, `mimic-*`, `tune`, `overfit`, `update-thesis`, `test`, ...) to a module with `main(argv)`.
 
-### `run_script(script_name, extra_args=None)`
-- Resolves script path.
-- Verifies file exists.
-- Executes using current Python interpreter.
-- Raises if return code is non-zero.
+### `run_step(step, argv)`
+- Imports the module and calls `main(argv)` in the same process, printing the elapsed time.
 
-### `build_arg_parser()`
-- Exposes heart training options, GPU options, baseline options, and thesis update options.
-
-### `main()`
-- Parses args.
-- Executes sequential pipeline:
-  1) `clean_data.py`
-  2) `eda.py`
-  3) `train_model.py` with forwarded training args
-  4) optional `baseline_models.py` with forwarded baseline args
-  5) optional thesis update (`--update-thesis`)
-  6) optional full thesis update (`--update-thesis-all`)
-- Prints completion banner.
+### `run_full_pipeline(args)`
+1. Optional `--run-tests`.
+2. Data preparation: `prepare-combined` for the default 918-patient cohort (`clean` when `--dataset cleaned_heart_disease.csv`), then `eda`.
+3. `train-mlp`; optional `baselines`, `ensemble`, `loco`, `fairness` (LOCO and fairness always use the multi-center cohort), `reading-list`.
+4. `compare-models`: paired DeLong tests across every model scored on the shared test split.
+5. Optional thesis updates.
 
 ---
 
-## 10) `tune_train_model.py` line-by-line (top to bottom)
+## 10) `experiments/tune_train_model.py` step by step
 
-### Imports
-- Uses itertools for grid search combinations.
-- Uses regex to parse training stdout.
-- Uses pandas/json for saving tuning outputs.
-
-### `build_arg_parser()`
-- Defines tuning grid and shared training args.
-
-### `parse_metrics(stdout, optimizer)`
-- Regex-extracts validation and test accuracy from trainer summary line.
-
-### `run_trial(...)`
-- Builds subprocess command for `train_model.py` with one parameter combination.
-- Runs process and captures stdout/stderr.
-- Parses metrics if successful output format exists.
-- Returns trial record dictionary.
-
-### `main()`
-- Locates `train_model.py`.
-- Creates output directory.
-- Builds Cartesian product of all candidate hyperparameters.
-- Runs all trials sequentially.
-- Drops failed/empty metric rows.
-- Ranks by test then validation accuracy.
-- Saves ranked CSV and best-config JSON.
-- Prints best configuration summary.
+- Builds the Cartesian product of optimizer, learning rate, dropout, gradient clipping and label smoothing.
+- `run_trial(...)` calls `training.train_model.main(argv)` in-process (no subprocess or stdout parsing) with a per-trial output folder.
+- Ranks trials by repeated-CV ROC-AUC, then validation loss. Test accuracy is recorded for reference only.
+- Saves `tuning_results.csv`, `best_hyperparameters.json` and a learning-rate vs CV ROC-AUC plot.
 
 ---
 
-## 11) `update_thesis_results.py` line-by-line (top to bottom)
+## 11) `evaluation/update_thesis_results.py` step by step
 
-### Imports and markers
-- Uses argparse/path/pandas.
-- Defines HTML-style start/end markers for auto-managed blocks:
-  - MIMIC results
-  - Heart results
-  - Heart EDA findings
+### Markers and parser
+- HTML-comment markers delimit auto-managed blocks (MIMIC, heart, heart EDA, SHAP, ensemble, LOCO, fairness).
+- `--task mimic|heart|all`; `--dataset`/`--comparison` override the task-specific `--mimic-*` / `--heart-*` defaults.
 
-### `build_arg_parser()`
-- Adds flexible paths for thesis, datasets, comparison tables, EDA artifacts.
-- Adds `--task` with `mimic`, `heart`, or `all`.
+### Block builders
+- `build_mimic_results_block` adds `small_sample_note(...)` when the test split has fewer than 10 deaths.
+- `build_heart_results_block`, `build_heart_eda_block`, `build_shap_block` and the advanced blocks format artifact CSVs as Markdown.
 
-### Formatting and summary helpers
-- `to_markdown_table`: converts DataFrame to markdown table with formatted numbers.
-- `cohort_summary_mimic`: computes MIMIC cohort summary stats.
-- `choose_primary_metric`: selects ranking metric from available columns.
-- `build_mimic_results_block`: creates markdown block for MIMIC results.
-- `infer_heart_target` + `cohort_summary_heart`: normalize target and compute heart cohort summary.
-- `build_heart_results_block`: builds heart baseline results markdown block.
-- `_top_records`: helper for top-N extraction.
-- `build_heart_eda_block`: builds heart EDA findings block from EDA artifact CSVs.
-
-### `replace_or_insert_block(...)`
-- Replaces existing marker block if present.
-- Otherwise inserts block before references or inside template results section.
-
-### `main()`
-- Parses args and reads thesis file.
-- For `mimic` task:
-  - validates files/columns
-  - builds MIMIC block
-  - writes thesis
-- For `heart` task:
-  - validates files
-  - builds heart baseline block
-  - optionally adds heart EDA block if EDA artifact files exist
-  - writes thesis
-- For `all` task:
-  - validates both MIMIC + heart inputs
-  - updates MIMIC block, heart block, and optional heart EDA block
-  - writes thesis once at end
+### `main(argv=None)`
+- Resolves paths (bare dataset names are looked up in `data/processed`), rebuilds the requested blocks and writes `thesis_draft.md`. Text outside the markers is never touched, so the hand-written discussion must be updated separately.
 
 ---
 
-## 12) `validate_scratch_mlp.py` line-by-line (top to bottom)
+## 12) `evaluation/model_comparison.py` step by step
 
-- Imports `HeartMLP` and `set_seed` from trainer module.
-- Seeds RNG.
-- Creates synthetic input batch and binary targets.
-- Runs forward pass and asserts output shape.
-- Saves pre-step parameters.
-- Backpropagates BCEWithLogits loss.
-- Asserts gradients exist and are non-zero.
-- Runs one optimizer step.
-- Compares parameters pre/post step and asserts they changed.
-- Prints success, loss, and total parameter delta.
+- `save_test_predictions(...)`: each training script writes per-patient test probabilities to `artifacts/test_predictions/<source>.csv`.
+- `load_test_predictions(...)`: merges files that share the dataset and test rows (all scripts use the same seed-42 first split).
+- `delong_test(...)`: fast DeLong test (Sun & Xu, 2014) for two correlated AUCs; returns the difference, its 95% CI and p-value.
+- `holm_adjust(...)`: Holm step-down correction across all pairs.
+- `main(argv)`: writes `model_comparison.{csv,md}`.
 
 ---
 
-## 13) What each important data/artifact file is for
+## 13) `validate_scratch_mlp.py` and key files
 
-- `heart.csv`: main heart dataset used by cleaner.
-- `cleve.mod`: fallback heart dataset.
-- `cleaned_heart_disease.csv`: canonical cleaned input for EDA/train/baselines.
-- `mimic_hospital_mortality.csv`: engineered MIMIC admissions-level mortality dataset.
-- `artifacts/training_history_*.csv`: epoch-level training curves.
-- `artifacts/confusion_matrix_*.csv`: confusion matrices for PyTorch runs.
-- `artifacts/heart_mlp_*.pt`: saved model checkpoints.
-- `artifacts/baseline_comparison.csv`: heart baseline leaderboard.
-- `artifacts/mimic_baseline_comparison.csv`: MIMIC baseline leaderboard.
-- `artifacts/eda_*.csv`: exported EDA tables for thesis/reporting.
+`validate_scratch_mlp.py` seeds the RNGs, runs one forward/backward/step on a synthetic batch and asserts that the output shape is right, gradients are non-zero and parameters change.
+
+Key data and artifact files:
+- `data/raw/heart.csv`, `data/raw/cleve.mod`, `data/raw/processed.*.data`: source files.
+- `data/processed/cleaned_heart_disease_combined.csv`: primary 918-patient cohort (zero-coded cholesterol and blood pressure recoded as missing).
+- `data/processed/cleaned_heart_disease.csv`: Cleveland-only cohort (Kaggle placeholder codes `ca = 4`, `thal = 0` recoded as missing).
+- `data/processed/mimic_hospital_mortality.csv`: MIMIC-IV demo admissions dataset.
+- `artifacts/baseline_comparison.csv`, `artifacts/mlp_holdout_summary.csv`, `artifacts/reading_list_advancements_summary.csv`: results with 95% CIs and repeated-CV columns.
+- `artifacts/model_comparison.md`: paired DeLong tests.
+- `artifacts/hyperparameter_search_*.csv`: every configuration tried for Random Forest and XGBoost.
+- `artifacts/cleveland/`: the same benchmarks on the Cleveland-only cohort.
 
 ---
 

@@ -10,8 +10,9 @@ Vaswani, A., et al. (2017). Attention Is All You Need. NeurIPS 2017.
 """
 
 from __future__ import annotations
+
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn

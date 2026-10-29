@@ -88,7 +88,7 @@ def _save_waterfall_plot(
     title: str,
 ) -> None:
     """Generate and save a SHAP waterfall plot for a single observation."""
-    fig = plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(10, 7))
     shap.plots.waterfall(shap_explanation[idx], show=False)
     current_fig = plt.gcf()
     current_fig.suptitle(title, fontsize=13, y=1.02)
@@ -144,11 +144,8 @@ def generate_shap_tree(
     if isinstance(model_pipeline, Pipeline):
         preprocessor = model_pipeline.named_steps.get("preprocess")
         classifier = model_pipeline.named_steps.get("classifier")
+        # TreeExplainer only needs the test rows (X_train is part of the public signature).
         if preprocessor is not None:
-            if isinstance(X_train, pd.DataFrame):
-                X_train_transformed = preprocessor.transform(X_train)
-            else:
-                X_train_transformed = X_train
             if isinstance(X_test, pd.DataFrame):
                 X_test_transformed = preprocessor.transform(X_test)
             else:
@@ -156,12 +153,10 @@ def generate_shap_tree(
             if feature_names is None:
                 feature_names = _get_feature_names(preprocessor)
         else:
-            X_train_transformed = np.asarray(X_train)
             X_test_transformed = np.asarray(X_test)
             classifier = model_pipeline
     else:
         classifier = model_pipeline
-        X_train_transformed = np.asarray(X_train)
         X_test_transformed = np.asarray(X_test)
 
     if feature_names is None:

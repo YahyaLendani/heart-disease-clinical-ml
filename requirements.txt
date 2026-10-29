@@ -1,1 +1,11 @@
--r configs/requirements.txt
+# Runtime dependencies (mirrors [project.dependencies] in pyproject.toml).
+# For development tools as well, use: pip install -e ".[dev]"
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+torch>=2.0.0
+xgboost>=2.0.0
+shap>=0.43.0
+matplotlib>=3.7.0

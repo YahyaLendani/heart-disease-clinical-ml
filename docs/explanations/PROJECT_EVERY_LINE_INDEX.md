@@ -13,16 +13,17 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 
 ## 2) File Reading Order (Recommended)
 
-1. `clean_data.py`
-2. `eda.py`
-3. `train_model.py`
-4. `baseline_models.py`
-5. `run_pipeline.py`
-6. `mimic_prepare_dataset.py`
-7. `mimic_train_baselines.py`
-8. `tune_train_model.py`
-9. `update_thesis_results.py`
-10. `validate_scratch_mlp.py`
+1. `project_paths.py`
+2. `clean_data.py`
+3. `eda.py`
+4. `training/train_model.py` (with `training/torch_utils.py`)
+5. `training/baseline_models.py` (with `evaluation/cv_utils.py`, `training/device_utils.py`)
+6. `run_pipeline.py`
+7. `mimic_prepare_dataset.py`
+8. `training/mimic_train_baselines.py`
+9. `experiments/tune_train_model.py`
+10. `evaluation/update_thesis_results.py`
+11. `validate_scratch_mlp.py`
 
 ---
 
@@ -56,47 +57,47 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 
 ---
 
-## 5) `train_model.py` Key Line Regions
+## 5) `training/train_model.py` Key Line Regions
 
 ### Core model definitions
-- `ScratchLinear`
-- `HeartMLP`
+- `ScratchLinear`, `HeartMLP` are in `models/heart_mlp.py`.
 
 ### Training/evaluation helpers
-- `set_seed(...)`
-- `smooth_binary_targets(...)`
-- `make_loss(...)`
-- `evaluate_loss(...)`
-- `evaluate_accuracy(...)`
-- `predict_binary(...)`
+- `smooth_binary_targets(...)`, `make_loss(...)`, `make_optimizer(...)`
+- `predict_proba(...)` (full-batch inference)
+- `training/torch_utils.py`: `set_seed`, `iterate_minibatches`, `predict_logits`, `clone_state`
 
 ### Training engine
-- `train_one_optimizer(...)` epoch loop, early stopping, scheduler, artifact saving.
+- `fit_with_early_stopping(...)`: epoch loop, single validation pass, scheduler, early stopping.
+- `train_one_optimizer(...)`: holdout training, validation-tuned thresholds, bootstrap CIs, artifact saving.
+
+### Cross-validation
+- `_run_cv_fold(...)`: one fold with its own early-stopping split and seed (runs in a worker process).
+- `run_mlp_cross_validation(...)`: repeated stratified k-fold, folds in parallel.
 
 ### Runtime setup
-- `build_arg_parser(...)`
-- `resolve_torch_device(...)`
-- `main()` preprocessing, tensor creation, DataLoader setup, optimizer comparison output.
+- `build_arg_parser(...)`, `load_heart_dataset(...)`
+- `main(argv)`: splits, preprocessing, CV + holdout per optimizer, selection by validation loss, outputs.
 
 ---
 
-## 6) `baseline_models.py` Key Line Regions
+## 6) `training/baseline_models.py` Key Line Regions
 
 ### Configuration and model params
-- RF/XGB baseline/candidate dictionaries.
+- `RF_BASE_PARAMS`/`RF_PARAM_GRID`, `XGB_BASE_PARAMS`/`XGB_PARAM_GRID` and `expand_grid(...)` (8 configurations each; `n_jobs=1`, folds run in parallel instead).
 
 ### Data/preprocessing
 - `load_data(...)`
 - `build_preprocessors(...)`
 
 ### Evaluation and model selection
-- `evaluate_model(...)`
-- `cross_validate_model(...)`
-- `select_best_params(...)`
+- `holdout_result(...)`, `evaluate_model(...)`: validation-tuned thresholds and bootstrap CIs.
+- `cross_validate_model(...)`: repeated CV with the single-pass scorer.
+- `select_best_params(...)`: cross-validates every grid configuration; returns the winner, its CV scores and the full search table.
 
 ### Hardware + orchestration
-- `resolve_xgb_device(...)`
-- `main()` CV, holdout eval, early stopping for XGB, result exports, thesis update trigger.
+- `training/device_utils.py`: `resolve_xgb_device(...)`, `align_xgb_inference_device(...)`, `cv_n_jobs_for(...)`
+- `main(argv)`: CV, holdout eval, early stopping for XGB, result exports, thesis update.
 
 ---
 
@@ -119,59 +120,53 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 
 ---
 
-## 8) `mimic_train_baselines.py` Key Line Regions
+## 8) `training/mimic_train_baselines.py` Key Line Regions
 
 ### Input and device handling
-- `build_arg_parser(...)`
-- `resolve_xgb_device(...)`
-- `load_data(...)`
+- `build_arg_parser(...)`, `load_data(...)`; devices via `training/device_utils.py`.
 
-### Metrics and CV flow
-- `evaluate_holdout(...)`
-- `evaluate_cv(...)`
+### Splitting, metrics and CV flow
+- `split_train_val_test(...)`: patient-grouped splits and subject-ID leakage assertions.
+- `evaluate_holdout(...)`: validation-tuned thresholds, bootstrap CIs, `test_events`.
+- `evaluate_cv(...)`: repeated patient-grouped CV with the single-pass scorer.
 
 ### End-to-end training
-- `main()` class imbalance handling, model list setup, CV + holdout scoring, exports, thesis update.
+- `main(argv)`: small-sample warning, class-imbalance handling, model setup, CV + holdout scoring, exports, thesis update.
 
 ---
 
 ## 9) `run_pipeline.py` Key Line Regions
 
-### Script runner utility
-- `run_script(...)` subprocess invocation and error propagation.
+### Step registry
+- `STEPS` and `run_step(...)`: in-process subcommands with timing.
 
 ### CLI + orchestration
 - `build_arg_parser(...)`
-- `main()` full sequence:
-  - clean
-  - EDA
-  - PyTorch train
-  - optional baselines
-  - optional thesis update
+- `run_full_pipeline(...)`: data preparation (combined cohort by default), EDA, PyTorch training, optional baselines/ensemble/LOCO/fairness/reading list, `compare-models`, optional thesis update.
+- `main(argv)`: dispatches `heart-pipeline <step>` or the full pipeline.
 
 ---
 
-## 10) `tune_train_model.py` Key Line Regions
+## 10) `experiments/tune_train_model.py` Key Line Regions
 
-### Tuning config and parsing
-- `build_arg_parser(...)`
-- `parse_metrics(...)`
+### Tuning config
+- `build_arg_parser(...)`, `save_learning_rate_plot(...)`
 
 ### Trial execution
-- `run_trial(...)` command composition + stdout parsing.
+- `run_trial(...)`: calls `training.train_model.main(argv)` in-process.
 
 ### Ranking/saving
-- `main()` grid generation, trial loop, CSV + JSON export.
+- `main(argv)`: grid generation, trial loop, ranking by repeated-CV ROC-AUC, CSV + JSON export.
 
 ---
 
-## 11) `update_thesis_results.py` Key Line Regions
+## 11) `evaluation/update_thesis_results.py` Key Line Regions
 
 ### Block marker controls
-- auto-block start/end markers for MIMIC, heart baseline, heart EDA.
+- Auto-block start/end markers for MIMIC, heart baseline, heart EDA, SHAP, ensemble, LOCO, fairness.
 
 ### Block builders
-- `build_mimic_results_block(...)`
+- `build_mimic_results_block(...)` (with `small_sample_note(...)`)
 - `build_heart_results_block(...)`
 - `build_heart_eda_block(...)`
 
@@ -179,7 +174,15 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 - `replace_or_insert_block(...)`.
 
 ### Task entry points
-- `main()` branches for `mimic`, `heart`, `all`.
+- `main(argv)` branches for `mimic`, `heart`, `all`.
+
+---
+
+## 11b) `evaluation/model_comparison.py` Key Line Regions
+
+- `save_test_predictions(...)` / `load_test_predictions(...)`: per-patient test probabilities shared across scripts.
+- `_midrank(...)`, `delong_test(...)`: fast DeLong test for correlated AUCs.
+- `holm_adjust(...)`, `compare_all_models(...)`, `main(argv)`: pairwise table with Holm-adjusted p-values.
 
 ---
 

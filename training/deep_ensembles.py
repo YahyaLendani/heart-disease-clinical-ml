@@ -7,14 +7,15 @@ NeurIPS 2017, 30, 6402-6413. arXiv:1612.01474.
 """
 
 from __future__ import annotations
-import copy
-from typing import Callable, Sequence
+
+from collections.abc import Callable
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+
+from training.torch_utils import iterate_minibatches
 
 
 class DeepEnsemble(nn.Module):
@@ -56,33 +57,35 @@ class DeepEnsemble(nn.Module):
         else:
             y_tensor = y_train.float().view(-1, 1)
 
-        dataset = TensorDataset(X_tensor, y_tensor)
         criterion = nn.BCEWithLogitsLoss()
         all_histories: list[list[float]] = []
 
         dev = torch.device(device)
         self.to(dev)
+        X_tensor = X_tensor.to(dev)
+        y_tensor = y_tensor.to(dev)
 
         for m_idx, model in enumerate(self.models):
-            torch.manual_seed(42 + m_idx * 1007)
-            loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+            member_seed = 42 + m_idx * 1007
+            torch.manual_seed(member_seed)
+            generator = torch.Generator()
+            generator.manual_seed(member_seed)
             optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
             history: list[float] = []
             model.train()
             for _ in range(epochs):
-                epoch_loss = 0.0
+                epoch_loss = torch.zeros((), device=dev)
                 batches = 0
-                for bx, by in loader:
-                    bx, by = bx.to(dev), by.to(dev)
+                for bx, by in iterate_minibatches(X_tensor, y_tensor, batch_size, shuffle=True, generator=generator):
                     optimizer.zero_grad()
                     out = model(bx)
                     loss = criterion(out.view(-1), by.view(-1))
                     loss.backward()
                     optimizer.step()
-                    epoch_loss += float(loss.item())
+                    epoch_loss += loss.detach()
                     batches += 1
-                history.append(epoch_loss / max(1, batches))
+                history.append(float(epoch_loss.item()) / max(1, batches))
             all_histories.append(history)
 
         return all_histories

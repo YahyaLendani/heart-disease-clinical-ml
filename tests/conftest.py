@@ -13,12 +13,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from models import HeartMLP
+from project_paths import HEART_CSV, MIMIC_CSV
 
 
 @pytest.fixture
 def heart_dataset():
     """Load the cleaned Heart Disease dataset."""
-    csv_path = PROJECT_ROOT / "cleaned_heart_disease.csv"
+    csv_path = HEART_CSV
     if not csv_path.exists():
         pytest.skip("cleaned_heart_disease.csv not found. Run clean_data.py first.")
 
@@ -37,7 +38,7 @@ def heart_dataset():
 @pytest.fixture
 def mimic_dataset():
     """Load the MIMIC hospital mortality dataset with patient identifiers."""
-    csv_path = PROJECT_ROOT / "mimic_hospital_mortality.csv"
+    csv_path = MIMIC_CSV
     if not csv_path.exists():
         pytest.skip("mimic_hospital_mortality.csv not found. Run mimic_prepare_dataset.py first.")
 

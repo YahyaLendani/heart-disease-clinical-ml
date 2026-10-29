@@ -1,5 +1,5 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import torch
 from torch import nn
@@ -46,7 +46,7 @@ def main() -> None:
     optimizer.step()
 
     params_after = [param.detach().clone() for param in model.parameters()]
-    total_change = sum((after - before).abs().sum().item() for before, after in zip(params_before, params_after))
+    total_change = sum((after - before).abs().sum().item() for before, after in zip(params_before, params_after, strict=True))
     assert total_change > 0, "Parameters did not update after optimizer step."
 
     print("Scratch MLP validation passed.")

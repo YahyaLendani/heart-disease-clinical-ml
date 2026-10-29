@@ -1,7 +1,7 @@
 # Clinical ML System Verification & Methodological Audit Report
 
-**Status:** CERTIFIED — PRODUCTION & THESIS READY  
-**Test Suite Execution:** 49 / 49 Passed (4.87s) | CI/CD Active  
+**Status:** Revised after the evaluation-protocol review (see Section 6)  
+**Test Suite Execution:** 81 / 81 passed (~45 s on 4 CPU cores) | CI: full Ruff rule set, Python 3.10–3.13 tests, pipeline smoke run  
 **Scope:** Data Hygiene, Feature Engineering, Deep & Tabular Architectures, Uncertainty Quantification, Causal Inference, Counterfactual Recourse, Algorithmic Fairness, Nelder-Mead Simplex Optimization, Vectorized GNN/DCA, Multi-Core Parallelism, and Pipeline Governance.
 
 ---
@@ -113,13 +113,41 @@ Observational clinical data is subject to confounding by indication (sicker pati
 ## 4. Pipeline Governance, Reproducibility & Automation Audit
 
 Inspection of `run_pipeline.py` confirms a fail-safe, reproducible execution architecture:
-1. **Mandatory Pre-Flight Test Gate (`run_tests`):** By default, `run_pipeline.py` executes `pytest tests/ -v --tb=short` *before* running data cleaning, EDA, or model training. Any regression in data leakage, mathematical formulas, or tensor shapes immediately aborts the pipeline with a `RuntimeError`.
-2. **Deterministic Seeding:** A unified `--seed` argument (default `42`) is propagated across `train_model.py`, `baseline_models.py`, `ensemble_models.py`, `cross_center_generalization.py`, and `fairness_analysis.py`, ensuring identical CV fold splits and weight initializations.
+1. **Test Gate:** CI runs the full pytest suite on every push and pull request. Locally, `heart-pipeline --run-tests` runs it before the pipeline and aborts on any failure (it is no longer run by default on every pipeline invocation).
+2. **Deterministic Seeding:** A unified `--seed` argument (default `42`) is propagated across every training and experiment script, including the reading-list suite (which previously hard-coded 42). CV folds have their own seeds and train single-threaded, so results are identical whether folds run serially or in parallel (`tests/test_optimizations.py`).
 3. **Automated Thesis Synchronization (`TestThesisBlockBuilders`):** Results from ensembles, LOCO cross-center evaluation, and fairness analyses are programmatically formatted into delimited Markdown blocks (`ENSEMBLE_AUTO_START/END`, `LOCO_AUTO_START/END`, `FAIRNESS_AUTO_START/END`), eliminating manual copy-paste transcription errors between experimental artifacts and thesis tables.
 
 ---
 
-## 5. Final Certification Statement
+## 5. Summary Statement
 
-Based on the passing execution of all 49 unit and integration tests and the structural verification of the training, evaluation, vectorized inference, and causal/conformal modules, this repository is **certified as methodologically sound, free of data leakage, numerically stable, high-performance, and fully reproducible** for clinical machine learning research and thesis defense.
+All 81 unit, integration and end-to-end tests pass, and the full pipeline regenerates every artifact from the committed data. The corrections in Section 6 were needed before the reported numbers could be relied on; the remaining limitation is sample size (184 holdout patients for the primary heart cohort, 3 test deaths for the MIMIC demonstration), which the reported confidence intervals and paired DeLong tests make explicit.
+
+---
+
+## 6. Corrections from the Evaluation-Protocol Review
+
+The earlier version of this report missed the following. Each is fixed and, where testable, covered by `tests/test_optimizations.py`.
+
+| Issue | Effect | Fix |
+| :--- | :--- | :--- |
+| Best HeartMLP optimizer chosen by **test accuracy** | Optimistic reported test score | Chosen by validation loss |
+| Hyperparameter grid (`tune`) ranked by **test accuracy** | Same | Ranked by repeated-CV ROC-AUC, then validation loss |
+| F1/Youden "optimal thresholds" tuned **and** scored on the test set | Optimistic threshold metrics | Tuned on validation (out-of-fold for ensembles), applied to test |
+| HeartMLP and MIMIC MLP CV early-stopped on the **fold being scored** | Optimistic CV scores | Separate early-stopping split inside each fold |
+| Conformal calibrated on raw probabilities, evaluated on temperature-scaled ones | Coverage guarantee did not apply | Same probability scale for calibration and test |
+| MIMIC leakage assertion compared positions from two different index spaces | `mimic_train_baselines.py` and `mimic_train_mlp.py` failed on every run | Compare subject IDs |
+| `os.cpu_count() or 1 if n_jobs == -1 else n` operator precedence | `--n-jobs` ignored in 3 scripts | `evaluation.cv_utils.resolve_n_jobs` |
+| `--device cuda` / `--xgb-device cuda` defaults in `run_pipeline.py` | Pipeline crashed on machines without a GPU | `auto` default |
+| Pipeline passed the Cleveland file to the fairness stage | Silently undid the move to the 918-patient cohort | LOCO and fairness always use the multi-center cohort |
+| Single 61-patient holdout used to rank models | Rankings within noise | Bootstrap 95% CIs on every test metric; repeated stratified CV for every model family |
+| Equal Opportunity "100% disparity reduction" reported alone | Hid that both thresholds were 0.05 (flag almost everyone) | False-positive rate and accuracy before/after are reported, with a warning |
+| Equal Opportunity search maximised F1 | Near-zero thresholds on small or high-prevalence validation sets | Youden's J objective (flagging everyone scores 0); warning when any group threshold is near 0 |
+| Zero-coded `chol` (172 patients) and `trestbps` (1) in the multi-center cohort | `chol = 0` identified Zurich (93.5% prevalence): a site shortcut | Recoded as missing in `prepare_heart_combined.py` |
+| Kaggle placeholders `ca = 4` (4) and `thal = 0` (2) in the Cleveland file | Invalid category values used as measurements | Recoded as missing in `clean_data.py` |
+| "All covariates balanced below \|SMD\| = 0.10" after weighting | Not supported: 7 of 12 remain above 0.10 (largest 0.264) | Actual balance computed and reported by the suite |
+| Only 2 Random Forest / XGBoost configurations compared | Under-tuned baselines | 8-configuration CV grid each; full search tables saved |
+| Models ranked by point estimates only | Rankings not tested | Paired DeLong tests with Holm correction (0 of 91 pairs significant on the 918-patient cohort) |
+| Hard-coded findings in thesis templates ("ensembles reduce variance", "linear models degrade sharply") | Text contradicted the data | Findings generated from the result tables |
+| 61-patient Cleveland split as primary benchmark | Confidence intervals about ±0.08 | 918-patient cohort is primary (±0.04); Cleveland kept as sensitivity analysis |
 

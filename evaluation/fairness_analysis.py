@@ -18,10 +18,10 @@ Clinical Fairness Metrics computed:
 """
 
 from __future__ import annotations
+
 import argparse
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from clean_data import build_preprocessing_pipeline
+from evaluation.cv_utils import resolve_n_jobs, to_markdown_table
 from models import add_cardiovascular_features
+from project_paths import resolve_data_path, resolve_output_dir
 
 
 def compute_subgroup_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None) -> dict:
@@ -122,11 +124,8 @@ def run_fairness_study(
     print("ALGORITHMIC FAIRNESS & CLINICAL DISPARITY STUDY (Sex & Age)")
     print("=" * 70)
 
-    effective_jobs = os.cpu_count() or 1 if n_jobs == -1 else max(1, n_jobs)
-
-    path = Path(dataset_path)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
+    effective_jobs = resolve_n_jobs(n_jobs)
+    path = resolve_data_path(dataset_path)
 
     df = pd.read_csv(path)
     print(f"Loaded dataset: {len(df)} patients")
@@ -201,14 +200,13 @@ def run_fairness_study(
         f_metrics["female_fnr"] = row_f["false_negative_rate"]
         f_metrics["male_fnr"] = row_m["false_negative_rate"]
 
-        print(f"\n--- Sex Disparity Summary ---")
+        print("\n--- Sex Disparity Summary ---")
         print(f"Equal Opportunity Difference (Sensitivity Gap): {equal_opp_diff:.4f}")
         print(f"Disparate Impact Ratio (Female / Male Selection Rate): {disparate_impact:.4f}")
         print(f"Female Missed Disease Rate (FNR): {row_f['false_negative_rate']*100:.1f}%")
         print(f"Male Missed Disease Rate (FNR):   {row_m['false_negative_rate']*100:.1f}%")
 
-    out_p = Path(output_dir)
-    out_p.mkdir(parents=True, exist_ok=True)
+    out_p = resolve_output_dir(output_dir)
     csv_out = out_p / "fairness_analysis.csv"
     md_out = out_p / "fairness_analysis.md"
     fig_out = out_p / "figures" / "fairness_disparities.png"
@@ -216,21 +214,10 @@ def run_fairness_study(
     fairness_df.to_csv(csv_out, index=False)
     plot_fairness_figures(fairness_df, fig_out)
 
-    def _to_md(frame: pd.DataFrame) -> str:
-        headers = list(frame.columns)
-        lines = [
-            "| " + " | ".join(headers) + " |",
-            "| " + " | ".join(["---"] * len(headers)) + " |",
-        ]
-        for _, row in frame.iterrows():
-            vals = [f"{row[h]:.4f}" if isinstance(row[h], float) else str(row[h]) for h in headers]
-            lines.append("| " + " | ".join(vals) + " |")
-        return "\n".join(lines)
-
     md_content = "# Demographic Fairness and Clinical Disparity Analysis\n\n"
     md_content += "Evaluates whether the clinical risk model demonstrates parity across biological sex and age brackets.\n\n"
     md_content += "### Subgroup Performance Table\n\n"
-    md_content += _to_md(fairness_df.round(4)) + "\n\n"
+    md_content += to_markdown_table(fairness_df.round(4)) + "\n\n"
     if f_metrics:
         md_content += "### Key Demographic Fairness Findings\n\n"
         md_content += f"- **Equal Opportunity Difference (Sex):** `{f_metrics['equal_opportunity_diff_sex']:.4f}`\n"
@@ -243,13 +230,13 @@ def run_fairness_study(
     return fairness_df, f_metrics
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run demographic fairness study.")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-jobs", type=int, default=-1, help="Number of CPU workers (-1 = all cores).")
     parser.add_argument("--output-dir", type=str, default="artifacts")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     run_fairness_study(dataset_path=args.dataset, seed=args.seed, n_jobs=args.n_jobs, output_dir=args.output_dir)
 
