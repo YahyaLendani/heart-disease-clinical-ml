@@ -58,3 +58,17 @@ def resolve_output_dir(value: str | Path) -> Path:
         path = PROJECT_ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+COHORT_LABELS = {
+    "cleaned_heart_disease_combined": "UCI 4-center cohort (N=918)",
+    "cleaned_heart_disease": "Cleveland cohort (N=302)",
+    "mimic_hospital_mortality": "MIMIC-IV demo (N=275 admissions)",
+}
+
+
+def cohort_label(dataset: str | Path | None) -> str | None:
+    """Human-readable cohort name for figure titles (None if unknown)."""
+    if dataset is None:
+        return None
+    return COHORT_LABELS.get(Path(str(dataset)).stem)

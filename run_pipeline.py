@@ -44,6 +44,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "overfit": ("experiments.analyze_overfitting_network_size", "Overfitting vs network size."),
     "compare-runs": ("evaluation.compare_separate_runs", "Compare separately trained runs."),
     "compare-models": ("evaluation.model_comparison", "Paired DeLong tests between all models on the shared test split."),
+    "figures": ("evaluation.summary_figures", "README summary figures (ROC-AUC intervals, LOCO coverage), light and dark."),
     "update-thesis": ("evaluation.update_thesis_results", "Write result tables into thesis_draft.md."),
     "test": ("", "Run the pytest suite."),
 }
@@ -200,6 +201,7 @@ def run_full_pipeline(args: argparse.Namespace) -> None:
 
     # Paired DeLong tests across every model that scored the shared test split.
     run_step("compare-models", ["--output-dir", args.output_dir, "--dataset", args.dataset])
+    run_step("figures", ["--output-dir", args.output_dir])
 
     if args.update_thesis:
         run_step("update-thesis", ["--task", "heart", "--heart-dataset", args.dataset])

@@ -40,7 +40,7 @@ from evaluation.clinical_metrics import (
 )
 from evaluation.cv_utils import add_bootstrap_cis, binary_metrics, resolve_n_jobs
 from models import HeartMLP
-from project_paths import PRIMARY_HEART_DATASET, resolve_data_path, resolve_output_dir
+from project_paths import PRIMARY_HEART_DATASET, cohort_label, resolve_data_path, resolve_output_dir
 from training.device_utils import DEVICE_CHOICES, resolve_torch_device
 from training.torch_utils import (
     clone_state,
@@ -52,6 +52,8 @@ from training.torch_utils import (
 )
 
 __all__ = ["set_seed", "train_one_optimizer", "main"]
+
+OPTIMIZER_LABELS = {"adam": "Adam", "sgd": "SGD"}
 
 TEST_METRIC_COLUMNS = {
     "accuracy": "test_accuracy",
@@ -103,27 +105,33 @@ def save_training_curves(history_rows: list[dict], output_path: Path, optimizer_
     if history.empty:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    from evaluation.plot_style import apply_style, finish_axes, series_color
 
-    axes[0].plot(history["epoch"], history["train_loss"], label="Train Loss")
-    axes[0].plot(history["epoch"], history["val_loss"], label="Val Loss")
-    axes[0].set_title(f"{optimizer_name.upper()} Loss Curves")
+    apply_style()
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+    best = history.loc[history["val_loss"].idxmin()]
+
+    axes[0].plot(history["epoch"], history["train_loss"], color=series_color(0), label="Training loss")
+    axes[0].plot(history["epoch"], history["val_loss"], color=series_color(1), label="Validation loss")
+    axes[0].axvline(best["epoch"], color=series_color(1), linewidth=1, alpha=0.5)
+    axes[0].annotate(f"kept: epoch {int(best['epoch'])}", xy=(best["epoch"], best["val_loss"]),
+                     xytext=(6, 10), textcoords="offset points", fontsize=9)
+    axes[0].set_title(f"HeartMLP ({OPTIMIZER_LABELS.get(optimizer_name, optimizer_name)}) loss")
     axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Loss")
-    axes[0].legend()
-    axes[0].grid(alpha=0.3)
+    axes[0].set_ylabel("Binary cross-entropy")
+    axes[0].legend(loc="upper right")
+    finish_axes(axes[0])
 
-    axes[1].plot(history["epoch"], history["val_accuracy"], label="Val Accuracy")
-    axes[1].set_title(f"{optimizer_name.upper()} Validation Accuracy")
+    axes[1].plot(history["epoch"], history["val_accuracy"], color=series_color(1))
+    axes[1].set_title(f"HeartMLP ({OPTIMIZER_LABELS.get(optimizer_name, optimizer_name)}) validation accuracy")
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Accuracy")
     axes[1].set_ylim(0, 1)
-    axes[1].legend()
-    axes[1].grid(alpha=0.3)
+    finish_axes(axes[1])
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
+    fig.savefig(output_path)
     plt.close(fig)
     print(f"Saved training curves: {output_path}")
 
@@ -648,8 +656,8 @@ def main(argv: list[str] | None = None) -> list[dict]:
         from evaluation.model_comparison import save_test_predictions
 
         save_test_predictions(output_dir, "mlp", args.dataset, X_test.index, y_test, model_probas)
-        plot_calibration_curves(y_test, model_probas, "heart_mlp", figures_dir)
-        plot_precision_recall_curves(y_test, model_probas, "heart_mlp", figures_dir)
+        plot_calibration_curves(y_test, model_probas, "heart_mlp", figures_dir, cohort=cohort_label(args.dataset))
+        plot_precision_recall_curves(y_test, model_probas, "heart_mlp", figures_dir, cohort=cohort_label(args.dataset))
 
     if args.run_xai:
         try:

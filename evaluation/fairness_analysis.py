@@ -72,8 +72,18 @@ def compute_subgroup_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np
 
 
 def plot_fairness_figures(fairness_df: pd.DataFrame, output_path: Path) -> None:
+    """Sensitivity/specificity and missed-disease rate by subgroup (horizontal bars, n in labels)."""
     try:
         import matplotlib.pyplot as plt
+
+        from evaluation.plot_style import (
+            apply_style,
+            finish_axes,
+            legend_above,
+            palette,
+            series_color,
+            subtitle,
+        )
     except ImportError:
         print("matplotlib not available; skipping fairness plot.")
         return
@@ -82,34 +92,42 @@ def plot_fairness_figures(fairness_df: pd.DataFrame, output_path: Path) -> None:
     if plot_df.empty:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    apply_style()
+    labels = [
+        f"{name.split(' (')[0].replace(' Patients', '')}  (n={int(n)})"
+        for name, n in zip(plot_df["subgroup"], plot_df["n_samples"], strict=True)
+    ]
+    y = np.arange(len(plot_df))[::-1]
+    height = 0.36
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8), sharey=True)
 
-    # 1. Sensitivity (Recall) vs Specificity by Subgroup
-    x = np.arange(len(plot_df))
-    width = 0.35
+    axes[0].barh(y + height / 2, plot_df["sensitivity_tpr"] * 100, height, color=series_color(0), label="Sensitivity")
+    axes[0].barh(y - height / 2, plot_df["specificity_tnr"] * 100, height, color=series_color(1), label="Specificity")
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels(labels)
+    axes[0].set_xlim(0, 100)
+    axes[0].set_xlabel("Percent of patients")
+    axes[0].set_title("Sensitivity and specificity")
+    subtitle(axes[0], "XGBoost, test split of the 4-center cohort, threshold 0.5", legend_row=True)
+    legend_above(axes[0])
+    axes[0].grid(axis="y", visible=False)
+    finish_axes(axes[0])
 
-    axes[0].bar(x - width / 2, plot_df["sensitivity_tpr"] * 100, width, label="Sensitivity (TPR)", color="#2b5c8f")
-    axes[0].bar(x + width / 2, plot_df["specificity_tnr"] * 100, width, label="Specificity (TNR)", color="#48a9a6")
-    axes[0].set_ylabel("Percentage (%)")
-    axes[0].set_title("Clinical Sensitivity & Specificity across Subgroups")
-    axes[0].set_xticks(x)
-    axes[0].set_xticklabels(plot_df["subgroup"], rotation=25, ha="right")
-    axes[0].set_ylim(0, 105)
-    axes[0].legend()
-    axes[0].grid(axis="y", alpha=0.3)
-
-    # 2. False Negative Rate (Missed Cases) Disparity
-    axes[1].bar(plot_df["subgroup"], plot_df["false_negative_rate"] * 100, color="#d9534f", width=0.5)
-    axes[1].set_ylabel("False Negative Rate (%)")
-    axes[1].set_title("Missed Disease Rate (False Negatives by Subgroup)")
-    axes[1].set_xticks(range(len(plot_df)))
-    axes[1].set_xticklabels(plot_df["subgroup"], rotation=25, ha="right")
-    axes[1].set_ylim(0, max(50, plot_df["false_negative_rate"].max() * 100 + 10))
-    axes[1].grid(axis="y", alpha=0.3)
+    fnr = plot_df["false_negative_rate"] * 100
+    axes[1].barh(y, fnr, 0.5, color=series_color(6))
+    for yi, value in zip(y, fnr, strict=True):
+        axes[1].annotate(f"{value:.1f}%", xy=(value, yi), xytext=(4, 0), textcoords="offset points",
+                         va="center", fontsize=9, color=palette()["ink_secondary"])
+    axes[1].set_xlim(0, max(50, float(fnr.max()) + 10))
+    axes[1].set_xlabel("Percent of sick patients missed")
+    axes[1].set_title("Missed-disease (false negative) rate")
+    subtitle(axes[1], "Small groups give imprecise rates", legend_row=True)
+    axes[1].grid(axis="y", visible=False)
+    finish_axes(axes[1])
 
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
+    fig.savefig(output_path)
     plt.close(fig)
     print(f"Saved fairness plot: {output_path}")
 

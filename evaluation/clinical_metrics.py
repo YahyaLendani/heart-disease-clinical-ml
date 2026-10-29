@@ -206,20 +206,34 @@ def find_optimal_threshold(y_true, y_prob, method: str = "f1") -> tuple[float, f
     raise ValueError(f"Unsupported method: {method}. Use 'f1' or 'youden'.")
 
 
+def _title(kind: str, dataset_name: str, cohort: str | None) -> str:
+    return f"{kind} — {cohort}" if cohort else f"{kind} — {dataset_name}"
+
+
 def plot_calibration_curves(
     y_true,
     model_probas_dict: dict[str, np.ndarray],
     dataset_name: str,
     output_dir: str | Path,
     n_bins: int = 10,
+    cohort: str | None = None,
 ) -> Path:
-    """Plot calibration curves (reliability diagrams) with adaptive quantile binning."""
+    """Reliability diagram plus predicted-probability distributions on the test split."""
     try:
         import matplotlib.pyplot as plt
+
+        from evaluation.plot_style import (
+            apply_style,
+            finish_axes,
+            reference_color,
+            series_color,
+            subtitle,
+        )
     except ImportError:
         print("matplotlib is not installed; skipping calibration curve plot.")
         return Path(output_dir) / f"calibration_{dataset_name}.png"
 
+    apply_style()
     y_true = np.asarray(y_true, dtype=int)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -233,11 +247,9 @@ def plot_calibration_curves(
         strategy = "uniform"
 
     fig, (ax_cal, ax_hist) = plt.subplots(
-        2, 1, figsize=(8, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True,
+        2, 1, figsize=(8, 8), gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08}, sharex=True,
     )
-
-    colors = ["#2196F3", "#FF5722", "#4CAF50", "#9C27B0", "#FF9800", "#00BCD4"]
-    ax_cal.plot([0, 1], [0, 1], "k--", linewidth=1.5, label="Perfectly calibrated", alpha=0.7)
+    ax_cal.plot([0, 1], [0, 1], linestyle="--", linewidth=1.2, color=reference_color(), label="Perfect calibration")
 
     for idx, (model_name, y_prob) in enumerate(model_probas_dict.items()):
         y_prob = np.asarray(y_prob, dtype=float)
@@ -249,40 +261,30 @@ def plot_calibration_curves(
             fraction_of_positives, mean_predicted_value = calibration_curve(
                 y_true, y_prob, n_bins=effective_bins, strategy="uniform",
             )
-        color = colors[idx % len(colors)]
-
+        color = series_color(idx)
         brier = brier_score_loss(y_true, y_prob)
         ax_cal.plot(
-            mean_predicted_value,
-            fraction_of_positives,
-            "s-",
-            color=color,
-            linewidth=1.8,
-            markersize=6,
-            label=f"{model_name} (Brier={brier:.4f})",
+            mean_predicted_value, fraction_of_positives, marker="o", color=color,
+            markeredgecolor=fig.get_facecolor(), markeredgewidth=2, markersize=8,
+            label=f"{model_name} (Brier {brier:.3f})",
         )
+        # Outlined histograms stay readable where models overlap.
+        ax_hist.hist(y_prob, bins=20, range=(0, 1), histtype="step", linewidth=1.8, color=color)
 
-        ax_hist.hist(y_prob, bins=25, alpha=0.4, color=color, label=model_name, range=(0, 1))
+    ax_cal.set_ylabel("Observed fraction with disease")
+    ax_cal.set_title(_title("Calibration", dataset_name, cohort))
+    subtitle(ax_cal, f"Test split, {len(y_true)} patients · {effective_bins} {strategy} bins")
+    ax_cal.legend(loc="upper left")
+    ax_cal.set_xlim(0, 1)
+    ax_cal.set_ylim(0, 1)
+    finish_axes(ax_cal)
 
-    ax_cal.set_ylabel("Fraction of Positives", fontsize=12)
-    ax_cal.set_title(
-        f"Calibration Curves ({strategy.capitalize()}, {effective_bins} bins) — {dataset_name.upper()}",
-        fontsize=13,
-    )
-    ax_cal.legend(loc="lower right", fontsize=9)
-    ax_cal.set_xlim([0, 1])
-    ax_cal.set_ylim([0, 1])
-    ax_cal.grid(alpha=0.3)
+    ax_hist.set_xlabel("Predicted probability")
+    ax_hist.set_ylabel("Patients")
+    finish_axes(ax_hist)
 
-    ax_hist.set_xlabel("Predicted Probability", fontsize=12)
-    ax_hist.set_ylabel("Count", fontsize=12)
-    ax_hist.set_title("Distribution of Predicted Probabilities", fontsize=11)
-    ax_hist.legend(loc="upper right", fontsize=8)
-    ax_hist.grid(alpha=0.3)
-
-    fig.tight_layout()
     save_path = output_path / f"calibration_{dataset_name}.png"
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    fig.savefig(save_path)
     plt.close(fig)
     print(f"Saved calibration curve: {save_path.as_posix()}")
     return save_path
@@ -293,55 +295,51 @@ def plot_precision_recall_curves(
     model_probas_dict: dict[str, np.ndarray],
     dataset_name: str,
     output_dir: str | Path,
+    cohort: str | None = None,
 ) -> Path:
-    """Plot precision-recall curves for multiple models."""
+    """Precision-recall curves for several models on the test split."""
     try:
         import matplotlib.pyplot as plt
+
+        from evaluation.plot_style import (
+            apply_style,
+            finish_axes,
+            reference_color,
+            series_color,
+            subtitle,
+        )
     except ImportError:
         print("matplotlib is not installed; skipping PR curve plot.")
         return Path(output_dir) / f"pr_curve_{dataset_name}.png"
 
+    apply_style()
     y_true = np.asarray(y_true, dtype=int)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    colors = ["#2196F3", "#FF5722", "#4CAF50", "#9C27B0", "#FF9800", "#00BCD4"]
-
     prevalence = float(np.mean(y_true))
-    ax.axhline(
-        y=prevalence,
-        color="gray",
-        linestyle="--",
-        linewidth=1.2,
-        label=f"Baseline (prevalence={prevalence:.3f})",
-    )
+    ax.axhline(prevalence, color=reference_color(), linestyle="--", linewidth=1.2,
+               label=f"No-skill (prevalence {prevalence:.2f})")
 
     for idx, (model_name, y_prob) in enumerate(model_probas_dict.items()):
         y_prob = np.asarray(y_prob, dtype=float)
         precision, recall, _ = precision_recall_curve(y_true, y_prob)
         pr_auc = average_precision_score(y_true, y_prob)
-        color = colors[idx % len(colors)]
+        ax.plot(recall, precision, color=series_color(idx), drawstyle="steps-post",
+                label=f"{model_name} (PR-AUC {pr_auc:.3f})")
 
-        ax.plot(
-            recall,
-            precision,
-            color=color,
-            linewidth=1.8,
-            label=f"{model_name} (PR-AUC={pr_auc:.4f})",
-        )
+    ax.set_xlabel("Recall (sensitivity)")
+    ax.set_ylabel("Precision (PPV)")
+    ax.set_title(_title("Precision-recall", dataset_name, cohort))
+    subtitle(ax, f"Test split, {len(y_true)} patients")
+    ax.legend(loc="lower left")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.02)
+    finish_axes(ax)
 
-    ax.set_xlabel("Recall", fontsize=12)
-    ax.set_ylabel("Precision", fontsize=12)
-    ax.set_title(f"Precision-Recall Curves — {dataset_name.upper()} Dataset", fontsize=14)
-    ax.legend(loc="upper right", fontsize=9)
-    ax.set_xlim([0, 1])
-    ax.set_ylim([0, 1.05])
-    ax.grid(alpha=0.3)
-
-    fig.tight_layout()
     save_path = output_path / f"pr_curve_{dataset_name}.png"
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    fig.savefig(save_path)
     plt.close(fig)
     print(f"Saved precision-recall curve: {save_path.as_posix()}")
     return save_path
@@ -353,14 +351,24 @@ def plot_decision_curve(
     dataset_name: str,
     output_dir: str | Path,
     thresholds: np.ndarray | None = None,
+    cohort: str | None = None,
 ) -> Path:
-    """Plot Decision Curve Analysis (DCA) Net Benefit across threshold probabilities."""
+    """Decision Curve Analysis: net benefit across threshold probabilities."""
     try:
         import matplotlib.pyplot as plt
+
+        from evaluation.plot_style import (
+            apply_style,
+            finish_axes,
+            reference_color,
+            series_color,
+            subtitle,
+        )
     except ImportError:
         print("matplotlib is not installed; skipping DCA curve plot.")
         return Path(output_dir) / f"dca_curve_{dataset_name}.png"
 
+    apply_style()
     y_true = np.asarray(y_true, dtype=int)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -369,34 +377,28 @@ def plot_decision_curve(
         thresholds = np.linspace(0.01, 0.99, 99)
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    colors = ["#2196F3", "#FF5722", "#4CAF50", "#9C27B0", "#FF9800", "#00BCD4"]
-
     prevalence = float(np.mean(y_true))
     w = thresholds / (1.0 - thresholds)
     net_benefit_all = prevalence - (1.0 - prevalence) * w
 
-    ax.plot(thresholds, net_benefit_all, "--", color="gray", label=f"Treat All (prev={prevalence:.2f})", linewidth=1.5)
-    ax.axhline(0, color="black", linestyle=":", label="Treat None (NB=0)", linewidth=1.2)
-
+    ax.plot(thresholds, net_benefit_all, linestyle="--", linewidth=1.2, color=reference_color(), label="Treat all")
+    ax.plot(thresholds, np.zeros_like(thresholds), linestyle=":", linewidth=1.4, color=reference_color(), label="Treat none")
     for idx, (model_name, y_prob) in enumerate(model_probas_dict.items()):
         res = compute_net_benefit(y_true, y_prob, thresholds=thresholds)
-        color = colors[idx % len(colors)]
-        ax.plot(thresholds, res["net_benefit_model"], color=color, label=model_name, linewidth=2.0)
+        ax.plot(thresholds, res["net_benefit_model"], color=series_color(idx), label=model_name)
 
-    ax.set_xlim([0, 1])
-    ax.set_ylim([-0.05, max(prevalence * 1.15, 0.25)])
-    ax.set_xlabel("Decision Threshold Probability ($p_t$)", fontsize=12)
-    ax.set_ylabel("Net Benefit", fontsize=12)
-    ax.set_title(f"Decision Curve Analysis (Net Benefit) — {dataset_name.upper()}", fontsize=14)
-    ax.legend(loc="upper right", fontsize=9)
-    ax.grid(alpha=0.3)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-0.05, max(prevalence * 1.15, 0.25))
+    ax.set_xlabel("Threshold probability $p_t$")
+    ax.set_ylabel("Net benefit")
+    ax.set_title(_title("Decision curve", dataset_name, cohort))
+    subtitle(ax, f"Test split, {len(y_true)} patients · disease prevalence {prevalence:.2f}")
+    ax.legend(loc="upper right")
+    finish_axes(ax)
 
-    fig.tight_layout()
     save_path = output_path / f"dca_curve_{dataset_name}.png"
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    fig.savefig(output_path / "dca_curve.png", dpi=150, bbox_inches="tight")
+    fig.savefig(save_path)
+    fig.savefig(output_path / "dca_curve.png")
     plt.close(fig)
     print(f"Saved DCA curve: {save_path.as_posix()}")
     return save_path
-
-
