@@ -13,16 +13,17 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 
 ## 2) File Reading Order (Recommended)
 
-1. `clean_data.py`
-2. `eda.py`
-3. `train_model.py`
-4. `baseline_models.py`
-5. `run_pipeline.py`
-6. `mimic_prepare_dataset.py`
-7. `mimic_train_baselines.py`
-8. `tune_train_model.py`
-9. `update_thesis_results.py`
-10. `validate_scratch_mlp.py`
+1. `project_paths.py`
+2. `clean_data.py`
+3. `eda.py`
+4. `training/train_model.py` (with `training/torch_utils.py`)
+5. `training/baseline_models.py` (with `evaluation/cv_utils.py`, `training/device_utils.py`)
+6. `run_pipeline.py`
+7. `mimic_prepare_dataset.py`
+8. `training/mimic_train_baselines.py`
+9. `experiments/tune_train_model.py`
+10. `evaluation/update_thesis_results.py`
+11. `validate_scratch_mlp.py`
 
 ---
 
@@ -56,47 +57,47 @@ This file is a navigation index for detailed code reading. It keeps the same gui
 
 ---
 
-## 5) `train_model.py` Key Line Regions
+## 5) `training/train_model.py` Key Line Regions
 
 ### Core model definitions
-- `ScratchLinear`
-- `HeartMLP`
+- `ScratchLinear`, `HeartMLP` are in `models/heart_mlp.py`.
 
 ### Training/evaluation helpers
-- `set_seed(...)`
-- `smooth_binary_targets(...)`
-- `make_loss(...)`
-- `evaluate_loss(...)`
-- `evaluate_accuracy(...)`
-- `predict_binary(...)`
+- `smooth_binary_targets(...)`, `make_loss(...)`, `make_optimizer(...)`
+- `predict_proba(...)` (full-batch inference)
+- `training/torch_utils.py`: `set_seed`, `iterate_minibatches`, `predict_logits`, `clone_state`
 
 ### Training engine
-- `train_one_optimizer(...)` epoch loop, early stopping, scheduler, artifact saving.
+- `fit_with_early_stopping(...)`: epoch loop, single validation pass, scheduler, early stopping.
+- `train_one_optimizer(...)`: holdout training, validation-tuned thresholds, bootstrap CIs, artifact saving.
+
+### Cross-validation
+- `_run_cv_fold(...)`: one fold with its own early-stopping split and seed (runs in a worker process).
+- `run_mlp_cross_validation(...)`: repeated stratified k-fold, folds in parallel.
 
 ### Runtime setup
-- `build_arg_parser(...)`
-- `resolve_torch_device(...)`
-- `main()` preprocessing, tensor creation, DataLoader setup, optimizer comparison output.
+- `build_arg_parser(...)`, `load_heart_dataset(...)`
+- `main(argv)`: splits, preprocessing, CV + holdout per optimizer, selection by validation loss, outputs.
 
 ---
 
-## 6) `baseline_models.py` Key Line Regions
+## 6) `training/baseline_models.py` Key Line Regions
 
 ### Configuration and model params
-- RF/XGB baseline/candidate dictionaries.
+- RF/XGB baseline/candidate dictionaries (`n_jobs=1`; folds run in parallel instead).
 
 ### Data/preprocessing
 - `load_data(...)`
 - `build_preprocessors(...)`
 
 ### Evaluation and model selection
-- `evaluate_model(...)`
-- `cross_validate_model(...)`
-- `select_best_params(...)`
+- `holdout_result(...)`, `evaluate_model(...)`: validation-tuned thresholds and bootstrap CIs.
+- `cross_validate_model(...)`: repeated CV with the single-pass scorer.
+- `select_best_params(...)`: returns the chosen parameters and their CV scores.
 
 ### Hardware + orchestration
-- `resolve_xgb_device(...)`
-- `main()` CV, holdout eval, early stopping for XGB, result exports, thesis update trigger.
+- `training/device_utils.py`: `resolve_xgb_device(...)`, `align_xgb_inference_device(...)`, `cv_n_jobs_for(...)`
+- `main(argv)`: CV, holdout eval, early stopping for XGB, result exports, thesis update.
 
 ---
 

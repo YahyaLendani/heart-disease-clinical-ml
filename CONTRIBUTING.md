@@ -35,7 +35,6 @@ To preserve scientific rigor, clinical safety invariants, and deterministic repr
 3. Install dependencies and editable package with developer extras:
    ```bash
    pip install --upgrade pip
-   pip install -r configs/requirements.txt
    pip install -e ".[dev]"
    ```
 
@@ -52,8 +51,9 @@ Contributions are organized into four modular packages:
 
 ### Key Scientific Guardrails
 1. **Zero Data Leakage:** All feature scalers (`StandardScaler`), encoders (`OneHotEncoder`), imputation statistics, conformal calibration quantiles, and optimal decision thresholds (`Youden's J`, F1, or Equal Opportunity thresholds) **must** be fit strictly on training or dedicated validation splits—never on holdout test folds.
-2. **Deterministic Seeding:** Every stochastic routine must accept and respect a `--seed` parameter (default `42`) across NumPy, PyTorch, and scikit-learn splits.
-3. **Immutable Clinical Constraints:** Counterfactual recourse and feature perturbation modules must strictly enforce immutability on non-modifiable patient attributes (e.g., `age`, `sex`) and verify zero immutable violation (`0.000000`).
+2. **No Selection on the Test Split:** Model, optimizer, hyperparameter and early-stopping choices use validation data or cross-validation only. Report test metrics with bootstrap confidence intervals (`evaluation/cv_utils.py`).
+3. **Deterministic Seeding:** Every stochastic routine must accept and respect a `--seed` parameter (default `42`) across NumPy, PyTorch, and scikit-learn splits.
+4. **Immutable Clinical Constraints:** Counterfactual recourse and feature perturbation modules must strictly enforce immutability on non-modifiable patient attributes (e.g., `age`, `sex`) and verify zero immutable violation (`0.000000`).
 
 ---
 
@@ -68,11 +68,11 @@ pytest tests/ -v --tb=short
 # Run Ruff linter
 ruff check .
 
-# Smoke-test the end-to-end pipeline on CPU
-python run_pipeline.py --device cpu --xgb-device cpu --epochs 10 --cv-folds 3
+# Smoke-test the end-to-end pipeline (uses a GPU if present, otherwise the CPU)
+heart-pipeline --epochs 10 --cv-folds 3 --cv-repeats 1 --output-dir scratch_artifacts
 ```
 
-> **Note:** `run_pipeline.py` automatically executes `pytest tests/` prior to running training stages unless `--skip-tests` is passed.
+> **Note:** `heart-pipeline` no longer runs `pytest` before every pipeline run (CI does that on each push). Pass `--run-tests` to run it first.
 
 ---
 
