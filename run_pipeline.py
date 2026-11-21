@@ -31,6 +31,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "clean": ("clean_data", "Clean the raw Cleveland heart data into data/processed."),
     "prepare-combined": ("prepare_heart_combined", "Build the 4-center combined heart cohort."),
     "prepare-large-cvd": ("prepare_large_cvd_dataset", "Fetch and clean the 68,589-patient OpenML 45547 CVD cohort."),
+    "prepare-external": ("prepare_external_cohorts", "Fetch UCI 412 Tehran CAD (303) & Framingham Prospective (4,172) cohorts."),
     "prepare-mimic": ("mimic_prepare_dataset", "Build the MIMIC-IV mortality dataset from the demo extract."),
     "eda": ("eda", "Exploratory data analysis tables."),
     "train-mlp": ("training.train_model", "PyTorch HeartMLP (SGD vs Adam) with repeated CV."),

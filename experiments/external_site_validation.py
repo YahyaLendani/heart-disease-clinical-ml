@@ -144,6 +144,17 @@ def run_external_validation(
         ("Geriatric_Cardiology_Clinic", "Geriatric Cardiology Clinic (Age >= 58, High Prevalence)", geriatric_clinic),
         ("Preventive_Wellness_Clinic", "Preventive Wellness Clinic (Age < 50, Low Prevalence)", wellness_clinic),
     ]
+    fram_path = Path("data/processed/cleaned_framingham_4k.csv")
+    if fram_path.exists():
+        fram_df = pd.read_csv(fram_path)
+        scenarios.insert(
+            0,
+            (
+                "Framingham_Prospective_US",
+                "Framingham Heart Study (Real Prospective 10-Yr CHD, N=4,172)",
+                fram_df,
+            ),
+        )
 
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:

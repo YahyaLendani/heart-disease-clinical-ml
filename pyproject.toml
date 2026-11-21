@@ -83,6 +83,7 @@ py-modules = [
     "eda",
     "prepare_heart_combined",
     "prepare_large_cvd_dataset",
+    "prepare_external_cohorts",
     "mimic_prepare_dataset",
     "validate_scratch_mlp",
 ]

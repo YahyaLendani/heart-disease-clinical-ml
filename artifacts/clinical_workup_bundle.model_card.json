@@ -1,11 +1,12 @@
 {
-  "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + RF)",
+  "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + XGBRF)",
   "model_version": "1.1.0-cardiology-workup-zeropickle",
-  "created_utc": "2026-11-21T12:05:03.956080+00:00",
+  "created_utc": "2026-11-21T12:42:11.807682+00:00",
   "training_cohort": {
-    "source": "UCI 4-Center Cardiology Workup Cohort (Cleveland, Budapest, Zurich, VA Long Beach)",
-    "n_total": 918,
+    "source": "5-Center International Cardiology Consortium (Cleveland, Budapest, Zurich, VA Long Beach + Tehran Z-Alizadeh Sani)",
+    "n_total": 1221,
     "n_train": 734,
+    "n_extra_external_train": 303,
     "n_test": 184
   },
   "ensemble_weights": {
@@ -14,58 +15,58 @@
     "random_forest": 0.0
   },
   "holdout_performance": {
-    "roc_auc": 0.918,
-    "pr_auc": 0.9286,
-    "accuracy": 0.8207,
-    "f1": 0.8421,
-    "brier": 0.1152,
-    "ece": 0.0787,
+    "roc_auc": 0.9212,
+    "pr_auc": 0.9322,
+    "accuracy": 0.837,
+    "f1": 0.8571,
+    "brier": 0.111,
+    "ece": 0.0758,
     "temperature": 1.4299,
     "standalone_gat_roc_auc": 0.9014,
-    "standalone_xgb_roc_auc": 0.9195,
-    "standalone_rf_roc_auc": 0.9044,
-    "oof_ensemble_roc_auc": 0.8843
+    "standalone_xgb_roc_auc": 0.9235,
+    "standalone_rf_roc_auc": 0.9127,
+    "oof_ensemble_roc_auc": 0.8829
   },
   "mondrian_conformal_audit": {
     "nominal_coverage": 0.9,
-    "empirical_test_coverage": 0.9185,
-    "deferral_rate": 0.3152,
-    "mean_set_size": 1.3152
+    "empirical_test_coverage": 0.913,
+    "deferral_rate": 0.2935,
+    "mean_set_size": 1.2935
   },
   "mondrian_conformal_by_alpha": {
     "0.05": {
       "nominal_coverage": 0.95,
-      "empirical_test_coverage": 0.9783,
-      "deferral_rate": 0.5543,
-      "mean_set_size": 1.5543
+      "empirical_test_coverage": 0.9674,
+      "deferral_rate": 0.4511,
+      "mean_set_size": 1.4511
     },
     "0.10": {
       "nominal_coverage": 0.9,
-      "empirical_test_coverage": 0.9185,
-      "deferral_rate": 0.3152,
-      "mean_set_size": 1.3152
+      "empirical_test_coverage": 0.913,
+      "deferral_rate": 0.2935,
+      "mean_set_size": 1.2935
     },
     "0.15": {
       "nominal_coverage": 0.85,
       "empirical_test_coverage": 0.8804,
-      "deferral_rate": 0.163,
-      "mean_set_size": 1.163
+      "deferral_rate": 0.1522,
+      "mean_set_size": 1.1522
     }
   },
   "subgroup_performance": {
     "female": {
       "n_test": 35,
-      "roc_auc": 0.9213,
+      "roc_auc": 0.9491,
       "sensitivity": 0.875,
       "specificity": 0.9259,
       "fnr": 0.125
     },
     "male": {
       "n_test": 149,
-      "roc_auc": 0.8986,
-      "sensitivity": 0.8617,
-      "specificity": 0.6909,
-      "fnr": 0.1383
+      "roc_auc": 0.9021,
+      "sensitivity": 0.883,
+      "specificity": 0.7091,
+      "fnr": 0.117
     }
   },
   "intended_use": "Stage-2 Cardiology diagnostic escalation for patients deferred or flagged high-risk during Stage-1 primary-care screening. Incorporates ECG, stress-test heart rate, ST depression, chest pain, and perfusion scan biomarkers.",
@@ -74,5 +75,5 @@
     "High pre-test referral prevalence (~55%); intended strictly for Stage-2 cardiology workup after primary-care triage.",
     "Research decision-support prototype only; not FDA-cleared or CE-marked clinical diagnostic software."
   ],
-  "bundle_sha256": "377c9f79ff1d3928236211cadb08dd880f36f3d9ec1705f9b5b01d9908c5c994"
+  "bundle_sha256": "363fde4c7783f83e3c44d7a36ef58cedf89029c16d0f4dcb52e2cda2b3fd71a1"
 }

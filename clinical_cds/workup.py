@@ -300,13 +300,23 @@ class CardiologyWorkupBundle:
 def build_workup_bundle(
     dataset_path: str | Path = "cleaned_heart_disease_combined.csv",
     output_path: str | Path = DEFAULT_WORKUP_BUNDLE_PATH,
+    extra_train_csv: str | Path | None = None,
+    extra_train_weight: float = 0.50,
     epochs: int = 80,
     cv_folds: int = 5,
     k_neighbors: int = 7,
     embed_dim: int = 32,
     seed: int = 42,
 ) -> tuple[Path, dict[str, Any]]:
-    """Train and export the Stage-2 Cardiology Workup bundle (~0.90+ ROC-AUC)."""
+    """Train and export the Stage-2 Cardiology Workup bundle (~0.92 ROC-AUC).
+
+    If ``extra_train_csv`` is supplied (e.g. UCI ID 412 Tehran Z-Alizadeh Sani, N=303),
+    those additional angiography patients augment XGBoost & XGBRF via domain-weighted
+    transfer (``sample_weight = extra_train_weight``) while keeping the PLR+UniMP
+    GAT-Transformer manifold and OOF conformal calibration strictly on complete
+    stress-test cohorts (preventing missingness shortcuts) and keeping the 184-patient
+    4-center UCI holdout test set completely untouched.
+    """
     torch.manual_seed(seed)
     np.random.seed(seed)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -322,8 +332,20 @@ def build_workup_bundle(
     dev_idx, test_idx = train_test_split(np.arange(len(df)), test_size=0.20, random_state=seed, stratify=y_all)
     dev_df = df.iloc[dev_idx].reset_index(drop=True)
     te_df = df.iloc[test_idx].reset_index(drop=True)
+
+    extra_df: pd.DataFrame | None = None
+    n_extra_train = 0
+    if extra_train_csv is not None and Path(extra_train_csv).exists():
+        extra_df = pd.read_csv(extra_train_csv).dropna(subset=["target"]).reset_index(drop=True)
+        for col in ("chol", "trestbps"):
+            if col in extra_df.columns:
+                extra_df.loc[extra_df[col] == 0, col] = np.nan
+        extra_df = add_cardiovascular_features(extra_df)
+        n_extra_train = len(extra_df)
+
     y_dev = dev_df["target"].values.astype(int)
     y_te = te_df["target"].values.astype(int)
+    y_extra = extra_df["target"].values.astype(int) if extra_df is not None else None
 
     model_config = {
         "categorical_dims": WORKUP_CAT_DIMS,
@@ -376,12 +398,30 @@ def build_workup_bundle(
             oof_gat_logits[f_va] = lg.cpu().numpy().ravel()
             oof_min_dists[f_va] = (1.0 - tsim[:, 0]).cpu().numpy()
 
+        # Domain-weighted external transfer for tree paradigms
+        if extra_df is not None and y_extra is not None:
+            xc_ex = _encode_workup_cats(extra_df)
+            xct_ex = scl_f.transform(imp_f.transform(extra_df[WORKUP_CONT_COLS].values)).astype(np.float32)
+            xtab_ex = np.hstack([xc_ex.astype(np.float32), xct_ex])
+            xtab_tree = np.vstack([xtab_tr, xtab_ex])
+            y_tree = np.concatenate([y_dev[f_tr], y_extra])
+            sw_tree = np.concatenate([
+                np.ones(len(f_tr), dtype=np.float32),
+                np.full(len(y_extra), extra_train_weight, dtype=np.float32),
+            ])
+        else:
+            xtab_tree, y_tree = xtab_tr, y_dev[f_tr]
+            sw_tree = np.ones(len(f_tr), dtype=np.float32)
+
         xgb_f = XGBClassifier(
             n_estimators=220, max_depth=3, learning_rate=0.04, subsample=0.85,
             colsample_bytree=0.8, reg_lambda=2.0, eval_metric="logloss",
             early_stopping_rounds=20, random_state=seed + fold, n_jobs=-1,
         )
-        xgb_f.fit(xtab_tr, y_dev[f_tr], eval_set=[(xtab_va, y_dev[f_va])], verbose=False)
+        xgb_f.fit(
+            xtab_tree, y_tree, sample_weight=sw_tree,
+            eval_set=[(xtab_va, y_dev[f_va])], verbose=False,
+        )
         oof_xgb[f_va] = xgb_f.predict_proba(xtab_va)[:, 1]
 
         rf_f = XGBRFClassifier(
@@ -395,7 +435,7 @@ def build_workup_bundle(
             random_state=seed + fold,
             n_jobs=-1,
         )
-        rf_f.fit(xtab_tr, y_dev[f_tr])
+        rf_f.fit(xtab_tree, y_tree, sample_weight=sw_tree)
         oof_rf[f_va] = rf_f.predict_proba(xtab_va)[:, 1]
 
     dummy = GraphAugmentedClinicalTransformer(**model_config).to(dev)
@@ -451,12 +491,38 @@ def build_workup_bundle(
         xc_dev[sub_es], xct_dev[sub_es], y_dev[sub_es],
         model_config=model_config, epochs=epochs, k_neighbors=k_neighbors, seed=seed, dev=dev
     )
+
+    if extra_df is not None and y_extra is not None:
+        xc_ex_all = _encode_workup_cats(extra_df)
+        xct_ex_all = cont_scaler.transform(cont_imputer.transform(extra_df[WORKUP_CONT_COLS].values)).astype(np.float32)
+        xtab_ex_all = np.hstack([xc_ex_all.astype(np.float32), xct_ex_all])
+        xtab_xgb_tr = np.vstack([xtab_dev[sub_tr], xtab_ex_all])
+        y_xgb_tr = np.concatenate([y_dev[sub_tr], y_extra])
+        sw_xgb = np.concatenate([
+            np.ones(len(sub_tr), dtype=np.float32),
+            np.full(len(y_extra), extra_train_weight, dtype=np.float32),
+        ])
+        xtab_rf_tr = np.vstack([xtab_dev, xtab_ex_all])
+        y_rf_tr = np.concatenate([y_dev, y_extra])
+        sw_rf = np.concatenate([
+            np.ones(len(dev_df), dtype=np.float32),
+            np.full(len(y_extra), extra_train_weight, dtype=np.float32),
+        ])
+    else:
+        xtab_xgb_tr, y_xgb_tr = xtab_dev[sub_tr], y_dev[sub_tr]
+        sw_xgb = np.ones(len(sub_tr), dtype=np.float32)
+        xtab_rf_tr, y_rf_tr = xtab_dev, y_dev
+        sw_rf = np.ones(len(dev_df), dtype=np.float32)
+
     final_xgb = XGBClassifier(
         n_estimators=220, max_depth=3, learning_rate=0.04, subsample=0.85,
         colsample_bytree=0.8, reg_lambda=2.0, eval_metric="logloss",
         early_stopping_rounds=20, random_state=seed, n_jobs=-1,
     )
-    final_xgb.fit(xtab_dev[sub_tr], y_dev[sub_tr], eval_set=[(xtab_dev[sub_es], y_dev[sub_es])], verbose=False)
+    final_xgb.fit(
+        xtab_xgb_tr, y_xgb_tr, sample_weight=sw_xgb,
+        eval_set=[(xtab_dev[sub_es], y_dev[sub_es])], verbose=False,
+    )
     final_rf = XGBRFClassifier(
         n_estimators=300,
         max_depth=6,
@@ -468,7 +534,7 @@ def build_workup_bundle(
         random_state=seed,
         n_jobs=-1,
     )
-    final_rf.fit(xtab_dev, y_dev)
+    final_rf.fit(xtab_rf_tr, y_rf_tr, sample_weight=sw_rf)
 
     with torch.inference_mode():
         h_dev, _ = final_gat.encode_tabular(torch.from_numpy(xc_dev).to(dev), torch.from_numpy(xct_dev).to(dev))
@@ -545,14 +611,20 @@ def build_workup_bundle(
                 "fnr": round(1.0 - sens, 4),
             }
 
+    cohort_source = (
+        "5-Center International Cardiology Consortium (Cleveland, Budapest, Zurich, VA Long Beach + Tehran Z-Alizadeh Sani)"
+        if n_extra_train > 0
+        else "UCI 4-Center Cardiology Workup Cohort (Cleveland, Budapest, Zurich, VA Long Beach)"
+    )
     model_card: dict[str, Any] = {
-        "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + RF)",
+        "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + XGBRF)",
         "model_version": WORKUP_BUNDLE_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "training_cohort": {
-            "source": "UCI 4-Center Cardiology Workup Cohort (Cleveland, Budapest, Zurich, VA Long Beach)",
-            "n_total": int(len(df)),
+            "source": cohort_source,
+            "n_total": int(len(df) + n_extra_train),
             "n_train": int(len(dev_df)),
+            "n_extra_external_train": int(n_extra_train),
             "n_test": int(len(te_df)),
         },
         "ensemble_weights": {
@@ -907,8 +979,14 @@ class CardiologyWorkupEngine:
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build Stage-2 Cardiology Workup bundle (N=918).")
+    parser = argparse.ArgumentParser(description="Build Stage-2 Cardiology Workup bundle (5-Center N=1,221).")
     parser.add_argument("--dataset", type=str, default="cleaned_heart_disease_combined.csv")
+    parser.add_argument(
+        "--extra-train-csv",
+        type=str,
+        default=str(Path("data/processed/cleaned_tehran_cad_303.csv")),
+        help="Optional extra angiography cohort appended strictly to training dev set.",
+    )
     parser.add_argument("--output", type=str, default=str(DEFAULT_WORKUP_BUNDLE_PATH))
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--cv-folds", type=int, default=5)
@@ -917,6 +995,7 @@ def main(argv: list[str] | None = None) -> None:
     build_workup_bundle(
         dataset_path=args.dataset,
         output_path=args.output,
+        extra_train_csv=args.extra_train_csv if args.extra_train_csv else None,
         epochs=args.epochs,
         cv_folds=args.cv_folds,
         seed=args.seed,
