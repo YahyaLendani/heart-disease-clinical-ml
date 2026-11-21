@@ -256,3 +256,74 @@ class TestScalableMiniBatchGraphTransformer:
         for name, param in model.named_parameters():
             if param.requires_grad:
                 assert param.grad is not None, f"Missing mini-batch gradient for {name}"
+
+    def test_plr_and_unimp_label_propagation_gradients_and_isolation(self):
+        """Verify PLR periodic embeddings & UniMP neighbor label propagation flow gradients with zero self-label leakage."""
+        torch.manual_seed(21)
+        B, k = 8, 5
+        x_cat = torch.randint(0, 2, (B, 2))
+        x_cont = torch.randn(B, 4)
+        nbr_h_tab = torch.randn(B, k, 16)
+        nbr_labels_0 = torch.zeros((B, k), dtype=torch.long)
+        nbr_labels_1 = torch.ones((B, k), dtype=torch.long)
+
+        # Standalone PLR tokenizer shape check
+        tok = FeatureTokenizer(
+            categorical_dims=[2, 2],
+            continuous_dim=4,
+            embed_dim=16,
+            use_periodic_embeddings=True,
+            n_frequencies=6,
+        )
+        assert tok(x_cat, x_cont).shape == (B, 7, 16)
+
+        model = GraphAugmentedClinicalTransformer(
+            categorical_dims=[2, 2],
+            continuous_dim=4,
+            embed_dim=16,
+            num_transformer_heads=2,
+            num_transformer_layers=1,
+            num_gat_heads=2,
+            num_gat_layers=2,
+            use_periodic_embeddings=True,
+            n_frequencies=6,
+            use_label_propagation=True,
+        )
+        # Forward + backward with UniMP neighbor labels & label masking
+        logits, expl = model.forward_minibatch(
+            x_cat=x_cat,
+            x_cont=x_cont,
+            nbr_h_tab=nbr_h_tab,
+            nbr_labels=nbr_labels_1,
+            label_mask_prob=0.25,
+            return_explanations=True,
+        )
+        assert logits.shape == (B, 1)
+        assert expl["neighbor_attn"].shape == (B, 1 + k)
+        logits.sum().backward()
+
+        assert model.tokenizer.plr_freqs.grad is not None
+        assert model.tokenizer.plr_weight.grad is not None
+        assert model.label_embedding.weight.grad is not None
+
+        # Neighbor outcome labels must influence logits (UniMP is active)
+        model.eval()
+        with torch.inference_mode():
+            lg_0 = model.forward_minibatch(
+                x_cat=x_cat, x_cont=x_cont, nbr_h_tab=nbr_h_tab, nbr_labels=nbr_labels_0
+            )
+            lg_1 = model.forward_minibatch(
+                x_cat=x_cat, x_cont=x_cont, nbr_h_tab=nbr_h_tab, nbr_labels=nbr_labels_1
+            )
+            # When all neighbors are masked (id=2), output matches calling without nbr_labels
+            lg_masked = model.forward_minibatch(
+                x_cat=x_cat,
+                x_cont=x_cont,
+                nbr_h_tab=nbr_h_tab,
+                nbr_labels=torch.full((B, k), 2, dtype=torch.long),
+            )
+            lg_none = model.forward_minibatch(
+                x_cat=x_cat, x_cont=x_cont, nbr_h_tab=nbr_h_tab, nbr_labels=None
+            )
+        assert not torch.allclose(lg_0, lg_1)
+        assert torch.allclose(lg_masked, lg_none, atol=1e-6)

@@ -138,11 +138,15 @@ class ClinicalPredictionResponse(BaseModel):
     xgboost_probability: float | None = Field(
         default=None, description="Standalone XGBoost probability when hybrid ensemble is active."
     )
+    hgb_probability: float | None = Field(
+        default=None,
+        description="Standalone HistGradientBoosting / RandomForest probability in 3-paradigm ensemble.",
+    )
     model_disagreement: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Absolute epistemic disagreement |p_gat - p_xgb| between neural and tree models.",
+        description="Max epistemic spread across ensemble paradigms (neural vs boosted trees).",
     )
     triage_decision: Literal["LOW_RISK", "HIGH_RISK", "DEFER_TO_CLINICIAN"]
     triage_reason: str
@@ -161,3 +165,46 @@ class ClinicalPredictionResponse(BaseModel):
     actionable_recourse: list[RecourseRecommendation] = Field(default_factory=list)
     latency_ms: float
     clinical_disclaimer: str = CLINICAL_DISCLAIMER
+
+
+class CardiologyWorkupInput(BaseModel):
+    """Stage-2 Cardiology Workup intake payload (ECG, stress test & angiography biomarkers).
+
+    Used when a Stage-1 primary-care screening patient triggers ``DEFER_TO_CLINICIAN``
+    or ``HIGH_RISK`` and escalates to full cardiology diagnostic workup (multi-center
+    UCI cohort, N=918, ~0.90+ ROC-AUC).
+    """
+
+    patient_pseudo_id: str | None = Field(default=None, max_length=128)
+    age: float = Field(..., ge=18.0, le=110.0, description="Patient age in years.")
+    sex: Literal[0, 1] = Field(..., description="Biological sex (0 = Female, 1 = Male).")
+    cp: Literal[1, 2, 3, 4] = Field(
+        ...,
+        description="Chest pain type (1=Typical angina, 2=Atypical, 3=Non-anginal, 4=Asymptomatic).",
+    )
+    trestbps: float = Field(..., ge=70.0, le=240.0, description="Resting systolic blood pressure (mmHg).")
+    chol: float = Field(..., ge=80.0, le=600.0, description="Serum total cholesterol (mg/dL).")
+    fbs: Literal[0, 1] = Field(default=0, description="Fasting blood sugar > 120 mg/dL (0=No, 1=Yes).")
+    restecg: Literal[0, 1, 2] = Field(
+        default=0,
+        description="Resting ECG (0=Normal, 1=ST-T wave abnormality, 2=Left ventricular hypertrophy).",
+    )
+    thalach: float = Field(..., ge=50.0, le=225.0, description="Maximum heart rate achieved on stress test (bpm).")
+    exang: Literal[0, 1] = Field(default=0, description="Exercise-induced angina (0=No, 1=Yes).")
+    oldpeak: float = Field(default=0.0, ge=-2.0, le=7.0, description="ST depression induced by exercise (mm).")
+    slope: Literal[1, 2, 3] = Field(
+        default=2,
+        description="Slope of peak exercise ST segment (1=Upsloping, 2=Flat, 3=Downsloping).",
+    )
+    ca: Literal[0, 1, 2, 3] = Field(
+        default=0,
+        description="Number of major coronary vessels colored by fluoroscopy (0–3).",
+    )
+    thal: Literal[3, 6, 7] = Field(
+        default=3,
+        description="Thalassemia perfusion scan (3=Normal, 6=Fixed defect, 7=Reversible defect).",
+    )
+    conformal_alpha: Literal[0.05, 0.10, 0.15] = Field(
+        default=0.10,
+        description="Conformal miscoverage level (0.05 = 95% coverage, 0.10 = 90%, 0.15 = 85%).",
+    )

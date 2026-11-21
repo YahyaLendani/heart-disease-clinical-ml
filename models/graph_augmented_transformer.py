@@ -187,7 +187,9 @@ class FeatureTokenizer(nn.Module):
     """Unified Feature Tokenizer for categorical and continuous clinical variables.
 
     Maps each categorical variable via an embedding lookup and each continuous
-    biomarker via a per-feature learnable linear projection ``x_j * W_j + b_j``,
+    biomarker via either a linear projection (``x_j * W_j + b_j``) or
+    Periodic Linear-ReLU (PLR) numerical embeddings (Gorishniy et al., NeurIPS 2022)
+    which capture sharp clinical cutoffs (e.g. Stage-2 hypertension >= 140 mmHg),
     prepending a learnable ``[CLS]`` summary token.
     """
 
@@ -196,11 +198,15 @@ class FeatureTokenizer(nn.Module):
         categorical_dims: Sequence[int],
         continuous_dim: int,
         embed_dim: int = 32,
+        use_periodic_embeddings: bool = False,
+        n_frequencies: int = 8,
     ) -> None:
         super().__init__()
         self.num_categorical = len(categorical_dims)
         self.continuous_dim = continuous_dim
         self.embed_dim = embed_dim
+        self.use_periodic_embeddings = use_periodic_embeddings
+        self.n_frequencies = n_frequencies
 
         self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim) * 0.02)
 
@@ -212,9 +218,25 @@ class FeatureTokenizer(nn.Module):
             self.cont_weight = nn.Parameter(torch.empty(1, continuous_dim, embed_dim))
             self.cont_bias = nn.Parameter(torch.zeros(1, continuous_dim, embed_dim))
             nn.init.xavier_uniform_(self.cont_weight)
+
+            if use_periodic_embeddings:
+                # Per-feature learnable frequencies + periodic projection to embed_dim
+                self.plr_freqs = nn.Parameter(torch.randn(1, continuous_dim, n_frequencies) * 0.25)
+                self.plr_weight = nn.Parameter(
+                    torch.empty(continuous_dim, 2 * n_frequencies, embed_dim)
+                )
+                self.plr_bias = nn.Parameter(torch.zeros(1, continuous_dim, embed_dim))
+                nn.init.xavier_uniform_(self.plr_weight)
+            else:
+                self.register_parameter("plr_freqs", None)
+                self.register_parameter("plr_weight", None)
+                self.register_parameter("plr_bias", None)
         else:
             self.register_parameter("cont_weight", None)
             self.register_parameter("cont_bias", None)
+            self.register_parameter("plr_freqs", None)
+            self.register_parameter("plr_weight", None)
+            self.register_parameter("plr_bias", None)
 
     def forward(
         self,
@@ -239,8 +261,19 @@ class FeatureTokenizer(nn.Module):
 
         if self.continuous_dim > 0 and x_cont is not None:
             assert self.cont_weight is not None and self.cont_bias is not None
-            # (N, C, 1) * (1, C, D) + (1, C, D) -> (N, C, D)
+            # Linear skip term: (N, C, 1) * (1, C, D) + (1, C, D) -> (N, C, D)
             cont_tokens = x_cont.unsqueeze(-1) * self.cont_weight + self.cont_bias
+
+            if self.use_periodic_embeddings:
+                assert self.plr_freqs is not None and self.plr_weight is not None and self.plr_bias is not None
+                # Periodic Linear-ReLU (PLR): [sin(2*pi*c*x), cos(2*pi*c*x)] -> Linear -> ReLU
+                angles = 2.0 * torch.pi * x_cont.unsqueeze(-1) * self.plr_freqs  # (N, C, K)
+                periodic = torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)  # (N, C, 2K)
+                plr_out = F.relu(
+                    torch.einsum("nck,ckd->ncd", periodic, self.plr_weight) + self.plr_bias
+                )
+                cont_tokens = cont_tokens + plr_out
+
             tokens.append(cont_tokens)
 
         return torch.cat(tokens, dim=1)
@@ -380,18 +413,25 @@ class GraphAugmentedClinicalTransformer(nn.Module):
         mlp_hidden_dim: int = 32,
         dropout: float = 0.2,
         num_classes: int = 1,
+        use_periodic_embeddings: bool = False,
+        n_frequencies: int = 8,
+        use_label_propagation: bool = False,
     ) -> None:
         super().__init__()
         self.num_categorical = len(categorical_dims)
         self.continuous_dim = continuous_dim
         self.num_features = self.num_categorical + continuous_dim
         self.embed_dim = embed_dim
+        self.use_periodic_embeddings = use_periodic_embeddings
+        self.use_label_propagation = use_label_propagation
 
-        # Level 1: Intra-Patient Feature Tokenizer + Transformer Encoder
+        # Level 1: Intra-Patient Feature Tokenizer (with optional PLR embeddings) + Transformer
         self.tokenizer = FeatureTokenizer(
             categorical_dims=categorical_dims,
             continuous_dim=continuous_dim,
             embed_dim=embed_dim,
+            use_periodic_embeddings=use_periodic_embeddings,
+            n_frequencies=n_frequencies,
         )
         self.transformer_blocks = nn.ModuleList([
             TransformerEncoderBlock(
@@ -402,6 +442,13 @@ class GraphAugmentedClinicalTransformer(nn.Module):
             for _ in range(num_transformer_layers)
         ])
         self.tab_norm = nn.LayerNorm(embed_dim)
+
+        # Optional UniMP Masked Label Propagation embedding (0=Healthy, 1=CVD+, 2=Masked/Self)
+        if use_label_propagation:
+            self.label_embedding = nn.Embedding(3, embed_dim)
+            nn.init.normal_(self.label_embedding.weight, std=0.02)
+        else:
+            self.label_embedding = None
 
         # Level 2: Inter-Patient Inductive Cohort Graph Attention
         self.gat_norms = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_gat_layers)])
@@ -515,6 +562,8 @@ class GraphAugmentedClinicalTransformer(nn.Module):
         nbr_x_cat: torch.Tensor | None = None,
         nbr_x_cont: torch.Tensor | None = None,
         nbr_h_tab: torch.Tensor | None = None,
+        nbr_labels: torch.Tensor | None = None,
+        label_mask_prob: float = 0.0,
         return_explanations: bool = False,
         feature_noise_std: float = 0.0,
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
@@ -530,6 +579,13 @@ class GraphAugmentedClinicalTransformer(nn.Module):
             Continuous features of each query patient's ``k`` training neighbors.
         nbr_h_tab : torch.Tensor or None, shape ``(B, k, embed_dim)``
             Optional pre-encoded neighbor embeddings (avoids re-encoding neighbors).
+        nbr_labels : torch.Tensor or None, shape ``(B, k)``
+            Optional historical training outcomes (0 or 1) for UniMP masked label
+            propagation. Query self-loop is ALWAYS masked (label id = 2) so zero
+            target leakage can occur.
+        label_mask_prob : float
+            During training, randomly masks neighbor labels to 2 with this probability
+            so the model learns balanced reliance on features and cohort outcomes.
         return_explanations : bool
             When True, returns ``(logits, explanations)`` where ``neighbor_attn``
             has shape ``(B, 1 + k)`` (index 0 = self, indices 1..k = cohort neighbors).
@@ -554,8 +610,24 @@ class GraphAugmentedClinicalTransformer(nn.Module):
         else:
             nbr_h = nbr_h_tab
 
-        # Level 2: Scalable Ego-Graph Multi-Head Attention over [self, nbr_1..nbr_k]
+        # UniMP Masked Label Propagation: inject neighbor outcome embeddings (self strictly masked)
         h_graph = h_tab
+        if self.label_embedding is not None:
+            if nbr_labels is None:
+                eff_labels = torch.full(
+                    (batch_size, nbr_h.size(1)), 2, dtype=torch.long, device=h_tab.device
+                )
+            else:
+                eff_labels = nbr_labels.long().clamp(0, 2)
+                if self.training and label_mask_prob > 0.0:
+                    drop_mask = torch.rand_like(eff_labels.float()) < label_mask_prob
+                    eff_labels = torch.where(drop_mask, torch.full_like(eff_labels, 2), eff_labels)
+            nbr_h = nbr_h + self.label_embedding(eff_labels)
+            # Query node always receives masked label token (id=2 -> zero self-label leakage)
+            self_mask_tok = torch.full((batch_size,), 2, dtype=torch.long, device=h_tab.device)
+            h_graph = h_graph + self.label_embedding(self_mask_tok)
+
+        # Level 2: Scalable Ego-Graph Multi-Head Attention over [self, nbr_1..nbr_k]
         neighbor_attns: list[torch.Tensor] = []
         for norm, gat in zip(self.gat_norms, self.gat_layers, strict=True):
             delta, n_attn = gat.forward_neighbors(norm(h_graph), norm(nbr_h))

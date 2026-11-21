@@ -1,14 +1,4 @@
-"""Production Clinical Inference Engine v2: Learned-Space Prototype k-NN, Hybrid Ensemble & Multi-Alpha Triage.
-
-Key upgrades:
-- Sub-2.5ms single-patient CPU latency via exact cosine k-NN in the learned ``[CLS]``
-  clinical manifold against 4,096 stratified training medoids.
-- Hybrid ``GraphAugmentedClinicalTransformer + XGBoost`` calibrated probability
-  blending with explicit epistemic disagreement monitoring (``|p_gat - p_xgb|``).
-- Selectable sex-stratified Mondrian Conformal Triage (85% / 90% / 95% coverage)
-  plus dual OOD guardrails and fail-safe ``DEFER_TO_CLINICIAN`` abstention.
-- Single-pass batched immutable-safe counterfactual recourse and de-identified JSONL audit trail.
-"""
+"""Production Clinical Inference Engine v3: PLR + UniMP Masked Label Propagation + 3-Paradigm Ensemble."""
 
 from __future__ import annotations
 
@@ -23,7 +13,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .bundle import DEFAULT_BUNDLE_PATH, ClinicalModelBundle
+from .bundle import DEFAULT_BUNDLE_PATH, ClinicalModelBundle, compute_aha_bp_stage
 from .schemas import (
     ClinicalPredictionResponse,
     DualClinicalExplanation,
@@ -41,13 +31,7 @@ def _hash_pseudo_id(pseudo_id: str | None) -> str | None:
 
 
 def compute_psi(expected_props: np.ndarray, actual_values: np.ndarray, bin_edges: np.ndarray) -> float:
-    """Compute Population Stability Index (PSI) for live clinical drift monitoring.
-
-    Interpretation:
-    - PSI < 0.10 : Stable distribution
-    - 0.10 <= PSI < 0.25 : Moderate drift (monitor closely)
-    - PSI >= 0.25 : Significant drift (recalibration recommended)
-    """
+    """Compute Population Stability Index (PSI) for live clinical drift monitoring."""
     if len(actual_values) == 0:
         return 0.0
     actual_counts, _ = np.histogram(actual_values, bins=bin_edges)
@@ -59,7 +43,7 @@ def compute_psi(expected_props: np.ndarray, actual_values: np.ndarray, bin_edges
 
 
 class ClinicalInferenceEngine:
-    """Thread-safe, fail-safe clinical risk inference engine."""
+    """Thread-safe, fail-safe Stage-1 Primary Care Clinical Decision Support engine."""
 
     def __init__(
         self,
@@ -90,20 +74,24 @@ class ClinicalInferenceEngine:
     def _featurize_batch(
         self, patients: list[PatientClinicalInput]
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Convert validated PatientClinicalInput objects to scaled arrays."""
-        cat_rows = [
-            [
-                p.sex,
-                p.cholesterol_level - 1,
-                p.glucose_level - 1,
-                p.smoke,
-                p.alcohol,
-                p.active,
-            ]
-            for p in patients
-        ]
-        cont_rows = [
-            [
+        """Convert validated PatientClinicalInput objects to scaled v3 interaction features."""
+        sbps = np.asarray([p.systolic_bp for p in patients], dtype=np.float32)
+        dbps = np.asarray([p.diastolic_bp for p in patients], dtype=np.float32)
+        aha_stages = compute_aha_bp_stage(sbps, dbps)
+
+        cat_rows = []
+        cont_rows = []
+        has_v3_interactions = len(self.bundle.cat_cols) == 8
+
+        for p, stage in zip(patients, aha_stages, strict=True):
+            c_tier = p.cholesterol_level - 1
+            g_tier = p.glucose_level - 1
+            base_cat = [p.sex, c_tier, g_tier, p.smoke, p.alcohol, p.active]
+            if has_v3_interactions:
+                base_cat.extend([int(stage), min(4, c_tier + g_tier)])
+            cat_rows.append(base_cat)
+
+            base_cont = [
                 p.age_years,
                 p.height_cm,
                 p.weight_kg,
@@ -113,8 +101,14 @@ class ClinicalInferenceEngine:
                 p.pulse_pressure,
                 p.mean_arterial_pressure,
             ]
-            for p in patients
-        ]
+            if has_v3_interactions:
+                base_cont.extend([
+                    (p.age_years * p.systolic_bp) / 100.0,
+                    (p.bmi * p.age_years) / 100.0,
+                    p.systolic_bp / max(p.diastolic_bp, 30.0),
+                ])
+            cont_rows.append(base_cont)
+
         x_cat = np.asarray(cat_rows, dtype=np.int64)
         x_cont_raw = np.asarray(cont_rows, dtype=np.float32)
         x_cont_scaled = (x_cont_raw - self.bundle.cont_mean) / np.where(
@@ -127,62 +121,65 @@ class ClinicalInferenceEngine:
     def _forward_patients(
         self, patients: list[PatientClinicalInput], return_explanations: bool = True
     ) -> dict:
-        """Learned-space exact cosine k-NN retrieval + Hybrid GAT-Transformer & XGBoost inference."""
         x_cat_np, x_cont_np, x_tab_np = self._featurize_batch(patients)
 
         x_cat_t = torch.from_numpy(x_cat_np).to(self.device)
         x_cont_t = torch.from_numpy(x_cont_np).to(self.device)
 
         self.bundle.model.eval()
-        # Step 1: Level-1 Feature Transformer -> learned [CLS] clinical embedding
         h_query, feat_attn = self.bundle.model.encode_tabular(x_cat=x_cat_t, x_cont=x_cont_t)
 
-        # Step 2: Single BLAS matmul exact cosine k-NN in learned [CLS] manifold against prototype bank
+        # Learned-space exact cosine k-NN against stratified clinical medoid prototypes
         q_norm = F.normalize(h_query, p=2, dim=1, eps=1e-8)
-        sims = torch.mm(q_norm, self.bundle.H_bank_norm.t())  # (B, N_prototypes)
+        sims = torch.mm(q_norm, self.bundle.H_bank_norm.t())
         k_eff = min(self.bundle.k_neighbors, sims.size(1))
         topk_sims, topk_idx = torch.topk(sims, k=k_eff, dim=1)
-        nbr_h_tab = self.bundle.H_tab_bank[topk_idx]  # (B, k, D)
+        nbr_h_tab = self.bundle.H_tab_bank[topk_idx]
+        nbr_labels = self.bundle.bank_outcomes_t[topk_idx]
 
-        # Step 3: Level-2 Inductive Ego-Graph GAT + Gated Residual Fusion
-        h_graph = h_query
-        neighbor_attns = []
-        for norm, gat in zip(
-            self.bundle.model.gat_norms, self.bundle.model.gat_layers, strict=True
-        ):
-            delta, n_attn = gat.forward_neighbors(norm(h_graph), norm(nbr_h_tab))
-            h_graph = h_graph + delta
-            if return_explanations:
-                neighbor_attns.append(n_attn)
-
-        gate = torch.sigmoid(self.bundle.model.gate_proj(torch.cat([h_query, h_graph], dim=-1)))
-        h_fused = self.bundle.model.fusion_norm(gate * h_graph + (1.0 - gate) * h_query)
-        logits = self.bundle.model.risk_head(h_fused)
+        # Level-2 Inductive Ego-Graph GAT with UniMP Masked Label Propagation
+        out = self.bundle.model.forward_minibatch(
+            x_cat=x_cat_t,
+            x_cont=x_cont_t,
+            nbr_h_tab=nbr_h_tab,
+            nbr_labels=nbr_labels,
+            return_explanations=return_explanations,
+        )
+        if return_explanations:
+            logits, expl = out
+        else:
+            logits, expl = out, None
 
         cal_logits = logits / max(self.bundle.temperature, 1e-3)
         gat_probs = torch.sigmoid(cal_logits).cpu().numpy().ravel()
 
-        # Step 4: Optional Hybrid XGBoost blending
-        xgb_probs: np.ndarray | None = None
-        if self.bundle.xgb_model is not None:
-            xgb_probs = self.bundle.xgb_model.predict_proba(x_tab_np)[:, 1].astype(np.float64)
-            w = self.bundle.ensemble_gat_weight
-            probs = w * gat_probs + (1.0 - w) * xgb_probs
-        else:
-            probs = gat_probs
+        w_gat, w_xgb, w_hgb = self.bundle.ensemble_weights
+        xgb_probs = (
+            self.bundle.xgb_model.predict_proba(x_tab_np)[:, 1].astype(np.float64)
+            if self.bundle.xgb_model is not None
+            else None
+        )
+        hgb_probs = (
+            self.bundle.hgb_model.predict_proba(x_tab_np)[:, 1].astype(np.float64)
+            if self.bundle.hgb_model is not None
+            else None
+        )
 
-        expl = None
-        if return_explanations:
-            expl = {
-                "feature_attn": feat_attn,
-                "neighbor_attn": torch.stack(neighbor_attns, dim=0).mean(dim=0),
-                "gate": gate,
-            }
+        probs = w_gat * gat_probs
+        total_w = w_gat
+        if xgb_probs is not None:
+            probs = probs + w_xgb * xgb_probs
+            total_w += w_xgb
+        if hgb_probs is not None:
+            probs = probs + w_hgb * hgb_probs
+            total_w += w_hgb
+        probs = probs / max(total_w, 1e-8)
 
         return {
             "probs": probs,
             "gat_probs": gat_probs,
             "xgb_probs": xgb_probs,
+            "hgb_probs": hgb_probs,
             "x_cont_scaled": x_cont_np,
             "topk_sims": topk_sims.cpu().numpy(),
             "topk_idx": topk_idx.cpu().numpy(),
@@ -192,7 +189,6 @@ class ClinicalInferenceEngine:
     def _build_mutable_recourse(
         self, patient: PatientClinicalInput, base_prob: float
     ) -> list[RecourseRecommendation]:
-        """Evaluate clinically realistic, immutable-safe interventions in one batched pass."""
         candidates: list[tuple[str, dict[str, float | int], PatientClinicalInput]] = []
 
         if patient.systolic_bp > 125.0 or patient.diastolic_bp > 82.0:
@@ -260,12 +256,9 @@ class ClinicalInferenceEngine:
         if not candidates:
             return []
 
-        cf_patients = [c[2] for c in candidates]
-        cf_out = self._forward_patients(cf_patients, return_explanations=False)
-        cf_probs = cf_out["probs"]
-
+        cf_out = self._forward_patients([c[2] for c in candidates], return_explanations=False)
         recs: list[RecourseRecommendation] = []
-        for (label, changes, _), p_new in zip(candidates, cf_probs, strict=True):
+        for (label, changes, _), p_new in zip(candidates, cf_out["probs"], strict=True):
             delta = float(base_prob - float(p_new))
             if delta > 0.005:
                 recs.append(
@@ -322,14 +315,12 @@ class ClinicalInferenceEngine:
     def predict_batch(
         self, patients: list[PatientClinicalInput]
     ) -> list[ClinicalPredictionResponse]:
-        """Run fail-safe clinical risk inference for a batch of validated patients."""
         if not patients:
             return []
 
         t0 = time.perf_counter()
         fwd = self._forward_patients(patients, return_explanations=True)
-        total_ms = (time.perf_counter() - t0) * 1000.0
-        per_patient_ms = total_ms / len(patients)
+        per_patient_ms = ((time.perf_counter() - t0) * 1000.0) / len(patients)
 
         feat_attns = fwd["expl"]["feature_attn"].cpu().numpy()
         nbr_attns = fwd["expl"]["neighbor_attn"].cpu().numpy()
@@ -342,12 +333,14 @@ class ClinicalInferenceEngine:
             prob = float(fwd["probs"][i])
             gat_p = float(fwd["gat_probs"][i])
             xgb_p = float(fwd["xgb_probs"][i]) if fwd["xgb_probs"] is not None else None
-            disagreement = abs(gat_p - xgb_p) if xgb_p is not None else 0.0
+            hgb_p = float(fwd["hgb_probs"][i]) if fwd["hgb_probs"] is not None else None
+
+            active_preds = [p for p in (gat_p, xgb_p, hgb_p) if p is not None]
+            disagreement = float(max(active_preds) - min(active_preds)) if len(active_preds) > 1 else 0.0
 
             max_z = float(np.max(np.abs(fwd["x_cont_scaled"][i])))
             min_cos_dist = float(1.0 - fwd["topk_sims"][i, 0])
 
-            # 1. Dual OOD Guardrail Check
             ood_reasons: list[str] = []
             if max_z > self.bundle.ood_zscore_threshold:
                 ood_reasons.append(
@@ -355,7 +348,7 @@ class ClinicalInferenceEngine:
                 )
             if min_cos_dist > self.bundle.ood_distance_threshold:
                 ood_reasons.append(
-                    f"Nearest learned-manifold cohort prototype distance ({min_cos_dist:.4f}) exceeds "
+                    f"Nearest learned-manifold clinical prototype distance ({min_cos_dist:.4f}) exceeds "
                     f"validation OOD threshold ({self.bundle.ood_distance_threshold:.4f})."
                 )
             is_ood = len(ood_reasons) > 0
@@ -367,7 +360,6 @@ class ClinicalInferenceEngine:
                 reasons=ood_reasons,
             )
 
-            # 2. Multi-Alpha Sex-Stratified Mondrian Conformal Triage
             used_alpha, q0, q1 = self._resolve_quantiles(patient.conformal_alpha, patient.sex)
             low_thresh = float(np.clip(1.0 - q1, 0.0, 1.0))
             high_thresh = float(np.clip(q0, 0.0, 1.0))
@@ -393,16 +385,15 @@ class ClinicalInferenceEngine:
                 triage = "HIGH_RISK"
                 triage_reason = (
                     f"Conformal set {{1}} at {nom_pct}% nominal coverage "
-                    "(elevated cardiovascular risk — clinical workup advised)."
+                    "(elevated cardiovascular risk — escalate to Stage-2 Cardiology Workup)."
                 )
             else:
                 triage = "DEFER_TO_CLINICIAN"
                 triage_reason = (
                     f"Ambiguous conformal prediction set {{0, 1}} at {nom_pct}% nominal coverage — "
-                    "defer to direct clinician evaluation."
+                    "defer to clinician review or escalate to Stage-2 Cardiology Workup."
                 )
 
-            # 3. Dual Clinical Explanation
             biomarker_attentions = dict(
                 sorted(
                     (
@@ -453,6 +444,7 @@ class ClinicalInferenceEngine:
                 calibrated_risk_probability=round(prob, 4),
                 gat_transformer_probability=round(gat_p, 4),
                 xgboost_probability=round(xgb_p, 4) if xgb_p is not None else None,
+                hgb_probability=round(hgb_p, 4) if hgb_p is not None else None,
                 model_disagreement=round(disagreement, 4),
                 triage_decision=triage,
                 triage_reason=triage_reason,
@@ -471,5 +463,4 @@ class ClinicalInferenceEngine:
         return responses
 
     def predict(self, patient: PatientClinicalInput) -> ClinicalPredictionResponse:
-        """Run fail-safe clinical risk inference for a single patient."""
         return self.predict_batch([patient])[0]

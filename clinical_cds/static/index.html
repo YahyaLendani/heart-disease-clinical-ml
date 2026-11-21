@@ -274,7 +274,7 @@
       white-space: nowrap;
     }
 
-    input[type="number"] {
+    input[type="number"], select.field-select {
       width: 100%;
       height: 36px;
       padding: 0 10px;
@@ -288,10 +288,10 @@
       transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
     }
     @media (max-width: 980px) {
-      input[type="number"] { font-size: 16px; height: 40px; }
+      input[type="number"], select.field-select { font-size: 16px; height: 40px; }
     }
-    input[type="number"]:hover { border-color: var(--accent); }
-    input[type="number"]:focus {
+    input[type="number"]:hover, select.field-select:hover { border-color: var(--accent); }
+    input[type="number"]:focus, select.field-select:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-tint);
       outline: none;
@@ -300,6 +300,64 @@
       border-color: var(--high);
       background: var(--high-bg);
     }
+
+    .stage-switch {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      gap: 4px;
+    }
+    .stage-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--ink-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      min-height: 28px;
+      border-radius: 4px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background 150ms var(--ease), color 150ms var(--ease);
+    }
+    .stage-btn:hover { color: var(--ink); background: var(--bg-surface); }
+    .stage-btn[aria-pressed="true"] {
+      background: var(--accent);
+      color: #ffffff;
+    }
+    .stage-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .btn-escalate {
+      appearance: none;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      min-height: 30px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--accent);
+      background: var(--accent-tint);
+      color: var(--accent);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 150ms var(--ease), color 150ms var(--ease);
+    }
+    .btn-escalate:hover {
+      background: var(--accent);
+      color: #ffffff;
+    }
+    .btn-escalate.visible { display: inline-flex; }
+
+    .stage-form { display: flex; flex-direction: column; gap: 16px; }
+    .stage-form.hidden { display: none; }
+    .seg-control.cols-4 { grid-template-columns: repeat(4, 1fr); }
 
     .slider-wrap {
       display: grid;
@@ -801,9 +859,15 @@
       </div>
       <div>
         <div class="brand-title">CardioGraph CDS</div>
-        <div class="brand-meta">Hybrid Graph-Augmented Clinical Transformer &middot; Learned-Space Prototypes</div>
+        <div class="brand-meta" id="brandMeta">PLR+UniMP Graph-Augmented Transformer &middot; 2-Stage Clinical Triage</div>
       </div>
     </div>
+
+    <div class="stage-switch no-print" role="group" aria-label="Clinical workflow stage">
+      <button type="button" class="stage-btn" id="stage1Btn" aria-pressed="true" onclick="setStage('stage1')">Stage 1 &middot; Screening (68.6k)</button>
+      <button type="button" class="stage-btn" id="stage2Btn" aria-pressed="false" onclick="setStage('stage2')">Stage 2 &middot; Cardiology Workup</button>
+    </div>
+
     <div class="topbar-right">
       <div class="status-pill" id="healthPill">
         <span class="status-dot"></span>
@@ -820,7 +884,7 @@
   </header>
 
   <div class="notice-bar" role="note">
-    <span><strong>Clinician-in-the-Loop Research Prototype:</strong> Cardiovascular risk triage with sex-stratified Mondrian conformal abstention and OOD guardrails. Not FDA-cleared or CE-marked medical software.</span>
+    <span><strong>Clinician-in-the-Loop Research Prototype:</strong> 2-Stage cardiovascular risk triage with sex-stratified Mondrian conformal abstention and OOD guardrails. Not FDA-cleared or CE-marked medical software.</span>
     <span class="mono" id="shaTag">SHA-256: verifying...</span>
   </div>
 
@@ -828,118 +892,260 @@
     <!-- Left Patient Intake Rail -->
     <aside class="intake-rail" aria-label="Patient intake parameters">
       <div class="rail-header">
-        <h2>Patient Intake</h2>
+        <h2 id="railTitle">Stage-1 Primary Screening</h2>
         <button type="button" class="btn-ghost" id="resetBaselineBtn" style="display:none" onclick="resetToBaseline()">Reset Baseline</button>
       </div>
 
-      <div>
-        <div class="field-label" style="margin-bottom:6px"><span>Clinical Presets</span><span class="field-unit">1-click scenarios</span></div>
-        <div class="preset-group" role="group" aria-label="Clinical preset cases">
-          <button type="button" class="btn-preset" data-preset="low" aria-pressed="false" onclick="applyPreset('low')">Low-Risk Control</button>
-          <button type="button" class="btn-preset" data-preset="borderline" aria-pressed="false" onclick="applyPreset('borderline')">Borderline (Defer)</button>
-          <button type="button" class="btn-preset" data-preset="high" aria-pressed="false" onclick="applyPreset('high')">High-Risk CVD</button>
-          <button type="button" class="btn-preset" data-preset="ood" aria-pressed="false" onclick="applyPreset('ood')">OOD Safety Alert</button>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <div class="field">
-          <div class="field-label"><label for="age_years">Age</label><span class="field-unit">18–110 years</span></div>
-          <div class="slider-wrap">
-            <input type="range" id="age_slider" min="18" max="105" step="1" value="58" oninput="syncControl('age_years', this.value)" aria-label="Age slider" />
-            <input type="number" id="age_years" min="18" max="110" step="0.5" value="58" oninput="syncSlider('age_slider', this.value)" />
+      <!-- STAGE 1: Primary Care Screening Form (68,589 cohort) -->
+      <div id="stage1Form" class="stage-form">
+        <div>
+          <div class="field-label" style="margin-bottom:6px"><span>Screening Presets</span><span class="field-unit">1-click scenarios</span></div>
+          <div class="preset-group" role="group" aria-label="Stage-1 preset cases">
+            <button type="button" class="btn-preset" data-stage="stage1" data-preset="low" aria-pressed="false" onclick="applyPreset('low')">Low-Risk Control</button>
+            <button type="button" class="btn-preset" data-stage="stage1" data-preset="borderline" aria-pressed="false" onclick="applyPreset('borderline')">Borderline (Defer)</button>
+            <button type="button" class="btn-preset" data-stage="stage1" data-preset="high" aria-pressed="false" onclick="applyPreset('high')">High-Risk CVD</button>
+            <button type="button" class="btn-preset" data-stage="stage1" data-preset="ood" aria-pressed="false" onclick="applyPreset('ood')">OOD Safety Alert</button>
           </div>
         </div>
 
-        <div class="field">
-          <div class="field-label"><span>Biological Sex</span><span class="field-unit">Mondrian stratum</span></div>
-          <div class="seg-control" role="group" aria-label="Biological sex">
-            <button type="button" class="seg-btn" data-field="sex" data-val="0" aria-pressed="false" onclick="setSeg('sex', 0)">Female</button>
-            <button type="button" class="seg-btn" data-field="sex" data-val="1" aria-pressed="true" onclick="setSeg('sex', 1)">Male</button>
-          </div>
-        </div>
-
-        <div class="field-row">
+        <div class="field-group">
           <div class="field">
-            <div class="field-label"><label for="height_cm">Height</label><span class="field-unit">cm</span></div>
-            <input type="number" id="height_cm" min="120" max="230" step="1" value="174" oninput="onVitalInput()" />
-          </div>
-          <div class="field">
-            <div class="field-label"><label for="weight_kg">Weight</label><span class="field-unit">kg</span></div>
-            <input type="number" id="weight_kg" min="30" max="220" step="0.5" value="88" oninput="syncSlider('weight_slider', this.value)" />
-          </div>
-        </div>
-        <input type="range" id="weight_slider" min="40" max="160" step="0.5" value="88" oninput="syncControl('weight_kg', this.value)" aria-label="Weight slider" />
-      </div>
-
-      <div class="field-group">
-        <div class="field">
-          <div class="field-label"><label for="systolic_bp">Systolic Blood Pressure</label><span class="field-unit">60–250 mmHg</span></div>
-          <div class="slider-wrap">
-            <input type="range" id="sbp_slider" min="85" max="240" step="1" value="152" oninput="syncControl('systolic_bp', this.value)" aria-label="Systolic BP slider" />
-            <input type="number" id="systolic_bp" min="60" max="250" step="1" value="152" oninput="syncSlider('sbp_slider', this.value)" />
-          </div>
-        </div>
-
-        <div class="field">
-          <div class="field-label"><label for="diastolic_bp">Diastolic Blood Pressure</label><span class="field-unit">40–160 mmHg</span></div>
-          <div class="slider-wrap">
-            <input type="range" id="dbp_slider" min="50" max="150" step="1" value="94" oninput="syncControl('diastolic_bp', this.value)" aria-label="Diastolic BP slider" />
-            <input type="number" id="diastolic_bp" min="40" max="160" step="1" value="94" oninput="syncSlider('dbp_slider', this.value)" />
-          </div>
-        </div>
-
-        <div class="derived-strip tabular">
-          <div class="derived-cell"><span>BMI</span><strong id="derivedBmi">29.1</strong></div>
-          <div class="derived-cell"><span>Pulse Press.</span><strong id="derivedPp">58</strong></div>
-          <div class="derived-cell"><span>MAP</span><strong id="derivedMap">113.3</strong></div>
-        </div>
-      </div>
-
-      <div class="field-group">
-        <div class="field">
-          <div class="field-label"><span>Cholesterol Tier</span><span class="field-unit">1–3</span></div>
-          <div class="seg-control cols-3" role="group" aria-label="Cholesterol tier">
-            <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="1" aria-pressed="false" onclick="setSeg('cholesterol_level', 1)">Normal</button>
-            <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="2" aria-pressed="true" onclick="setSeg('cholesterol_level', 2)">Elevated</button>
-            <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="3" aria-pressed="false" onclick="setSeg('cholesterol_level', 3)">High</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <div class="field-label"><span>Fasting Glucose Tier</span><span class="field-unit">1–3</span></div>
-          <div class="seg-control cols-3" role="group" aria-label="Glucose tier">
-            <button type="button" class="seg-btn" data-field="glucose_level" data-val="1" aria-pressed="true" onclick="setSeg('glucose_level', 1)">Normal</button>
-            <button type="button" class="seg-btn" data-field="glucose_level" data-val="2" aria-pressed="false" onclick="setSeg('glucose_level', 2)">Elevated</button>
-            <button type="button" class="seg-btn" data-field="glucose_level" data-val="3" aria-pressed="false" onclick="setSeg('glucose_level', 3)">High</button>
-          </div>
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <div class="field-label"><span>Tobacco Use</span></div>
-            <div class="seg-control" role="group" aria-label="Tobacco use">
-              <button type="button" class="seg-btn" data-field="smoke" data-val="0" aria-pressed="true" onclick="setSeg('smoke', 0)">No</button>
-              <button type="button" class="seg-btn" data-field="smoke" data-val="1" aria-pressed="false" onclick="setSeg('smoke', 1)">Yes</button>
+            <div class="field-label"><label for="age_years">Age</label><span class="field-unit">18–110 years</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="age_slider" min="18" max="105" step="1" value="58" oninput="syncControl('age_years', this.value)" aria-label="Age slider" />
+              <input type="number" id="age_years" min="18" max="110" step="0.5" value="58" oninput="syncSlider('age_slider', this.value)" />
             </div>
           </div>
+
           <div class="field">
-            <div class="field-label"><span>Alcohol</span></div>
-            <div class="seg-control" role="group" aria-label="Alcohol intake">
-              <button type="button" class="seg-btn" data-field="alcohol" data-val="0" aria-pressed="true" onclick="setSeg('alcohol', 0)">No</button>
-              <button type="button" class="seg-btn" data-field="alcohol" data-val="1" aria-pressed="false" onclick="setSeg('alcohol', 1)">Yes</button>
+            <div class="field-label"><span>Biological Sex</span><span class="field-unit">Mondrian stratum</span></div>
+            <div class="seg-control" role="group" aria-label="Biological sex">
+              <button type="button" class="seg-btn" data-field="sex" data-val="0" aria-pressed="false" onclick="setSeg('sex', 0)">Female</button>
+              <button type="button" class="seg-btn" data-field="sex" data-val="1" aria-pressed="true" onclick="setSeg('sex', 1)">Male</button>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label"><label for="height_cm">Height</label><span class="field-unit">cm</span></div>
+              <input type="number" id="height_cm" min="120" max="230" step="1" value="174" oninput="onVitalInput()" />
+            </div>
+            <div class="field">
+              <div class="field-label"><label for="weight_kg">Weight</label><span class="field-unit">kg</span></div>
+              <input type="number" id="weight_kg" min="30" max="220" step="0.5" value="88" oninput="syncSlider('weight_slider', this.value)" />
+            </div>
+          </div>
+          <input type="range" id="weight_slider" min="40" max="160" step="0.5" value="88" oninput="syncControl('weight_kg', this.value)" aria-label="Weight slider" />
+        </div>
+
+        <div class="field-group">
+          <div class="field">
+            <div class="field-label"><label for="systolic_bp">Systolic Blood Pressure</label><span class="field-unit">60–250 mmHg</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="sbp_slider" min="85" max="240" step="1" value="152" oninput="syncControl('systolic_bp', this.value)" aria-label="Systolic BP slider" />
+              <input type="number" id="systolic_bp" min="60" max="250" step="1" value="152" oninput="syncSlider('sbp_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="diastolic_bp">Diastolic Blood Pressure</label><span class="field-unit">40–160 mmHg</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="dbp_slider" min="50" max="150" step="1" value="94" oninput="syncControl('diastolic_bp', this.value)" aria-label="Diastolic BP slider" />
+              <input type="number" id="diastolic_bp" min="40" max="160" step="1" value="94" oninput="syncSlider('dbp_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="derived-strip tabular">
+            <div class="derived-cell"><span>BMI</span><strong id="derivedBmi">29.1</strong></div>
+            <div class="derived-cell"><span>Pulse Press.</span><strong id="derivedPp">58</strong></div>
+            <div class="derived-cell"><span>MAP</span><strong id="derivedMap">113.3</strong></div>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="field">
+            <div class="field-label"><span>Cholesterol Tier</span><span class="field-unit">1–3</span></div>
+            <div class="seg-control cols-3" role="group" aria-label="Cholesterol tier">
+              <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="1" aria-pressed="false" onclick="setSeg('cholesterol_level', 1)">Normal</button>
+              <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="2" aria-pressed="true" onclick="setSeg('cholesterol_level', 2)">Elevated</button>
+              <button type="button" class="seg-btn" data-field="cholesterol_level" data-val="3" aria-pressed="false" onclick="setSeg('cholesterol_level', 3)">High</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Fasting Glucose Tier</span><span class="field-unit">1–3</span></div>
+            <div class="seg-control cols-3" role="group" aria-label="Glucose tier">
+              <button type="button" class="seg-btn" data-field="glucose_level" data-val="1" aria-pressed="true" onclick="setSeg('glucose_level', 1)">Normal</button>
+              <button type="button" class="seg-btn" data-field="glucose_level" data-val="2" aria-pressed="false" onclick="setSeg('glucose_level', 2)">Elevated</button>
+              <button type="button" class="seg-btn" data-field="glucose_level" data-val="3" aria-pressed="false" onclick="setSeg('glucose_level', 3)">High</button>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label"><span>Tobacco Use</span></div>
+              <div class="seg-control" role="group" aria-label="Tobacco use">
+                <button type="button" class="seg-btn" data-field="smoke" data-val="0" aria-pressed="true" onclick="setSeg('smoke', 0)">No</button>
+                <button type="button" class="seg-btn" data-field="smoke" data-val="1" aria-pressed="false" onclick="setSeg('smoke', 1)">Yes</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label"><span>Alcohol</span></div>
+              <div class="seg-control" role="group" aria-label="Alcohol intake">
+                <button type="button" class="seg-btn" data-field="alcohol" data-val="0" aria-pressed="true" onclick="setSeg('alcohol', 0)">No</button>
+                <button type="button" class="seg-btn" data-field="alcohol" data-val="1" aria-pressed="false" onclick="setSeg('alcohol', 1)">Yes</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Physically Active</span><span class="field-unit">150 min/wk</span></div>
+            <div class="seg-control" role="group" aria-label="Physically active">
+              <button type="button" class="seg-btn" data-field="active" data-val="0" aria-pressed="true" onclick="setSeg('active', 0)">Sedentary</button>
+              <button type="button" class="seg-btn" data-field="active" data-val="1" aria-pressed="false" onclick="setSeg('active', 1)">Active</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STAGE 2: Cardiology Workup Form (N=918 Multi-Center ECG / Stress Cohort) -->
+      <div id="stage2Form" class="stage-form hidden">
+        <div>
+          <div class="field-label" style="margin-bottom:6px"><span>Cardiology Presets</span><span class="field-unit">ECG &amp; stress profiles</span></div>
+          <div class="preset-group" role="group" aria-label="Stage-2 cardiology presets">
+            <button type="button" class="btn-preset" data-stage="stage2" data-preset="w_low" aria-pressed="false" onclick="applyWorkupPreset('w_low')">Normal Stress</button>
+            <button type="button" class="btn-preset" data-stage="stage2" data-preset="w_angina" aria-pressed="false" onclick="applyWorkupPreset('w_angina')">Atypical Angina</button>
+            <button type="button" class="btn-preset" data-stage="stage2" data-preset="w_cad" aria-pressed="false" onclick="applyWorkupPreset('w_cad')">Asymptomatic CAD</button>
+            <button type="button" class="btn-preset" data-stage="stage2" data-preset="w_severe" aria-pressed="false" onclick="applyWorkupPreset('w_severe')">Multi-Vessel CAD</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="field">
+            <div class="field-label"><label for="w_age">Age</label><span class="field-unit">18–110 years</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="w_age_slider" min="25" max="90" step="1" value="58" oninput="syncWorkupControl('w_age', this.value)" aria-label="Workup age slider" />
+              <input type="number" id="w_age" min="18" max="110" step="1" value="58" oninput="syncWorkupSlider('w_age_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label"><span>Sex</span></div>
+              <div class="seg-control" role="group" aria-label="Workup biological sex">
+                <button type="button" class="seg-btn" data-wfield="sex" data-val="0" aria-pressed="false" onclick="setWSeg('sex', 0)">Female</button>
+                <button type="button" class="seg-btn" data-wfield="sex" data-val="1" aria-pressed="true" onclick="setWSeg('sex', 1)">Male</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label"><span>Fasting Gluc &gt;120</span></div>
+              <div class="seg-control" role="group" aria-label="Fasting glucose above 120">
+                <button type="button" class="seg-btn" data-wfield="fbs" data-val="0" aria-pressed="true" onclick="setWSeg('fbs', 0)">No</button>
+                <button type="button" class="seg-btn" data-wfield="fbs" data-val="1" aria-pressed="false" onclick="setWSeg('fbs', 1)">Yes</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="w_cp">Chest Pain Classification</label><span class="field-unit">1–4</span></div>
+            <select id="w_cp" class="field-select" onchange="onWorkupInput()">
+              <option value="1">1 — Typical Angina</option>
+              <option value="2">2 — Atypical Angina</option>
+              <option value="3">3 — Non-Anginal Pain</option>
+              <option value="4" selected>4 — Asymptomatic</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="w_trestbps">Resting Systolic BP</label><span class="field-unit">mmHg</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="w_sbp_slider" min="85" max="220" step="1" value="146" oninput="syncWorkupControl('w_trestbps', this.value)" aria-label="Resting SBP slider" />
+              <input type="number" id="w_trestbps" min="60" max="250" step="1" value="146" oninput="syncWorkupSlider('w_sbp_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="w_chol">Serum Cholesterol</label><span class="field-unit">mg/dL</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="w_chol_slider" min="110" max="460" step="1" value="258" oninput="syncWorkupControl('w_chol', this.value)" aria-label="Cholesterol slider" />
+              <input type="number" id="w_chol" min="80" max="650" step="1" value="258" oninput="syncWorkupSlider('w_chol_slider', this.value)" />
             </div>
           </div>
         </div>
 
-        <div class="field">
-          <div class="field-label"><span>Physically Active</span><span class="field-unit">150 min/wk</span></div>
-          <div class="seg-control" role="group" aria-label="Physically active">
-            <button type="button" class="seg-btn" data-field="active" data-val="0" aria-pressed="true" onclick="setSeg('active', 0)">Sedentary</button>
-            <button type="button" class="seg-btn" data-field="active" data-val="1" aria-pressed="false" onclick="setSeg('active', 1)">Active</button>
+        <div class="field-group">
+          <div class="field">
+            <div class="field-label"><span>Resting ECG</span></div>
+            <div class="seg-control cols-3" role="group" aria-label="Resting ECG">
+              <button type="button" class="seg-btn" data-wfield="restecg" data-val="0" aria-pressed="true" onclick="setWSeg('restecg', 0)">Normal</button>
+              <button type="button" class="seg-btn" data-wfield="restecg" data-val="1" aria-pressed="false" onclick="setWSeg('restecg', 1)">ST-T</button>
+              <button type="button" class="seg-btn" data-wfield="restecg" data-val="2" aria-pressed="false" onclick="setWSeg('restecg', 2)">LVH</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="w_thalach">Peak Exercise HR</label><span class="field-unit">bpm</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="w_hr_slider" min="70" max="205" step="1" value="128" oninput="syncWorkupControl('w_thalach', this.value)" aria-label="Peak exercise HR slider" />
+              <input type="number" id="w_thalach" min="50" max="225" step="1" value="128" oninput="syncWorkupSlider('w_hr_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><label for="w_oldpeak">ST Depression (Oldpeak)</label><span class="field-unit">mm</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="w_op_slider" min="0" max="6" step="0.1" value="1.8" oninput="syncWorkupControl('w_oldpeak', this.value)" aria-label="ST depression slider" />
+              <input type="number" id="w_oldpeak" min="-3" max="8" step="0.1" value="1.8" oninput="syncWorkupSlider('w_op_slider', this.value)" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label"><span>Exercise Angina</span></div>
+              <div class="seg-control" role="group" aria-label="Exercise induced angina">
+                <button type="button" class="seg-btn" data-wfield="exang" data-val="0" aria-pressed="false" onclick="setWSeg('exang', 0)">No</button>
+                <button type="button" class="seg-btn" data-wfield="exang" data-val="1" aria-pressed="true" onclick="setWSeg('exang', 1)">Yes</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label"><span>ST Slope</span></div>
+              <div class="seg-control cols-3" role="group" aria-label="ST segment slope">
+                <button type="button" class="seg-btn" data-wfield="slope" data-val="1" aria-pressed="false" onclick="setWSeg('slope', 1)">Up</button>
+                <button type="button" class="seg-btn" data-wfield="slope" data-val="2" aria-pressed="true" onclick="setWSeg('slope', 2)">Flat</button>
+                <button type="button" class="seg-btn" data-wfield="slope" data-val="3" aria-pressed="false" onclick="setWSeg('slope', 3)">Down</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Major Vessels (Fluoroscopy)</span><span class="field-unit">0–3</span></div>
+            <div class="seg-control cols-4" role="group" aria-label="Major vessels">
+              <button type="button" class="seg-btn" data-wfield="ca" data-val="0" aria-pressed="false" onclick="setWSeg('ca', 0)">0</button>
+              <button type="button" class="seg-btn" data-wfield="ca" data-val="1" aria-pressed="true" onclick="setWSeg('ca', 1)">1</button>
+              <button type="button" class="seg-btn" data-wfield="ca" data-val="2" aria-pressed="false" onclick="setWSeg('ca', 2)">2</button>
+              <button type="button" class="seg-btn" data-wfield="ca" data-val="3" aria-pressed="false" onclick="setWSeg('ca', 3)">3</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label"><span>Thalassemia Perfusion</span></div>
+            <div class="seg-control cols-3" role="group" aria-label="Thalassemia perfusion scan">
+              <button type="button" class="seg-btn" data-wfield="thal" data-val="3" aria-pressed="false" onclick="setWSeg('thal', 3)">Normal</button>
+              <button type="button" class="seg-btn" data-wfield="thal" data-val="6" aria-pressed="false" onclick="setWSeg('thal', 6)">Fixed</button>
+              <button type="button" class="seg-btn" data-wfield="thal" data-val="7" aria-pressed="true" onclick="setWSeg('thal', 7)">Revers.</button>
+            </div>
+          </div>
+
+          <div class="derived-strip tabular">
+            <div class="derived-cell"><span>RPP</span><strong id="derivedRpp">186.9</strong></div>
+            <div class="derived-cell"><span>Chrono %</span><strong id="derivedChrono">79%</strong></div>
+            <div class="derived-cell"><span>Ischemia</span><strong id="derivedIschemia">1.8</strong></div>
           </div>
         </div>
+      </div>
 
+      <!-- Shared Conformal Coverage & Trigger Controls -->
+      <div class="field-group">
         <div class="field">
           <div class="field-label"><span>Conformal Coverage</span><span class="field-unit">1 &minus; &alpha; target</span></div>
           <div class="seg-control cols-3" role="group" aria-label="Conformal nominal coverage">
@@ -1008,12 +1214,16 @@
             <div class="triage-header">
               <span class="triage-badge triage-DEFER_TO_CLINICIAN" id="triageBadge">ASSESSING...</span>
               <span class="delta-pill tabular" id="deltaPill" style="display:none"></span>
+              <span class="delta-pill" id="escalationTag" style="display:none">Escalated from Stage 1</span>
+              <button type="button" class="btn-escalate no-print" id="escalateBtn" onclick="escalateToWorkup()">
+                Escalate to Stage-2 Cardiology Workup &rarr;
+              </button>
             </div>
             <p class="triage-reason" id="triageReason">Evaluating patient biomarkers and learned-space cohort prototypes...</p>
             <div class="meta-grid tabular">
               <div class="meta-item"><span>Conformal Set</span><strong id="metaCset">--</strong></div>
-              <div class="meta-item"><span>GAT-T / XGBoost</span><strong id="metaModels">--</strong></div>
-              <div class="meta-item"><span>Disagreement |&Delta;|</span><strong id="metaDisagree">--</strong></div>
+              <div class="meta-item"><span id="metaModelsLabel">GAT-T / XGB / HGB</span><strong id="metaModels">--</strong></div>
+              <div class="meta-item"><span>3-Model Spread</span><strong id="metaDisagree">--</strong></div>
               <div class="meta-item"><span>Graph Gate</span><strong id="metaGate">--</strong></div>
               <div class="meta-item"><span>Max |z-score|</span><strong id="metaZscore">--</strong></div>
               <div class="meta-item"><span>Latency</span><strong id="metaLatency">--</strong></div>
@@ -1029,15 +1239,15 @@
         <div class="explain-grid">
           <div>
             <h3 class="section-h3">Biomarker Attention</h3>
-            <p class="section-sub">Level-1 Transformer [CLS]-to-feature weights for this patient.</p>
+            <p class="section-sub">Level-1 PLR Transformer [CLS]-to-feature weights for this patient.</p>
             <div class="bar-list" id="featBarList"></div>
           </div>
           <div>
             <h3 class="section-h3">Matched Historical Cohort Neighbors</h3>
-            <p class="section-sub">Level-2 inductive GAT attention over top-5 learned-space clinical medoids.</p>
+            <p class="section-sub" id="nbrSubtext">Level-2 UniMP inductive GAT attention over top-5 learned-space clinical medoids.</p>
             <div class="table-scroll">
               <table class="data-table">
-                <thead><tr><th>Cohort ID</th><th>Outcome</th><th>GAT Attn</th><th>Age</th><th>SBP</th><th>BMI</th></tr></thead>
+                <thead><tr><th>Cohort ID</th><th>Outcome</th><th>GAT Attn</th><th>Age</th><th>SBP</th><th id="nbrCol6">BMI</th></tr></thead>
                 <tbody id="nbrTableBody"></tbody>
               </table>
             </div>
@@ -1046,7 +1256,7 @@
 
         <div class="recourse-sec">
           <h3 class="section-h3">Modifiable Clinical Recourse</h3>
-          <p class="section-sub">Single-pass counterfactual projections. Age, biological sex, and height remain strictly locked.</p>
+          <p class="section-sub">Single-pass counterfactual projections. Immutable demographics remain strictly locked.</p>
           <div id="recourseContainer"></div>
         </div>
       </section>
@@ -1056,7 +1266,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
           <div>
             <h3 class="section-h3">HL7 FHIR R4 RiskAssessment Resource</h3>
-            <p class="section-sub" style="margin:0">Standards-compliant output generated from the current patient assessment via LOINC-coded mapping.</p>
+            <p class="section-sub" style="margin:0">Standards-compliant output generated from the active stage assessment via LOINC-coded mapping.</p>
           </div>
           <button type="button" class="btn-ghost" id="copyFhirBtn" onclick="copyFhir()">Copy JSON</button>
         </div>
@@ -1084,12 +1294,25 @@
 
   <script>
     const state = {
+      stage: "stage1",
+      workupAvailable: false,
+      escalatedFromStage1: false,
+      // Stage-1 categorical state
       sex: 1,
       cholesterol_level: 2,
       glucose_level: 1,
       smoke: 0,
       alcohol: 0,
       active: 0,
+      // Stage-2 categorical state
+      w_sex: 1,
+      w_fbs: 0,
+      w_restecg: 0,
+      w_exang: 1,
+      w_slope: 2,
+      w_ca: 1,
+      w_thal: 7,
+      // Shared state
       conformal_alpha: 0.10,
       activePreset: null,
       baselineRisk: null,
@@ -1106,11 +1329,72 @@
       ood: { age_years: 106, sex: 0, height_cm: 142, weight_kg: 118, systolic_bp: 242, diastolic_bp: 148, cholesterol_level: 3, glucose_level: 3, smoke: 1, alcohol: 1, active: 0 },
     };
 
+    const WORKUP_PRESETS = {
+      w_low: { age: 44, sex: 0, cp: 3, trestbps: 118, chol: 196, fbs: 0, restecg: 0, thalach: 172, exang: 0, oldpeak: 0.0, slope: 1, ca: 0, thal: 3 },
+      w_angina: { age: 55, sex: 1, cp: 2, trestbps: 136, chol: 238, fbs: 0, restecg: 1, thalach: 146, exang: 0, oldpeak: 1.0, slope: 2, ca: 0, thal: 3 },
+      w_cad: { age: 59, sex: 1, cp: 4, trestbps: 148, chol: 266, fbs: 1, restecg: 2, thalach: 126, exang: 1, oldpeak: 2.0, slope: 2, ca: 1, thal: 7 },
+      w_severe: { age: 66, sex: 1, cp: 4, trestbps: 164, chol: 308, fbs: 1, restecg: 2, thalach: 106, exang: 1, oldpeak: 3.4, slope: 3, ca: 3, thal: 7 },
+    };
+
     function toggleTheme() {
       const root = document.documentElement;
       const isDark = root.getAttribute("data-theme") === "dark";
       root.setAttribute("data-theme", isDark ? "light" : "dark");
       document.getElementById("themeBtn").textContent = isDark ? "Dark" : "Light";
+    }
+
+    function setStage(stage, fromEscalation = false) {
+      if (stage === "stage2" && !state.workupAvailable) return;
+      state.stage = stage;
+      state.escalatedFromStage1 = fromEscalation;
+      state.baselineRisk = null;
+      state.baselinePayload = null;
+      document.getElementById("resetBaselineBtn").style.display = "none";
+
+      const isS1 = stage === "stage1";
+      document.getElementById("stage1Btn").setAttribute("aria-pressed", isS1 ? "true" : "false");
+      document.getElementById("stage2Btn").setAttribute("aria-pressed", isS1 ? "false" : "true");
+      document.getElementById("stage1Form").classList.toggle("hidden", !isS1);
+      document.getElementById("stage2Form").classList.toggle("hidden", isS1);
+      document.getElementById("railTitle").textContent = isS1 ? "Stage-1 Primary Screening" : "Stage-2 Cardiology Workup";
+      document.getElementById("metaModelsLabel").textContent = isS1 ? "GAT-T / XGB / HGB" : "GAT-T / XGB / RF";
+      document.getElementById("nbrCol6").textContent = isS1 ? "BMI" : "Chol";
+      document.getElementById("nbrSubtext").textContent = isS1
+        ? "Level-2 UniMP inductive GAT attention over top-5 learned-space clinical medoids."
+        : "Level-2 UniMP inductive GAT attention over top-5 multi-center cardiology workup patients.";
+      document.getElementById("escalationTag").style.display = (!isS1 && fromEscalation) ? "inline-flex" : "none";
+      document.getElementById("errBanner").classList.remove("visible");
+
+      if (!isS1) updateWorkupDerived();
+      else updateDerivedVitals();
+
+      loadHealth();
+      if (document.getElementById("tab-modelcard").classList.contains("active")) {
+        loadModelCard();
+      }
+      assess(true);
+    }
+
+    function escalateToWorkup() {
+      const s1 = readFormPayload();
+      const cholMap = { 1: 185, 2: 235, 3: 285 };
+      const carry = {
+        age: Math.round(s1.age_years),
+        sex: s1.sex,
+        cp: s1.systolic_bp >= 150 ? 4 : 2,
+        trestbps: Math.round(s1.systolic_bp),
+        chol: cholMap[s1.cholesterol_level] || 235,
+        fbs: s1.glucose_level >= 2 ? 1 : 0,
+        restecg: s1.systolic_bp >= 155 ? 2 : 0,
+        thalach: Math.max(95, Math.min(185, Math.round(200 - s1.age_years * 1.15))),
+        exang: s1.active === 0 && s1.systolic_bp >= 145 ? 1 : 0,
+        oldpeak: s1.systolic_bp >= 155 ? 1.8 : 0.8,
+        slope: s1.systolic_bp >= 155 ? 2 : 1,
+        ca: s1.cholesterol_level >= 3 ? 1 : 0,
+        thal: s1.cholesterol_level >= 3 ? 7 : 3,
+      };
+      loadWorkupIntoForm(carry);
+      setStage("stage2", true);
     }
 
     function switchTab(tabId) {
@@ -1134,6 +1418,18 @@
       document.querySelectorAll(`.seg-btn[data-field="${field}"]`).forEach(btn => {
         btn.setAttribute("aria-pressed", parseInt(btn.dataset.val, 10) === val ? "true" : "false");
       });
+      if (triggerAssess) {
+        clearPresetHighlight();
+        scheduleLiveAssess();
+      }
+    }
+
+    function setWSeg(field, val, triggerAssess = true) {
+      state["w_" + field] = val;
+      document.querySelectorAll(`.seg-btn[data-wfield="${field}"]`).forEach(btn => {
+        btn.setAttribute("aria-pressed", parseInt(btn.dataset.val, 10) === val ? "true" : "false");
+      });
+      updateWorkupDerived();
       if (triggerAssess) {
         clearPresetHighlight();
         scheduleLiveAssess();
@@ -1164,12 +1460,33 @@
       onVitalInput();
     }
 
+    function syncWorkupControl(inputId, val) {
+      document.getElementById(inputId).value = val;
+      clearPresetHighlight();
+      onWorkupInput();
+    }
+
+    function syncWorkupSlider(sliderId, val) {
+      const el = document.getElementById(sliderId);
+      const num = parseFloat(val);
+      if (!Number.isNaN(num)) {
+        el.value = Math.min(parseFloat(el.max), Math.max(parseFloat(el.min), num));
+      }
+      clearPresetHighlight();
+      onWorkupInput();
+    }
+
     function validateLocalVitals() {
+      const errEl = document.getElementById("errBanner");
+      if (state.stage === "stage2") {
+        errEl.classList.remove("visible");
+        errEl.textContent = "";
+        return true;
+      }
       const sbpEl = document.getElementById("systolic_bp");
       const dbpEl = document.getElementById("diastolic_bp");
       const hEl = document.getElementById("height_cm");
       const wEl = document.getElementById("weight_kg");
-      const errEl = document.getElementById("errBanner");
 
       const sbp = parseFloat(sbpEl.value);
       const dbp = parseFloat(dbpEl.value);
@@ -1213,10 +1530,28 @@
       return validateLocalVitals();
     }
 
+    function updateWorkupDerived() {
+      const age = parseFloat(document.getElementById("w_age").value) || 58;
+      const sbp = parseFloat(document.getElementById("w_trestbps").value) || 140;
+      const hr = parseFloat(document.getElementById("w_thalach").value) || 130;
+      const op = parseFloat(document.getElementById("w_oldpeak").value) || 0;
+      const rpp = (sbp * hr) / 100.0;
+      const chrono = (hr / Math.max(220 - age, 40)) * 100.0;
+      const isch = op * state.w_exang;
+      document.getElementById("derivedRpp").textContent = Number.isFinite(rpp) ? rpp.toFixed(1) : "—";
+      document.getElementById("derivedChrono").textContent = Number.isFinite(chrono) ? `${chrono.toFixed(0)}%` : "—";
+      document.getElementById("derivedIschemia").textContent = Number.isFinite(isch) ? isch.toFixed(1) : "—";
+    }
+
     function onVitalInput() {
       if (updateDerivedVitals()) {
         scheduleLiveAssess();
       }
+    }
+
+    function onWorkupInput() {
+      updateWorkupDerived();
+      scheduleLiveAssess();
     }
 
     function scheduleLiveAssess() {
@@ -1229,10 +1564,26 @@
       const p = PRESETS[key];
       if (!p) return;
       state.activePreset = key;
-      document.querySelectorAll(".btn-preset").forEach(b => {
+      document.querySelectorAll('.btn-preset[data-stage="stage1"]').forEach(b => {
         b.setAttribute("aria-pressed", b.dataset.preset === key ? "true" : "false");
       });
       loadPayloadIntoForm(p);
+      state.baselineRisk = null;
+      state.baselinePayload = null;
+      document.getElementById("resetBaselineBtn").style.display = "none";
+      assess(true);
+    }
+
+    function applyWorkupPreset(key) {
+      const p = WORKUP_PRESETS[key];
+      if (!p) return;
+      state.activePreset = key;
+      state.escalatedFromStage1 = false;
+      document.getElementById("escalationTag").style.display = "none";
+      document.querySelectorAll('.btn-preset[data-stage="stage2"]').forEach(b => {
+        b.setAttribute("aria-pressed", b.dataset.preset === key ? "true" : "false");
+      });
+      loadWorkupIntoForm(p);
       state.baselineRisk = null;
       state.baselinePayload = null;
       document.getElementById("resetBaselineBtn").style.display = "none";
@@ -1258,6 +1609,28 @@
       updateDerivedVitals();
     }
 
+    function loadWorkupIntoForm(p) {
+      document.getElementById("w_age").value = p.age;
+      document.getElementById("w_age_slider").value = Math.min(90, Math.max(25, p.age));
+      document.getElementById("w_cp").value = String(p.cp);
+      document.getElementById("w_trestbps").value = p.trestbps;
+      document.getElementById("w_sbp_slider").value = Math.min(220, Math.max(85, p.trestbps));
+      document.getElementById("w_chol").value = p.chol;
+      document.getElementById("w_chol_slider").value = Math.min(460, Math.max(110, p.chol));
+      document.getElementById("w_thalach").value = p.thalach;
+      document.getElementById("w_hr_slider").value = Math.min(205, Math.max(70, p.thalach));
+      document.getElementById("w_oldpeak").value = p.oldpeak;
+      document.getElementById("w_op_slider").value = Math.min(6, Math.max(0, p.oldpeak));
+      setWSeg("sex", p.sex, false);
+      setWSeg("fbs", p.fbs, false);
+      setWSeg("restecg", p.restecg, false);
+      setWSeg("exang", p.exang, false);
+      setWSeg("slope", p.slope, false);
+      setWSeg("ca", p.ca, false);
+      setWSeg("thal", p.thal, false);
+      updateWorkupDerived();
+    }
+
     function readFormPayload() {
       return {
         age_years: parseFloat(document.getElementById("age_years").value),
@@ -1275,20 +1648,43 @@
       };
     }
 
+    function readWorkupPayload() {
+      return {
+        age: parseFloat(document.getElementById("w_age").value),
+        sex: state.w_sex,
+        cp: parseInt(document.getElementById("w_cp").value, 10),
+        trestbps: parseFloat(document.getElementById("w_trestbps").value),
+        chol: parseFloat(document.getElementById("w_chol").value),
+        fbs: state.w_fbs,
+        restecg: state.w_restecg,
+        thalach: parseFloat(document.getElementById("w_thalach").value),
+        exang: state.w_exang,
+        oldpeak: parseFloat(document.getElementById("w_oldpeak").value),
+        slope: state.w_slope,
+        ca: state.w_ca,
+        thal: state.w_thal,
+        conformal_alpha: state.conformal_alpha,
+      };
+    }
+
     function simulateRecourse(changes) {
+      const isS1 = state.stage === "stage1";
+      const cur = isS1 ? readFormPayload() : readWorkupPayload();
       if (state.baselinePayload === null) {
-        state.baselinePayload = readFormPayload();
+        state.baselinePayload = cur;
       }
       clearPresetHighlight();
-      const next = { ...readFormPayload(), ...changes };
-      loadPayloadIntoForm(next);
+      const next = { ...cur, ...changes };
+      if (isS1) loadPayloadIntoForm(next);
+      else loadWorkupIntoForm(next);
       document.getElementById("resetBaselineBtn").style.display = "inline-flex";
       assess(false);
     }
 
     function resetToBaseline() {
       if (!state.baselinePayload) return;
-      loadPayloadIntoForm(state.baselinePayload);
+      if (state.stage === "stage1") loadPayloadIntoForm(state.baselinePayload);
+      else loadWorkupIntoForm(state.baselinePayload);
       state.baselinePayload = null;
       document.getElementById("resetBaselineBtn").style.display = "none";
       assess(true);
@@ -1353,15 +1749,16 @@
       if (!validateLocalVitals()) return;
       const errEl = document.getElementById("errBanner");
 
-      // Cancel any superseded in-flight request to prevent out-of-order UI jumps
       if (state.abortController) {
         state.abortController.abort();
       }
       state.abortController = new AbortController();
 
-      const payload = readFormPayload();
+      const isS1 = state.stage === "stage1";
+      const endpoint = isS1 ? "/v1/predict/with-fhir" : "/v1/workup/predict/with-fhir";
+      const payload = isS1 ? readFormPayload() : readWorkupPayload();
       try {
-        const res = await fetch("/v1/predict/with-fhir", {
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1386,7 +1783,6 @@
           state.baselineRisk = data.calibrated_risk_probability;
         }
 
-        // Update gauge smoothly in-place
         updateGauge(data.calibrated_risk_probability, data.conformal_low_threshold, data.conformal_high_threshold);
 
         const badge = document.getElementById("triageBadge");
@@ -1402,9 +1798,17 @@
           deltaEl.style.display = "none";
         }
 
+        // Inline Stage-1 -> Stage-2 Cardiology escalation CTA when deferred or high-risk
+        const escBtn = document.getElementById("escalateBtn");
+        const showEsc = isS1 && state.workupAvailable && (data.triage_decision === "DEFER_TO_CLINICIAN" || data.triage_decision === "HIGH_RISK");
+        escBtn.classList.toggle("visible", showEsc);
+
         document.getElementById("triageReason").textContent = data.triage_reason;
         document.getElementById("metaCset").textContent = `{${data.conformal_prediction_set.join(", ")}}`;
-        document.getElementById("metaModels").textContent = `${(data.gat_transformer_probability * 100).toFixed(1)}% / ${data.xgboost_probability !== null ? (data.xgboost_probability * 100).toFixed(1) + "%" : "—"}`;
+        const pGat = `${(data.gat_transformer_probability * 100).toFixed(1)}%`;
+        const pXgb = data.xgboost_probability !== null ? `${(data.xgboost_probability * 100).toFixed(1)}%` : "—";
+        const pThird = data.hgb_probability !== null ? `${(data.hgb_probability * 100).toFixed(1)}%` : "—";
+        document.getElementById("metaModels").textContent = `${pGat} / ${pXgb} / ${pThird}`;
         document.getElementById("metaDisagree").textContent = `${(data.model_disagreement * 100).toFixed(1)} pts`;
         document.getElementById("metaGate").textContent = data.dual_explanation.graph_reliance_gate.toFixed(2);
         document.getElementById("metaZscore").textContent = data.ood_report.max_abs_zscore.toFixed(2);
@@ -1462,9 +1866,16 @@
 
     async function loadHealth() {
       try {
-        const res = await fetch("/v1/health");
+        const res = await fetch(state.stage === "stage1" ? "/v1/health" : "/v1/workup/health");
         const h = await res.json();
-        document.getElementById("healthPill").innerHTML = `<span class="status-dot"></span><span>${h.device.toUpperCase()} &middot; ${h.cohort_bank_size.toLocaleString()} prototypes</span>`;
+        if (state.stage === "stage1") {
+          state.workupAvailable = Boolean(h.workup_available);
+          const s2Btn = document.getElementById("stage2Btn");
+          s2Btn.disabled = !state.workupAvailable;
+          s2Btn.title = state.workupAvailable ? "Switch to Stage-2 Cardiology Workup (N=918)" : "Build workup bundle first";
+        }
+        const label = state.stage === "stage1" ? "prototypes" : "workup cases";
+        document.getElementById("healthPill").innerHTML = `<span class="status-dot"></span><span>${h.device.toUpperCase()} &middot; ${h.cohort_bank_size.toLocaleString()} ${label}</span>`;
         document.getElementById("shaTag").textContent = `SHA-256: ${h.bundle_sha256.slice(0, 16)}...`;
       } catch {
         document.getElementById("healthPill").textContent = "Engine offline";
@@ -1507,13 +1918,21 @@
     async function loadModelCard() {
       const container = document.getElementById("modelCardBody");
       try {
-        const res = await fetch("/v1/model-card");
+        const endpoint = state.stage === "stage1" ? "/v1/model-card" : "/v1/workup/model-card";
+        const res = await fetch(endpoint);
         const mc = await res.json();
         const hp = mc.holdout_performance;
         const ca = mc.mondrian_conformal_audit;
-        const sg = mc.subgroup_performance;
+        const sg = mc.subgroup_performance || {};
         const byAlpha = mc.mondrian_conformal_by_alpha || {};
         const ew = mc.ensemble_weights || {};
+
+        const thirdName = ew.hist_gradient_boosting !== undefined ? "HGB" : (ew.random_forest !== undefined ? "RF" : null);
+        const thirdVal = ew.hist_gradient_boosting !== undefined ? ew.hist_gradient_boosting : ew.random_forest;
+        const blendText = thirdName
+          ? `${Math.round(ew.graph_augmented_transformer * 100)} / ${Math.round(ew.xgboost * 100)} / ${Math.round(thirdVal * 100)}`
+          : `${Math.round(ew.graph_augmented_transformer * 100)} / ${Math.round(ew.xgboost * 100)}`;
+        const blendLabel = thirdName ? `GAT-T / XGB / ${thirdName}` : "GAT-T / XGB Blend";
 
         const alphaRows = Object.entries(byAlpha).map(([a, m]) => `
           <tr>
@@ -1524,15 +1943,26 @@
           </tr>
         `).join("");
 
+        const sgRows = Object.entries(sg).map(([k, m]) => `
+          <tr>
+            <td style="text-transform:capitalize;font-weight:600">${k}</td>
+            <td>${m.n_test.toLocaleString()}</td>
+            <td>${m.roc_auc.toFixed(4)}</td>
+            <td>${(m.sensitivity * 100).toFixed(1)}%</td>
+            <td>${(m.specificity * 100).toFixed(1)}%</td>
+            <td>${(m.fnr * 100).toFixed(1)}%</td>
+          </tr>
+        `).join("");
+
         container.innerHTML = `
           <h3 class="section-h3">${mc.model_name} (${mc.model_version})</h3>
           <p class="section-sub">${mc.intended_use}</p>
           <div class="stat-strip tabular">
             <div class="stat-box"><span>Holdout ROC-AUC</span><strong>${hp.roc_auc.toFixed(4)}</strong></div>
             <div class="stat-box"><span>Holdout PR-AUC</span><strong>${hp.pr_auc.toFixed(4)}</strong></div>
-            <div class="stat-box"><span>ECE (T*=${hp.temperature})</span><strong>${hp.ece.toFixed(4)}</strong></div>
-            <div class="stat-box"><span>90% Coverage</span><strong>${(ca.empirical_test_coverage * 100).toFixed(2)}%</strong></div>
-            ${ew.graph_augmented_transformer !== undefined ? `<div class="stat-box"><span>GAT-T / XGB Blend</span><strong>${Math.round(ew.graph_augmented_transformer*100)} / ${Math.round(ew.xgboost*100)}</strong></div>` : ""}
+            <div class="stat-box"><span>ECE${hp.temperature !== undefined ? ` (T*=${hp.temperature})` : ""}</span><strong>${hp.ece.toFixed(4)}</strong></div>
+            ${ca ? `<div class="stat-box"><span>90% Coverage</span><strong>${(ca.empirical_test_coverage * 100).toFixed(2)}%</strong></div>` : ""}
+            ${ew.graph_augmented_transformer !== undefined ? `<div class="stat-box"><span>${blendLabel}</span><strong>${blendText}</strong></div>` : ""}
           </div>
           ${alphaRows ? `
             <h3 class="section-h3">Multi-Alpha Mondrian Conformal Trade-off (N=${mc.training_cohort.n_test.toLocaleString()})</h3>
@@ -1543,19 +1973,21 @@
               </table>
             </div>
           ` : ""}
-          <h3 class="section-h3">Sex-Stratified Holdout Subgroup Audit</h3>
-          <div class="table-scroll" style="margin:8px 0 20px">
-            <table class="data-table tabular">
-              <thead><tr><th>Subgroup</th><th>Test N</th><th>ROC-AUC</th><th>Sensitivity</th><th>Specificity</th><th>Missed Disease (FNR)</th></tr></thead>
-              <tbody>
-                ${Object.entries(sg).map(([k, m]) => `<tr><td style="text-transform:capitalize;font-weight:600">${k}</td><td>${m.n_test.toLocaleString()}</td><td>${m.roc_auc.toFixed(4)}</td><td>${(m.sensitivity*100).toFixed(1)}%</td><td>${(m.specificity*100).toFixed(1)}%</td><td>${(m.fnr*100).toFixed(1)}%</td></tr>`).join("")}
-              </tbody>
-            </table>
-          </div>
-          <h3 class="section-h3">Documented Limitations</h3>
-          <ul style="margin:6px 0 0;padding-left:18px;color:var(--ink-secondary)">
-            ${mc.limitations.map(l => `<li style="margin-bottom:4px">${l}</li>`).join("")}
-          </ul>
+          ${sgRows ? `
+            <h3 class="section-h3">Sex-Stratified Holdout Subgroup Audit</h3>
+            <div class="table-scroll" style="margin:8px 0 20px">
+              <table class="data-table tabular">
+                <thead><tr><th>Subgroup</th><th>Test N</th><th>ROC-AUC</th><th>Sensitivity</th><th>Specificity</th><th>Missed Disease (FNR)</th></tr></thead>
+                <tbody>${sgRows}</tbody>
+              </table>
+            </div>
+          ` : ""}
+          ${mc.limitations ? `
+            <h3 class="section-h3">Documented Limitations</h3>
+            <ul style="margin:6px 0 0;padding-left:18px;color:var(--ink-secondary)">
+              ${mc.limitations.map(l => `<li style="margin-bottom:4px">${l}</li>`).join("")}
+            </ul>
+          ` : ""}
         `;
       } catch (err) {
         container.textContent = "Failed to load model card: " + err.message;
@@ -1571,8 +2003,8 @@
     }
 
     updateDerivedVitals();
-    loadHealth();
-    assess(true);
+    updateWorkupDerived();
+    loadHealth().then(() => assess(true));
   </script>
 </body>
 </html>

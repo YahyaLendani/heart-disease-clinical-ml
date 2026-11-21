@@ -12,10 +12,14 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from clinical_cds import (
+    CardiologyWorkupBundle,
+    CardiologyWorkupEngine,
+    CardiologyWorkupInput,
     ClinicalInferenceEngine,
     ClinicalModelBundle,
     PatientClinicalInput,
     build_clinical_bundle,
+    build_workup_bundle,
     compute_psi,
     fhir_bundle_to_patient_input,
     prediction_to_fhir_risk_assessment,
@@ -26,7 +30,7 @@ from clinical_cds.api import create_app
 
 @pytest.fixture(scope="module")
 def synthetic_cds_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Train a tiny deterministic ClinicalModelBundle on synthetic cohort for fast testing."""
+    """Train a tiny deterministic v3 ClinicalModelBundle on synthetic cohort for fast testing."""
     tmp_dir = tmp_path_factory.mktemp("cds_bundle")
     rng = np.random.default_rng(42)
     n = 360
@@ -73,8 +77,74 @@ def synthetic_cds_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
     build_clinical_bundle(
         dataset_path=csv_path,
         output_path=bundle_path,
-        epochs=4,
+        epochs=3,
         batch_size=64,
+        k_neighbors=5,
+        embed_dim=16,
+        n_prototypes=64,
+        cv_folds=2,
+        seed=42,
+    )
+    return bundle_path
+
+
+@pytest.fixture(scope="module")
+def synthetic_workup_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Train a tiny deterministic Stage-2 Cardiology Workup bundle for fast testing."""
+    tmp_dir = tmp_path_factory.mktemp("workup_bundle")
+    rng = np.random.default_rng(7)
+    n = 240
+    age = rng.uniform(35.0, 77.0, size=n)
+    sex = rng.integers(0, 2, size=n)
+    cp = rng.integers(1, 5, size=n)
+    trestbps = rng.normal(132.0, 17.0, size=n).clip(95.0, 195.0)
+    chol = rng.normal(245.0, 48.0, size=n).clip(140.0, 390.0)
+    fbs = rng.integers(0, 2, size=n)
+    restecg = rng.integers(0, 3, size=n)
+    thalach = rng.normal(148.0, 22.0, size=n).clip(85.0, 195.0)
+    exang = rng.integers(0, 2, size=n)
+    oldpeak = rng.exponential(1.1, size=n).clip(0.0, 5.5)
+    slope = rng.integers(1, 4, size=n)
+    ca = rng.integers(0, 4, size=n)
+    thal = rng.choice([3, 6, 7], size=n)
+
+    logit = (
+        0.7 * (cp == 4)
+        + 0.8 * exang
+        + 0.6 * oldpeak
+        + 0.7 * ca
+        + 0.8 * (thal == 7)
+        - 0.03 * (thalach - 145.0)
+        - 1.6
+    )
+    prob = 1.0 / (1.0 + np.exp(-logit))
+    target = (rng.uniform(size=n) < prob).astype(int)
+
+    df = pd.DataFrame({
+        "age": age,
+        "sex": sex,
+        "cp": cp,
+        "trestbps": trestbps,
+        "chol": chol,
+        "fbs": fbs,
+        "restecg": restecg,
+        "thalach": thalach,
+        "exang": exang,
+        "oldpeak": oldpeak,
+        "slope": slope,
+        "ca": ca,
+        "thal": thal,
+        "target": target,
+    })
+    csv_path = tmp_dir / "synthetic_workup.csv"
+    bundle_path = tmp_dir / "test_workup_bundle.pt"
+    df.to_csv(csv_path, index=False)
+
+    build_workup_bundle(
+        dataset_path=csv_path,
+        output_path=bundle_path,
+        epochs=6,
+        cv_folds=2,
         k_neighbors=5,
         embed_dim=16,
         seed=42,
@@ -319,6 +389,7 @@ class TestV2OptimizationsAndSiteRecalibration:
         r95 = engine.predict(PatientClinicalInput(**base_kwargs, conformal_alpha=0.05))
 
         assert r90.xgboost_probability is not None
+        assert r90.hgb_probability is not None
         assert 0.0 <= r90.model_disagreement <= 1.0
         # Higher nominal coverage (smaller alpha) requires equal or wider deferral band
         band_85 = r85.conformal_high_threshold - r85.conformal_low_threshold
@@ -350,3 +421,65 @@ class TestV2OptimizationsAndSiteRecalibration:
         expected = np.full(10, 0.1)
         uniform_samples = np.repeat(np.linspace(0.05, 0.95, 10), 10)
         assert compute_psi(expected, uniform_samples, edges) < 1e-6
+
+
+class TestStage2CardiologyWorkup:
+    """Verify Stage-2 Cardiology Workup bundle, engine, recourse, and API endpoints."""
+
+    def test_workup_bundle_engine_and_api(
+        self, synthetic_cds_bundle: Path, synthetic_workup_bundle: Path
+    ):
+        bundle = CardiologyWorkupBundle.load(synthetic_workup_bundle, device="cpu")
+        assert len(bundle.bundle_sha256) == 64
+        assert abs(sum(bundle.ensemble_weights) - 1.0) < 1e-4
+
+        w_engine = CardiologyWorkupEngine(bundle)
+        high_pt = CardiologyWorkupInput(
+            patient_pseudo_id="CARD-001",
+            age=64,
+            sex=1,
+            cp=4,
+            trestbps=160,
+            chol=295,
+            fbs=1,
+            restecg=2,
+            thalach=112,
+            exang=1,
+            oldpeak=2.8,
+            slope=2,
+            ca=2,
+            thal=7,
+            conformal_alpha=0.10,
+        )
+        resp = w_engine.predict(high_pt)
+        assert 0.0 <= resp.calibrated_risk_probability <= 1.0
+        assert resp.xgboost_probability is not None
+        assert resp.hgb_probability is not None
+        assert resp.triage_decision in ("LOW_RISK", "HIGH_RISK", "DEFER_TO_CLINICIAN")
+        assert len(resp.dual_explanation.top_cohort_neighbors) == 5
+
+        s1_engine = ClinicalInferenceEngine.from_bundle(synthetic_cds_bundle, device="cpu")
+        app = create_app(engine=s1_engine, workup_engine=w_engine)
+        client = TestClient(app)
+
+        h1 = client.get("/v1/health").json()
+        assert h1["workup_available"] is True
+        assert "hist_gradient_boosting" in h1["ensemble_weights"]
+
+        hw = client.get("/v1/workup/health")
+        assert hw.status_code == 200
+        assert "random_forest" in hw.json()["ensemble_weights"]
+
+        mc = client.get("/v1/workup/model-card")
+        assert mc.status_code == 200
+        mc_data = mc.json()
+        assert "holdout_performance" in mc_data
+        assert "mondrian_conformal_by_alpha" in mc_data
+
+        pred_resp = client.post("/v1/workup/predict", json=high_pt.model_dump())
+        assert pred_resp.status_code == 200
+        assert pred_resp.json()["request_id"].startswith("workup-")
+
+        fhir_resp = client.post("/v1/workup/predict/with-fhir", json=high_pt.model_dump())
+        assert fhir_resp.status_code == 200
+        assert fhir_resp.json()["fhir_risk_assessment"]["resourceType"] == "RiskAssessment"

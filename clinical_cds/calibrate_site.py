@@ -1,15 +1,8 @@
 """Hospital Local Site Recalibration Utility (``heart-pipeline calibrate-site``).
 
-Solves cross-hospital prevalence & covariate shift WITHOUT retraining the neural
-network: given 150–1,000 local labeled calibration patients from a target hospital,
-this script refits ONLY:
-1. Post-hoc Temperature Scaling scalar ``T*`` on the local site's logits.
-2. Sex-stratified Mondrian Conformal Quantiles across ``alpha in {0.05, 0.10, 0.15}``.
-3. Local site validation risk histogram (for accurate site-specific PSI drift tracking).
-4. Local OOD learned-manifold cosine distance threshold (99.5th percentile).
-
-Exports a new SHA-256-verified hospital-calibrated ``ClinicalModelBundle`` + updated
-JSON Model Card in < 2 seconds on CPU.
+Refits Temperature Scaling ``T*``, multi-alpha sex-stratified Mondrian conformal
+quantiles (85% / 90% / 95%), OOD threshold, and PSI baseline histogram on a local
+hospital cohort without retraining any neural or tree weights (< 2 seconds on CPU).
 """
 
 from __future__ import annotations
@@ -30,13 +23,12 @@ from models import ModelWithTemperature, compute_ece
 from project_paths import ARTIFACTS_DIR, resolve_data_path
 
 from .bundle import (
-    CAT_COLS,
-    CONT_COLS,
     DEFAULT_BUNDLE_PATH,
     SUPPORTED_ALPHAS,
     ClinicalModelBundle,
     _sha256_file,
     compute_multialpha_mondrian_quantiles,
+    engineer_screening_interactions,
 )
 
 
@@ -55,10 +47,12 @@ def recalibrate_bundle_for_site(
     df = pd.read_csv(resolve_data_path(local_csv)).dropna(subset=["target"]).reset_index(drop=True)
     if len(df) < 30:
         raise ValueError(f"Local calibration cohort too small ({len(df)} rows); need at least 30.")
+    if "aha_bp_stage" in bundle.cat_cols and "aha_bp_stage" not in df.columns:
+        df = engineer_screening_interactions(df)
 
     dev = next(bundle.model.parameters()).device
-    X_cat = df[CAT_COLS].values.astype(np.int64)
-    X_cont_raw = df[CONT_COLS].values.astype(np.float32)
+    X_cat = df[bundle.cat_cols].values.astype(np.int64)
+    X_cont_raw = df[bundle.cont_cols].values.astype(np.float32)
     X_cont = (X_cont_raw - bundle.cont_mean) / np.where(bundle.cont_scale == 0, 1.0, bundle.cont_scale)
     X_tab = np.hstack([X_cat.astype(np.float32), X_cont]).astype(np.float32)
     y_int = df["target"].values.astype(int)
@@ -67,7 +61,6 @@ def recalibrate_bundle_for_site(
     xc_t = torch.from_numpy(X_cat).to(dev)
     xct_t = torch.from_numpy(X_cont).to(dev)
 
-    # Extract raw GAT-Transformer logits & learned-manifold OOD distances
     bundle.model.eval()
     logits_parts, dist_parts = [], []
     k_eff = min(bundle.k_neighbors, bundle.H_bank_norm.size(0))
@@ -81,6 +74,7 @@ def recalibrate_bundle_for_site(
                 x_cat=xc_t[s : s + 1024],
                 x_cont=xct_t[s : s + 1024],
                 nbr_h_tab=bundle.H_tab_bank[topk_idx],
+                nbr_labels=bundle.bank_outcomes_t[topk_idx],
             )
             logits_parts.append(lg)
             dist_parts.append((1.0 - topk_sims[:, 0]).cpu().numpy())
@@ -88,7 +82,6 @@ def recalibrate_bundle_for_site(
     local_logits = torch.cat(logits_parts, dim=0)
     local_min_dists = np.concatenate(dist_parts)
 
-    # Refit Temperature T* strictly on local site logits
     temp_scaler = ModelWithTemperature(bundle.model).to(dev)
     cal_report = temp_scaler.calibrate(
         local_logits.detach().clone(),
@@ -99,14 +92,17 @@ def recalibrate_bundle_for_site(
     with torch.inference_mode():
         local_gat_probs = torch.sigmoid(temp_scaler.temperature_scale(local_logits)).cpu().numpy().ravel()
 
+    w_gat, w_xgb, w_hgb = bundle.ensemble_weights
+    local_probs = w_gat * local_gat_probs
+    total_w = w_gat
     if bundle.xgb_model is not None:
-        local_xgb_probs = bundle.xgb_model.predict_proba(X_tab)[:, 1]
-        w = bundle.ensemble_gat_weight
-        local_probs = w * local_gat_probs + (1.0 - w) * local_xgb_probs
-    else:
-        local_probs = local_gat_probs
+        local_probs = local_probs + w_xgb * bundle.xgb_model.predict_proba(X_tab)[:, 1]
+        total_w += w_xgb
+    if bundle.hgb_model is not None:
+        local_probs = local_probs + w_hgb * bundle.hgb_model.predict_proba(X_tab)[:, 1]
+        total_w += w_hgb
+    local_probs = local_probs / max(total_w, 1e-8)
 
-    # Refit multi-alpha sex-stratified Mondrian conformal quantiles & PSI baseline
     new_quantiles = compute_multialpha_mondrian_quantiles(
         local_probs, y_int, sex_int, alphas=SUPPORTED_ALPHAS
     )
