@@ -5,6 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - PORT=8000
       - CDS_DEVICE=cpu
       - CDS_CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000
     volumes:

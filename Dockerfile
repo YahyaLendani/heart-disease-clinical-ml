@@ -3,7 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    CDS_DEVICE=cpu
+    CDS_DEVICE=cpu \
+    PORT=7860
 
 WORKDIR /app
 
@@ -20,17 +21,17 @@ COPY clinical_cds/ ./clinical_cds/
 COPY docs/ ./docs/
 COPY project_paths.py prepare_large_cvd_dataset.py ./
 
-# Run as dedicated non-root clinical service user
-RUN useradd --create-home --shell /bin/false cdsuser && \
+# Run as dedicated non-root UID 1000 user (compatible with Hugging Face Spaces & hospital Docker)
+RUN useradd --create-home --uid 1000 --shell /bin/false cdsuser && \
     mkdir -p /app/artifacts && \
     chown -R cdsuser:cdsuser /app
 
 USER cdsuser
 
-EXPOSE 8000
+EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health')"
+  CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"7860\")}/v1/health')"
 
 # Auto-download SHA-256-verified bundles on first boot if not bind-mounted locally
-CMD ["sh", "-c", "if [ ! -f /app/artifacts/clinical_cds_bundle.pt ] || [ ! -f /app/artifacts/clinical_workup_bundle.pt ]; then python -m clinical_cds.download_bundles; fi && exec uvicorn clinical_cds.api:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "if [ ! -f /app/artifacts/clinical_cds_bundle.pt ] || [ ! -f /app/artifacts/clinical_workup_bundle.pt ]; then python -m clinical_cds.download_bundles; fi && exec uvicorn clinical_cds.api:app --host 0.0.0.0 --port ${PORT:-7860}"]

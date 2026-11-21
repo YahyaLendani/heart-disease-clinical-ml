@@ -1,0 +1,51 @@
+name: Sync Demo to Hugging Face Spaces
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "clinical_cds/**"
+      - "models/**"
+      - "docs/thesis_defense_slides.html"
+      - "docs/hf_space/README.md"
+      - "Dockerfile"
+      - "requirements.txt"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  sync-to-hf-space:
+    name: Deploy Docker Demo to Hugging Face Space
+    runs-on: ubuntu-latest
+    if: ${{ secrets.HF_TOKEN != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare clean Space commit (with HF Space YAML README)
+        run: |
+          mkdir -p /tmp/hf_space
+          cp Dockerfile pyproject.toml requirements.txt project_paths.py prepare_large_cvd_dataset.py /tmp/hf_space/
+          cp -r models clinical_cds /tmp/hf_space/
+          mkdir -p /tmp/hf_space/docs
+          cp docs/thesis_defense_slides.html /tmp/hf_space/docs/
+          cp docs/hf_space/README.md /tmp/hf_space/README.md
+          cd /tmp/hf_space
+          git init -b main
+          git config user.name "YahyaLendani"
+          git config user.email "yahyalendani@gmail.com"
+          git add .
+          git commit -m "Deploy CardioGraph CDS v3.1 live demo (${GITHUB_SHA::7})"
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO: ${{ vars.HF_SPACE_REPO || 'YahyaLendani/cardiograph-cds' }}
+        run: |
+          cd /tmp/hf_space
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}" main

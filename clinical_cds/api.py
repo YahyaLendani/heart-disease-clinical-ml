@@ -90,7 +90,8 @@ def create_app(
         ),
     )
 
-    cors_raw = os.environ.get("CDS_CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000")
+    default_cors = "*" if os.environ.get("SPACE_ID") else "http://127.0.0.1:8000,http://localhost:8000"
+    cors_raw = os.environ.get("CDS_CORS_ORIGINS", default_cors)
     cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
@@ -105,6 +106,11 @@ def create_app(
         if shadow_mode is not None
         else os.environ.get("CDS_SHADOW_MODE", "false").strip().lower() in ("1", "true", "yes")
     )
+    in_hf_space = bool(os.environ.get("SPACE_ID", "").strip())
+    frame_ancestors = os.environ.get(
+        "CDS_FRAME_ANCESTORS",
+        "https://huggingface.co https://*.hf.space" if in_hf_space else "'none'",
+    ).strip()
 
     @app.middleware("http")
     async def security_and_auth_middleware(request: Request, call_next: Any) -> Response:
@@ -121,7 +127,8 @@ def create_app(
 
         response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
+        if frame_ancestors == "'none'":
+            response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         response.headers.setdefault(
@@ -132,7 +139,7 @@ def create_app(
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
             "connect-src 'self'; "
-            "frame-ancestors 'none'",
+            f"frame-ancestors {frame_ancestors}",
         )
         if configured_shadow_mode:
             response.headers["X-CDS-Shadow-Mode"] = "true"

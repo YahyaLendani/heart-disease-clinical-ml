@@ -667,6 +667,17 @@ class TestStage2CardiologyWorkup:
         assert "javascript:alert(1)" not in js_resp.text
         assert "launch.smarthealthit.org" in js_resp.text
 
+    def test_hf_space_mode_allows_iframe_framing(self, synthetic_cds_bundle: Path, monkeypatch):
+        monkeypatch.setenv("SPACE_ID", "YahyaLendani/cardiograph-cds")
+        engine = ClinicalInferenceEngine.from_bundle(synthetic_cds_bundle, device="cpu")
+        app = create_app(engine=engine)
+        client = TestClient(app)
+
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "x-frame-options" not in resp.headers
+        assert "frame-ancestors https://huggingface.co https://*.hf.space" in resp.headers["content-security-policy"]
+
     def test_weighted_conformal_sets_zero_label_covariate_shift(self):
         from clinical_cds import compute_weighted_conformal_sets
 
