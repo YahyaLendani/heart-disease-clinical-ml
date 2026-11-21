@@ -6,26 +6,25 @@
 
 ## 1. High-Priority Verified Warsaw Targets (2026)
 
-### Target A — PTK Section of AI & Digital Solutions (SIRC) @ WIM-PIB Warsaw *(Top Priority!)*
-- **Why this is a bullseye:** The Polish Cardiac Society's **Sekcja Sztucznej Inteligencji i Rozwiązań Cyfrowych (SIRC)** is headquartered in Warsaw at **Wojskowy Instytut Medyczny – Państwowy Instytut Badawczy (WIM-PIB)**, and their publicly stated #1 priority is **validating AI algorithms on local Polish hospital data** — literally what `heart-pipeline calibrate-site` solves!
-- **Key Leadership:**
+### Target 1 — 1st Chair & Department of Cardiology, Medical University of Warsaw (WUM) *(Best Direct Clinical AI Fit)*
+- **prof. dr hab. n. med. Łukasz Kołtowski** — Board Member of PTK SIRC (2025–2027); co-author of the *European Heart Journal – Digital Health* (2026) ESC Scientific Statement on AI in cardiology and *European Heart Journal* (2025) paper on AI in cardiovascular pharmacotherapy.
+- **dr n. med. Jakub K. Kosma Rokicki** (`jakubrokicki.pl`) — Cardiologist & ML researcher in the same department focusing on machine learning in cardiology and remote device monitoring *(high reply probability for a 15-minute live demo)*.
+- **WUM Cardiology Student Research Circles (*SKN Kardiologii*)** — Active observational clinical research groups that regularly partner with CS engineers.
+
+### Target 2 — PTK Section of AI & Digital Solutions (SIRC, 2025–2027) @ WIM-PIB Warsaw
+- **Why this is a bullseye:** Headquartered in Warsaw at **Wojskowy Instytut Medyczny – Państwowy Instytut Badawczy (WIM-PIB)**; their publicly stated priority is **validating AI algorithms on local Polish hospital data** — directly matching `heart-pipeline calibrate-site`.
+- **Key Verified Board Members:**
   - **prof. dr hab. n. med. Paweł Krzesiński** (Chair, SIRC PTK — WIM-PIB Warsaw)
   - **prof. dr hab. n. med. Piotr Szymański** (Chair-Elect, SIRC PTK — Warsaw)
-- **Immediate In-Person Opportunity:** **I Konferencja Sekcji Sztucznej Inteligencji i Rozwiązań Cyfrowych PTK — 12 December 2026, Warsaw** (check `ptkardio.pl` for registration/student attendance — showing your live demo on a laptop during a coffee break is worth 50 cold emails!).
+  - **dr n. med. Agata Galas** (Secretary, SIRC PTK — WIM-PIB Warsaw)
+  - **dr n. med. Konrad Pieszko** (Board Member, SIRC PTK — active in interpretable ML for cardiac risk prediction)
+- **Immediate In-Person Opportunity:** **I Konferencja Sekcji Sztucznej Inteligencji i Rozwiązań Cyfrowych PTK — 12 December 2026, Warsaw** (check `ptkardio.pl` for registration — demoing live on a laptop during a coffee break beats 50 cold emails).
 
-### Target B — 1st Chair & Department of Cardiology, Medical University of Warsaw (WUM)
-- **Why they're a great fit:** Active publications on ESC AI/ML consensus statements, XGBoost cardiac risk stratification, AI algorithmic fairness, and Poland's first AI-equipped arrhythmia recorder implantations — plus active **Cardiology Student Research Circles (*SKN Kardiologii*)** open to CS collaborators.
-- **How to pick the exact MD/PhD contact:** Run this PubMed query and email the **first author** (younger MD/PhD) or **corresponding author**:
-  ```text
-  ("Medical University of Warsaw"[Affiliation]) AND ("Cardiology"[Affiliation]) AND ("machine learning" OR "artificial intelligence")
-  ```
+### Target 3 — National Institute of Cardiology (NIKard, Warsaw-Anin) & Regional Centre for Digital Medicine
+- **prof. Mariusz Kruk** & **prof. Cezary Kępka** — Leaders in coronary artery disease (CAD) imaging, FFR-CT, EU *SMARTool* CAD decision support, and NIKard's **Regional Centre for Digital Medicine (*Centrum Medycyny Cyfrowej*)**.
 
-### Target C — National Institute of Cardiology (NIKard, Warsaw-Anin)
-- **Why they're a great fit:** Participated in EU CAD clinical decision-support consortia (e.g., *SMARTool*) and AI-Quantitative CT (AI-QCT) coronary plaque/CAD risk modeling.
-- **PubMed query to find active junior investigators:**
-  ```text
-  ("National Institute of Cardiology"[Affiliation] AND "Warsaw"[Affiliation]) AND ("machine learning" OR "artificial intelligence" OR "coronary artery disease")
-  ```
+### Target 4 — MI2.AI Responsible Clinical AI Lab (Warsaw University of Technology — `mi2.ai`)
+- **prof. dr hab. Przemysław Biecek** & MI2.AI PhD/postdoc team — Poland's leading lab for **Explainable & Trustworthy Clinical AI** (`DALEX`, `xLungs`), right in Warsaw. Ideal for presenting at a lab seminar and getting a **warm faculty introduction** into WUM or NIKard cardiology teams.
 
 ---
 
