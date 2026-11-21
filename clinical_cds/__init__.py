@@ -13,7 +13,8 @@ Production-aligned inference engine for ``GraphAugmentedClinicalTransformer``:
 from __future__ import annotations
 
 from .bundle import ClinicalModelBundle, build_clinical_bundle
-from .engine import ClinicalInferenceEngine
+from .calibrate_site import recalibrate_bundle_for_site
+from .engine import ClinicalInferenceEngine, compute_psi
 from .fhir_adapter import fhir_bundle_to_patient_input, prediction_to_fhir_risk_assessment
 from .schemas import (
     ClinicalPredictionResponse,
@@ -27,7 +28,9 @@ from .schemas import (
 __all__ = [
     "ClinicalModelBundle",
     "build_clinical_bundle",
+    "recalibrate_bundle_for_site",
     "ClinicalInferenceEngine",
+    "compute_psi",
     "PatientClinicalInput",
     "ClinicalPredictionResponse",
     "OODReport",

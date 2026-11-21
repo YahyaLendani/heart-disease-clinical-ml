@@ -38,6 +38,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "ensemble": ("training.ensemble_models", "Soft-voting and stacking ensembles."),
     "graph-transformer": ("experiments.train_graph_transformer", "Graph-Augmented Clinical Transformer (UCI CV, MIMIC CV, 68.6k mini-batch)."),
     "build-cds-bundle": ("clinical_cds.bundle", "Export SHA-256-verified Clinical CDS bundle + Model Card."),
+    "calibrate-site": ("clinical_cds.calibrate_site", "Locally recalibrate Temperature T* & Mondrian quantiles for a hospital site."),
     "loco": ("experiments.cross_center_generalization", "Leave-one-center-out generalisation."),
     "fairness": ("evaluation.fairness_analysis", "Sex and age subgroup fairness analysis."),
     "reading-list": ("experiments.run_reading_list_suite", "TabTransformer, GNNs, calibration, conformal, causal, recourse."),

@@ -1,50 +1,78 @@
 {
-  "model_name": "GraphAugmentedClinicalTransformer (CDS Bundle)",
-  "model_version": "1.0.0-gat-transformer-cds",
-  "created_utc": "2026-11-21T10:43:25.623129+00:00",
+  "model_name": "Hybrid GraphAugmentedClinicalTransformer + XGBoost (Prototype CDS v2)",
+  "model_version": "2.0.0-gat-xgb-prototype-cds",
+  "created_utc": "2026-11-21T10:59:26.945327+00:00",
   "training_cohort": {
     "source": "OpenML 45547 Cardiovascular Disease Cohort (physiologically cleaned & deduplicated)",
     "n_total": 68589,
     "n_train": 48011,
     "n_val": 10289,
-    "n_test": 10289
+    "n_test": 10289,
+    "n_prototypes": 4094,
+    "neighbor_space": "learned_cls_embedding_cosine"
+  },
+  "ensemble_weights": {
+    "graph_augmented_transformer": 0.159,
+    "xgboost": 0.841
   },
   "holdout_performance": {
-    "roc_auc": 0.8001,
-    "pr_auc": 0.7824,
-    "accuracy": 0.7324,
-    "f1": 0.7127,
-    "brier": 0.1822,
-    "ece": 0.0197,
-    "temperature": 1.1118
+    "roc_auc": 0.8009,
+    "pr_auc": 0.7828,
+    "accuracy": 0.7325,
+    "f1": 0.7159,
+    "brier": 0.1812,
+    "ece": 0.0096,
+    "temperature": 1.1118,
+    "standalone_gat_roc_auc": 0.8001,
+    "standalone_xgb_roc_auc": 0.8006
   },
   "mondrian_conformal_audit": {
     "nominal_coverage": 0.9,
-    "empirical_test_coverage": 0.8993,
-    "deferral_rate": 0.4266,
-    "mean_set_size": 1.4266
+    "empirical_test_coverage": 0.8992,
+    "deferral_rate": 0.4269,
+    "mean_set_size": 1.4269
+  },
+  "mondrian_conformal_by_alpha": {
+    "0.05": {
+      "nominal_coverage": 0.95,
+      "empirical_test_coverage": 0.9545,
+      "deferral_rate": 0.671,
+      "mean_set_size": 1.671
+    },
+    "0.10": {
+      "nominal_coverage": 0.9,
+      "empirical_test_coverage": 0.8992,
+      "deferral_rate": 0.4269,
+      "mean_set_size": 1.4269
+    },
+    "0.15": {
+      "nominal_coverage": 0.85,
+      "empirical_test_coverage": 0.8445,
+      "deferral_rate": 0.2696,
+      "mean_set_size": 1.2696
+    }
   },
   "subgroup_performance": {
     "female": {
       "n_test": 6637,
-      "roc_auc": 0.7985,
-      "sensitivity": 0.6738,
-      "specificity": 0.789,
-      "fnr": 0.3262
+      "roc_auc": 0.799,
+      "sensitivity": 0.6784,
+      "specificity": 0.7811,
+      "fnr": 0.3216
     },
     "male": {
       "n_test": 3652,
-      "roc_auc": 0.803,
-      "sensitivity": 0.6651,
-      "specificity": 0.8006,
-      "fnr": 0.3349
+      "roc_auc": 0.8043,
+      "sensitivity": 0.6855,
+      "specificity": 0.7866,
+      "fnr": 0.3145
     }
   },
-  "intended_use": "Clinician-in-the-loop cardiovascular risk triage and dual-level interpretability research prototype. Outputs calibrated risk, Mondrian conformal abstention, OOD safety alerts, biomarker attentions, matched cohort neighbors, and mutable-only recourse.",
+  "intended_use": "Clinician-in-the-loop cardiovascular risk triage and dual-level interpretability research prototype. Uses learned-space clinical prototype retrieval, hybrid neural+tree ensembling, multi-alpha Mondrian conformal abstention, live PSI drift tracking, and immutable-safe counterfactual recourse.",
   "limitations": [
     "Trained on retrospective screening data; requires prospective hospital EHR validation before clinical use.",
     "Not FDA-cleared or CE-marked medical software.",
-    "Automatically defers uncertain or out-of-distribution patients to clinician review."
+    "Use `heart-pipeline calibrate-site` to locally recalibrate Temperature and Mondrian quantiles for a new hospital population."
   ],
-  "bundle_sha256": "deb5f95d5d98ac9e028cde7a3ed5613b5b59d4a5a99e24e6accae1931e96e2e9"
+  "bundle_sha256": "8975055b78dcfca36bcb2a39951ecba451daebf20429d4ff089e0af914aae6b8"
 }

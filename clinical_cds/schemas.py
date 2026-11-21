@@ -42,6 +42,10 @@ class PatientClinicalInput(BaseModel):
     smoke: Literal[0, 1] = Field(default=0, description="Current tobacco smoker (0 = No, 1 = Yes).")
     alcohol: Literal[0, 1] = Field(default=0, description="Regular alcohol intake (0 = No, 1 = Yes).")
     active: Literal[0, 1] = Field(default=1, description="Physically active lifestyle (0 = No, 1 = Yes).")
+    conformal_alpha: Literal[0.05, 0.10, 0.15] = Field(
+        default=0.10,
+        description="Conformal miscoverage level (0.05 = 95% coverage, 0.10 = 90%, 0.15 = 85%).",
+    )
 
     @model_validator(mode="after")
     def validate_physiological_consistency(self) -> PatientClinicalInput:
@@ -128,6 +132,18 @@ class ClinicalPredictionResponse(BaseModel):
     model_version: str
     bundle_sha256: str
     calibrated_risk_probability: float = Field(..., ge=0.0, le=1.0)
+    gat_transformer_probability: float = Field(
+        ..., ge=0.0, le=1.0, description="Standalone calibrated Graph-Augmented Transformer probability."
+    )
+    xgboost_probability: float | None = Field(
+        default=None, description="Standalone XGBoost probability when hybrid ensemble is active."
+    )
+    model_disagreement: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Absolute epistemic disagreement |p_gat - p_xgb| between neural and tree models.",
+    )
     triage_decision: Literal["LOW_RISK", "HIGH_RISK", "DEFER_TO_CLINICIAN"]
     triage_reason: str
     conformal_prediction_set: list[int]

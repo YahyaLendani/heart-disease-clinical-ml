@@ -889,6 +889,15 @@
             <button type="button" class="seg-btn" data-field="active" data-val="1" aria-pressed="false" onclick="setSeg('active', 1)">Active</button>
           </div>
         </div>
+
+        <div class="field">
+          <div class="field-label"><span>Conformal Coverage</span><span class="field-unit">1 &minus; &alpha;</span></div>
+          <div class="seg-control cols-3" role="group" aria-label="Conformal nominal coverage">
+            <button type="button" class="seg-btn" data-field="conformal_alpha" data-val="0.15" aria-pressed="false" onclick="setAlpha(0.15)">85%</button>
+            <button type="button" class="seg-btn" data-field="conformal_alpha" data-val="0.10" aria-pressed="true" onclick="setAlpha(0.10)">90%</button>
+            <button type="button" class="seg-btn" data-field="conformal_alpha" data-val="0.05" aria-pressed="false" onclick="setAlpha(0.05)">95%</button>
+          </div>
+        </div>
       </div>
 
       <div class="toggle-row">
@@ -963,6 +972,7 @@
       smoke: 0,
       alcohol: 0,
       active: 0,
+      conformal_alpha: 0.10,
       baselineRisk: null,
       baselinePayload: null,
       lastFhirJson: null,
@@ -1000,6 +1010,14 @@
         btn.setAttribute("aria-pressed", parseInt(btn.dataset.val, 10) === val ? "true" : "false");
       });
       if (triggerAssess) scheduleLiveAssess();
+    }
+
+    function setAlpha(alphaVal) {
+      state.conformal_alpha = alphaVal;
+      document.querySelectorAll('.seg-btn[data-field="conformal_alpha"]').forEach(btn => {
+        btn.setAttribute("aria-pressed", Math.abs(parseFloat(btn.dataset.val) - alphaVal) < 1e-6 ? "true" : "false");
+      });
+      assess(false);
     }
 
     function syncControl(inputId, val) {
@@ -1082,6 +1100,7 @@
         smoke: state.smoke,
         alcohol: state.alcohol,
         active: state.active,
+        conformal_alpha: state.conformal_alpha,
       };
     }
 
@@ -1230,9 +1249,10 @@
               <p class="triage-reason">${data.triage_reason}</p>
               <div class="meta-grid tabular">
                 <div class="meta-item"><span>Conformal Set</span><strong>{${data.conformal_prediction_set.join(", ")}}</strong></div>
+                <div class="meta-item"><span>GAT-T / XGBoost</span><strong>${(data.gat_transformer_probability * 100).toFixed(1)}% / ${data.xgboost_probability !== null ? (data.xgboost_probability * 100).toFixed(1) + '%' : '—'}</strong></div>
+                <div class="meta-item"><span>Disagreement |&Delta;|</span><strong>${(data.model_disagreement * 100).toFixed(1)} pts</strong></div>
                 <div class="meta-item"><span>Graph Gate</span><strong>${data.dual_explanation.graph_reliance_gate.toFixed(2)}</strong></div>
                 <div class="meta-item"><span>Max |z-score|</span><strong>${data.ood_report.max_abs_zscore.toFixed(2)}</strong></div>
-                <div class="meta-item"><span>Nearest Neighbor Dist</span><strong>${data.ood_report.min_neighbor_cosine_distance.toFixed(4)}</strong></div>
                 <div class="meta-item"><span>Latency</span><strong>${data.latency_ms} ms</strong></div>
               </div>
             </div>
@@ -1274,7 +1294,7 @@
       try {
         const res = await fetch("/v1/health");
         const h = await res.json();
-        document.getElementById("healthPill").innerHTML = `<span class="status-dot"></span><span>${h.device.toUpperCase()} &middot; ${h.cohort_bank_size.toLocaleString()} bank</span>`;
+        document.getElementById("healthPill").innerHTML = `<span class="status-dot"></span><span>${h.device.toUpperCase()} &middot; ${h.cohort_bank_size.toLocaleString()} prototypes</span>`;
         document.getElementById("shaTag").textContent = `SHA-256: ${h.bundle_sha256.slice(0, 16)}...`;
       } catch {
         document.getElementById("healthPill").textContent = "Engine offline";
@@ -1293,9 +1313,10 @@
         container.innerHTML = `
           <div class="stat-strip tabular">
             <div class="stat-box"><span>Total Assessments</span><strong>${d.total_requests}</strong></div>
-            <div class="stat-box"><span>Mean Risk</span><strong>${(d.mean_risk * 100).toFixed(1)}%</strong></div>
+            <div class="stat-box"><span>Risk PSI (${d.psi_status})</span><strong>${d.psi.toFixed(3)}</strong></div>
             <div class="stat-box"><span>Deferral Rate</span><strong>${(d.deferral_rate * 100).toFixed(1)}%</strong></div>
             <div class="stat-box"><span>OOD Alert Rate</span><strong>${(d.ood_rate * 100).toFixed(1)}%</strong></div>
+            <div class="stat-box"><span>Mean Disagreement</span><strong>${(d.mean_disagreement * 100).toFixed(1)} pts</strong></div>
             <div class="stat-box"><span>Mean Latency</span><strong>${d.mean_latency_ms.toFixed(2)} ms</strong></div>
           </div>
           <h3 class="section-h3">Triage Breakdown</h3>

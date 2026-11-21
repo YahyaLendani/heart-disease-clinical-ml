@@ -16,8 +16,10 @@ from clinical_cds import (
     ClinicalModelBundle,
     PatientClinicalInput,
     build_clinical_bundle,
+    compute_psi,
     fhir_bundle_to_patient_input,
     prediction_to_fhir_risk_assessment,
+    recalibrate_bundle_for_site,
 )
 from clinical_cds.api import create_app
 
@@ -283,9 +285,68 @@ class TestFHIRAndFastAPI:
 
         drift = client.get("/v1/drift")
         assert drift.status_code == 200
-        assert drift.json()["total_requests"] >= 2
+        drift_data = drift.json()
+        assert drift_data["total_requests"] >= 2
+        assert "psi" in drift_data and drift_data["psi_status"] in ("STABLE", "MODERATE_DRIFT", "SIGNIFICANT_DRIFT")
 
         # Direct JSON prediction & conversion helper sanity check
         pred = engine.predict(pt)
         ra2 = prediction_to_fhir_risk_assessment(pred)
         assert ra2["resourceType"] == "RiskAssessment"
+
+
+class TestV2OptimizationsAndSiteRecalibration:
+    """Verify hybrid ensemble, multi-alpha Mondrian bands, PSI drift, and hospital site recalibration."""
+
+    def test_multialpha_conformal_monotonicity_and_hybrid_ensemble(
+        self, synthetic_cds_bundle: Path
+    ):
+        engine = ClinicalInferenceEngine.from_bundle(synthetic_cds_bundle, device="cpu")
+        assert engine.bundle.xgb_model is not None
+
+        base_kwargs = {
+            "age_years": 56,
+            "sex": 1,
+            "height_cm": 174,
+            "weight_kg": 84,
+            "systolic_bp": 144,
+            "diastolic_bp": 90,
+            "cholesterol_level": 2,
+            "glucose_level": 1,
+        }
+        r85 = engine.predict(PatientClinicalInput(**base_kwargs, conformal_alpha=0.15))
+        r90 = engine.predict(PatientClinicalInput(**base_kwargs, conformal_alpha=0.10))
+        r95 = engine.predict(PatientClinicalInput(**base_kwargs, conformal_alpha=0.05))
+
+        assert r90.xgboost_probability is not None
+        assert 0.0 <= r90.model_disagreement <= 1.0
+        # Higher nominal coverage (smaller alpha) requires equal or wider deferral band
+        band_85 = r85.conformal_high_threshold - r85.conformal_low_threshold
+        band_95 = r95.conformal_high_threshold - r95.conformal_low_threshold
+        assert band_95 >= band_85 - 1e-6
+
+    def test_hospital_site_recalibration_and_psi(
+        self, synthetic_cds_bundle: Path, tmp_path: Path
+    ):
+        local_csv = synthetic_cds_bundle.parent / "synthetic_cvd.csv"
+        out_bundle = tmp_path / "site_zurich_bundle.pt"
+
+        saved_path, card = recalibrate_bundle_for_site(
+            local_csv=local_csv,
+            site_name="Zurich_Cardiology",
+            base_bundle_path=synthetic_cds_bundle,
+            output_path=out_bundle,
+            device="cpu",
+        )
+        assert saved_path.exists()
+        assert "site_recalibration" in card
+        assert card["site_recalibration"]["site_name"] == "Zurich_Cardiology"
+
+        reloaded = ClinicalInferenceEngine.from_bundle(saved_path, device="cpu")
+        assert "zurich_cardiology" in reloaded.bundle.model_version
+
+        # PSI on identical distribution must be ~0
+        edges = np.linspace(0.0, 1.0, 11)
+        expected = np.full(10, 0.1)
+        uniform_samples = np.repeat(np.linspace(0.05, 0.95, 10), 10)
+        assert compute_psi(expected, uniform_samples, edges) < 1e-6

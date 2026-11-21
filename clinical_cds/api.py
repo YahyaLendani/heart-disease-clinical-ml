@@ -20,13 +20,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response
 
 from project_paths import ARTIFACTS_DIR
 
 from .bundle import DEFAULT_BUNDLE_PATH
-from .engine import ClinicalInferenceEngine
+from .engine import ClinicalInferenceEngine, compute_psi
 from .fhir_adapter import fhir_bundle_to_patient_input, prediction_to_fhir_risk_assessment
 from .schemas import ClinicalPredictionResponse, PatientClinicalInput
 
@@ -93,6 +94,9 @@ def create_app(
             "device": str(eng.device),
             "cohort_bank_size": int(eng.bundle.H_tab_bank.size(0)),
             "k_neighbors": eng.bundle.k_neighbors,
+            "hybrid_ensemble": eng.bundle.xgb_model is not None,
+            "ensemble_gat_weight": round(eng.bundle.ensemble_gat_weight, 4),
+            "supported_alphas": sorted(eng.bundle.conformal_quantiles.keys()),
         }
 
     @app.get("/v1/model-card", tags=["Governance"])
@@ -115,7 +119,10 @@ def create_app(
                 "mean_risk": 0.0,
                 "deferral_rate": 0.0,
                 "ood_rate": 0.0,
+                "mean_disagreement": 0.0,
                 "mean_latency_ms": 0.0,
+                "psi": 0.0,
+                "psi_status": "STABLE",
                 "triage_counts": {},
             }
 
@@ -129,18 +136,35 @@ def create_app(
                 "mean_risk": 0.0,
                 "deferral_rate": 0.0,
                 "ood_rate": 0.0,
+                "mean_disagreement": 0.0,
                 "mean_latency_ms": 0.0,
+                "psi": 0.0,
+                "psi_status": "STABLE",
                 "triage_counts": {},
             }
+
+        risks = np.asarray([float(r["calibrated_risk_probability"]) for r in recent], dtype=np.float64)
+        psi = compute_psi(eng.bundle.val_risk_hist_props, risks, eng.bundle.val_risk_hist_edges)
+        if psi < 0.10:
+            psi_status = "STABLE"
+        elif psi < 0.25:
+            psi_status = "MODERATE_DRIFT"
+        else:
+            psi_status = "SIGNIFICANT_DRIFT"
 
         triage_counts = Counter(r["triage_decision"] for r in recent)
         return {
             "total_requests": n,
             "window_size": window,
-            "mean_risk": round(sum(float(r["calibrated_risk_probability"]) for r in recent) / n, 4),
+            "mean_risk": round(float(np.mean(risks)), 4),
             "deferral_rate": round(triage_counts.get("DEFER_TO_CLINICIAN", 0) / n, 4),
             "ood_rate": round(sum(1 for r in recent if r.get("is_ood")) / n, 4),
+            "mean_disagreement": round(
+                sum(float(r.get("model_disagreement", 0.0)) for r in recent) / n, 4
+            ),
             "mean_latency_ms": round(sum(float(r["latency_ms"]) for r in recent) / n, 2),
+            "psi": round(psi, 4),
+            "psi_status": psi_status,
             "triage_counts": dict(triage_counts),
         }
 
