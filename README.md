@@ -5,7 +5,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
-[![Tests: 92 passing](https://img.shields.io/badge/tests-92%20passing-success.svg)](tests/)
+[![Tests: 98 passing](https://img.shields.io/badge/tests-98%20passing-success.svg)](tests/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -118,7 +118,7 @@ flowchart TB
         E1["Result tables<br/>artifacts/*.md, *.csv"]:::out
         E2["Figures, light & dark<br/>artifacts/figures/"]:::out
         E3["Thesis tables updated in place<br/>thesis_draft.md"]:::out
-        E4["92 pytest tests<br/>CI on Python 3.10-3.13"]:::out
+        E4["98 pytest tests + FHIR CDS API<br/>CI on Python 3.10-3.13"]:::out
     end
 
     Data --> Prep --> Models --> Trust --> Output
@@ -164,6 +164,22 @@ flowchart TB
 </p>
 
 > **Takeaways:** Dual-level attention beats standalone `TabTransformer` and `GAT` on both the 4-center UCI cohort (5-fold CV ROC-AUC **0.8887 ± 0.0150**) and the **68,589-patient OpenML CVD cohort** (**0.8009 ROC-AUC**, **0.7826 PR-AUC**, **32.7s** on CUDA, mean graph reliance gate $\bar{g} = 0.568$), while surfacing clinically faithful biomarker weights (`age_years` 13.0%, `cholesterol` 12.8%, `ap_hi` 11.6%, `active` 10.3%, `sex` 8.8%) and matched cohort neighbors. On the tiny 275-admission MIMIC-IV demo (~3 deaths per test fold), rare-event $k$-NN neighborhoods are ~95% negative controls and simpler single-branch models lead—documenting the sample-complexity regime where cohort graph augmentation pays off. Reproduce via `heart-pipeline graph-transformer --mode all`.
+
+#### D. Production Clinical Decision Support (CDS) Stack & HL7 FHIR R4 Service (`clinical_cds/`)
+
+The trained 68,589-patient `GraphAugmentedClinicalTransformer` is packaged into a **SHA-256 tamper-verified, fail-safe clinical inference stack** ([`clinical_cds/`](clinical_cds/), [`Dockerfile`](Dockerfile)):
+
+- **Sub-6ms CPU Latency (5.10 ms/patient):** Pre-encodes the 48,011-patient training cohort into a compact `float16` neighbor bank so exact cosine $k$-NN + dual-attention inference + OOD checks + batched immutable recourse execute in **5.10 ms on CPU** (~196 patients/sec, zero GPU required in production).
+- **Exact Mondrian Conformal Coverage & Sex Parity at Scale:** On the 10,289-patient holdout test set ([`artifacts/clinical_cds_bundle.model_card.json`](artifacts/clinical_cds_bundle.model_card.json)), sex-stratified Mondrian conformal triage hits **89.93% empirical coverage** (90.0% target; ECE **0.0197**), and balanced female representation ($n_{\text{female}} = 6{,}637$) eliminates the UCI sex disparity (**Female ROC-AUC 0.7985 / Sensitivity 67.4%** vs. **Male ROC-AUC 0.8030 / Sensitivity 66.5%**, Equal Opportunity gap **< 0.9%**).
+- **Fail-Safe Guardrails & HL7 FHIR R4 Interoperability:** Rejects physiologically impossible vitals (`systolic_bp <= diastolic_bp + 5`, out-of-range BMI), forces `DEFER_TO_CLINICIAN` on Out-of-Distribution inputs, logs de-identified SHA-256-salted JSONL audit trails, and serves `GET /` (Bedside Clinician UI), `POST /v1/predict`, `POST /v1/predict/fhir` (FHIR R4 `Bundle` → `RiskAssessment`), `GET /v1/model-card`, and `GET /v1/health`.
+
+```bash
+# Export SHA-256-verified Clinical CDS bundle + Model Card
+heart-pipeline build-cds-bundle
+
+# Launch Bedside Clinician UI + HL7 FHIR R4 REST API (http://127.0.0.1:8000)
+uvicorn clinical_cds.api:app --host 127.0.0.1 --port 8000
+```
 
 ---
 

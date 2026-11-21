@@ -1,0 +1,50 @@
+{
+  "model_name": "GraphAugmentedClinicalTransformer (CDS Bundle)",
+  "model_version": "1.0.0-gat-transformer-cds",
+  "created_utc": "2026-11-21T10:43:25.623129+00:00",
+  "training_cohort": {
+    "source": "OpenML 45547 Cardiovascular Disease Cohort (physiologically cleaned & deduplicated)",
+    "n_total": 68589,
+    "n_train": 48011,
+    "n_val": 10289,
+    "n_test": 10289
+  },
+  "holdout_performance": {
+    "roc_auc": 0.8001,
+    "pr_auc": 0.7824,
+    "accuracy": 0.7324,
+    "f1": 0.7127,
+    "brier": 0.1822,
+    "ece": 0.0197,
+    "temperature": 1.1118
+  },
+  "mondrian_conformal_audit": {
+    "nominal_coverage": 0.9,
+    "empirical_test_coverage": 0.8993,
+    "deferral_rate": 0.4266,
+    "mean_set_size": 1.4266
+  },
+  "subgroup_performance": {
+    "female": {
+      "n_test": 6637,
+      "roc_auc": 0.7985,
+      "sensitivity": 0.6738,
+      "specificity": 0.789,
+      "fnr": 0.3262
+    },
+    "male": {
+      "n_test": 3652,
+      "roc_auc": 0.803,
+      "sensitivity": 0.6651,
+      "specificity": 0.8006,
+      "fnr": 0.3349
+    }
+  },
+  "intended_use": "Clinician-in-the-loop cardiovascular risk triage and dual-level interpretability research prototype. Outputs calibrated risk, Mondrian conformal abstention, OOD safety alerts, biomarker attentions, matched cohort neighbors, and mutable-only recourse.",
+  "limitations": [
+    "Trained on retrospective screening data; requires prospective hospital EHR validation before clinical use.",
+    "Not FDA-cleared or CE-marked medical software.",
+    "Automatically defers uncertain or out-of-distribution patients to clinician review."
+  ],
+  "bundle_sha256": "deb5f95d5d98ac9e028cde7a3ed5613b5b59d4a5a99e24e6accae1931e96e2e9"
+}

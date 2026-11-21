@@ -37,6 +37,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "baselines": ("training.baseline_models", "Logistic Regression, Random Forest and XGBoost baselines."),
     "ensemble": ("training.ensemble_models", "Soft-voting and stacking ensembles."),
     "graph-transformer": ("experiments.train_graph_transformer", "Graph-Augmented Clinical Transformer (UCI CV, MIMIC CV, 68.6k mini-batch)."),
+    "build-cds-bundle": ("clinical_cds.bundle", "Export SHA-256-verified Clinical CDS bundle + Model Card."),
     "loco": ("experiments.cross_center_generalization", "Leave-one-center-out generalisation."),
     "fairness": ("evaluation.fairness_analysis", "Sex and age subgroup fairness analysis."),
     "reading-list": ("experiments.run_reading_list_suite", "TabTransformer, GNNs, calibration, conformal, causal, recourse."),
@@ -189,9 +190,11 @@ def run_full_pipeline(args: argparse.Namespace) -> None:
         run_step("fairness", ["--n-jobs", str(args.n_jobs), *multi_center])
 
     if args.run_advancements or args.run_graph_transformer:
+        gt_mode = "all" if args.run_graph_transformer else "uci_cv"
         run_step(
             "graph-transformer",
             [
+                "--mode", gt_mode,
                 "--dataset", args.dataset,
                 "--cv-folds", str(args.cv_folds),
                 "--epochs", str(args.epochs),
