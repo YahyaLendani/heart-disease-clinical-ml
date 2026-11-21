@@ -254,11 +254,14 @@ class TestFHIRAndFastAPI:
         assert pt.glucose_level == 1
         assert pt.systolic_bp == 146.0
 
-        engine = ClinicalInferenceEngine.from_bundle(synthetic_cds_bundle, device="cpu")
+        engine = ClinicalInferenceEngine.from_bundle(
+            synthetic_cds_bundle, device="cpu", audit_log_path=synthetic_cds_bundle.parent / "api_audit.jsonl"
+        )
         app = create_app(engine=engine)
         client = TestClient(app)
 
         assert client.get("/").status_code == 200
+        assert client.get("/favicon.ico").status_code == 200
         health = client.get("/v1/health")
         assert health.status_code == 200 and health.json()["status"] == "healthy"
         assert client.get("/v1/model-card").status_code == 200
@@ -269,6 +272,18 @@ class TestFHIRAndFastAPI:
         assert ra["resourceType"] == "RiskAssessment"
         assert ra["subject"]["reference"] == "Patient/fhir-pt-999"
         assert 0.0 <= ra["prediction"][0]["probabilityDecimal"] <= 1.0
+
+        # Combined JSON + FHIR endpoint & live drift telemetry
+        combo = client.post("/v1/predict/with-fhir", json=pt.model_dump())
+        assert combo.status_code == 200
+        combo_body = combo.json()
+        assert 0.0 <= combo_body["prediction"]["conformal_low_threshold"] <= 1.0
+        assert 0.0 <= combo_body["prediction"]["conformal_high_threshold"] <= 1.0
+        assert combo_body["fhir_risk_assessment"]["resourceType"] == "RiskAssessment"
+
+        drift = client.get("/v1/drift")
+        assert drift.status_code == 200
+        assert drift.json()["total_requests"] >= 2
 
         # Direct JSON prediction & conversion helper sanity check
         pred = engine.predict(pt)

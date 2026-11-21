@@ -90,6 +90,9 @@ py-modules = [
 where = ["."]
 include = ["models*", "training*", "evaluation*", "experiments*", "clinical_cds*"]
 
+[tool.setuptools.package-data]
+clinical_cds = ["static/*.html"]
+
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]

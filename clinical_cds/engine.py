@@ -324,6 +324,9 @@ class ClinicalInferenceEngine:
             # 2. Sex-Stratified Mondrian Conformal Triage
             q0 = self.bundle.q_by_sex_class.get(f"sex_{patient.sex}_class_0", self.bundle.q_class_0)
             q1 = self.bundle.q_by_sex_class.get(f"sex_{patient.sex}_class_1", self.bundle.q_class_1)
+            # p <= 1 - q1 -> class 1 excluded (LOW_RISK); p > q0 -> class 0 excluded (HIGH_RISK)
+            low_thresh = float(np.clip(1.0 - q1, 0.0, 1.0))
+            high_thresh = float(np.clip(q0, 0.0, 1.0))
             cset: list[int] = []
             if prob <= q0:
                 cset.append(0)
@@ -410,6 +413,8 @@ class ClinicalInferenceEngine:
                 triage_reason=triage_reason,
                 conformal_prediction_set=cset,
                 conformal_alpha=self.bundle.conformal_alpha,
+                conformal_low_threshold=round(low_thresh, 4),
+                conformal_high_threshold=round(high_thresh, 4),
                 ood_report=ood_report,
                 dual_explanation=dual_expl,
                 actionable_recourse=recourse,

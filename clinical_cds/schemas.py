@@ -132,6 +132,14 @@ class ClinicalPredictionResponse(BaseModel):
     triage_reason: str
     conformal_prediction_set: list[int]
     conformal_alpha: float
+    conformal_low_threshold: float = Field(
+        ...,
+        description="Sex-stratified Mondrian threshold below which conformal set is {0} (LOW_RISK).",
+    )
+    conformal_high_threshold: float = Field(
+        ...,
+        description="Sex-stratified Mondrian threshold above which conformal set is {1} (HIGH_RISK).",
+    )
     ood_report: OODReport
     dual_explanation: DualClinicalExplanation
     actionable_recourse: list[RecourseRecommendation] = Field(default_factory=list)
