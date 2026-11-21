@@ -45,6 +45,7 @@ from .schemas import CardiologyWorkupInput, ClinicalPredictionResponse, PatientC
 from .workup import DEFAULT_WORKUP_BUNDLE_PATH, CardiologyWorkupEngine
 
 STATIC_UI_PATH = Path(__file__).resolve().parent / "static" / "index.html"
+SLIDES_HTML_PATH = Path(__file__).resolve().parent.parent / "docs" / "thesis_defense_slides.html"
 FAVICON_SVG = (
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
     "<rect width='32' height='32' rx='8' fill='#0f5c6e'/>"
@@ -53,7 +54,16 @@ FAVICON_SVG = (
     "</svg>"
 )
 
-_PUBLIC_PATHS = {"/", "/favicon.ico", "/metrics", "/v1/health", "/v1/workup/health"}
+_PUBLIC_PATHS = {
+    "/",
+    "/slides",
+    "/favicon.ico",
+    "/metrics",
+    "/v1/health",
+    "/v1/workup/health",
+    "/.well-known/smart-configuration",
+    "/smart/launch",
+}
 
 
 def create_app(
@@ -177,9 +187,69 @@ def create_app(
     def clinician_ui() -> HTMLResponse:
         return HTMLResponse(content=STATIC_UI_PATH.read_text(encoding="utf-8"))
 
+    @app.get("/slides", response_class=HTMLResponse, tags=["Clinician UI"])
+    def thesis_defense_slides() -> HTMLResponse:
+        if not SLIDES_HTML_PATH.exists():
+            raise HTTPException(status_code=404, detail="Defense slide deck not found.")
+        return HTMLResponse(content=SLIDES_HTML_PATH.read_text(encoding="utf-8"))
+
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> Response:
         return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+
+    @app.get("/.well-known/smart-configuration", tags=["HL7 FHIR R4"])
+    def smart_configuration(request: Request) -> dict[str, Any]:
+        """SMART on FHIR App Launch metadata discovery document."""
+        base = str(request.base_url).rstrip("/")
+        return {
+            "issuer": base,
+            "launch_uri": f"{base}/smart/launch",
+            "redirect_uri": f"{base}/",
+            "capabilities": [
+                "launch-ehr",
+                "launch-standalone",
+                "client-public",
+                "context-ehr-patient",
+                "permission-patient",
+            ],
+            "scopes_supported": [
+                "launch",
+                "openid",
+                "fhirUser",
+                "patient/Patient.read",
+                "patient/Observation.read",
+                "patient/RiskAssessment.write",
+            ],
+            "fhir_endpoints": {
+                "stage1_screening": f"{base}/v1/predict/fhir",
+                "stage2_cardiology_workup": f"{base}/v1/workup/predict/fhir",
+            },
+        }
+
+    @app.get("/smart/launch", response_class=HTMLResponse, tags=["HL7 FHIR R4"])
+    def smart_ehr_launch(
+        iss: str | None = None,
+        launch: str | None = None,
+        patient: str | None = None,
+    ) -> HTMLResponse:
+        """Lightweight SMART on FHIR EHR launch handoff (compatible with SMART Health IT Sandbox)."""
+        iss_safe = (iss or "https://launch.smarthealthit.org/v/r4/fhir").replace("<", "").replace(">", "")
+        launch_safe = (launch or "sandbox-demo").replace("<", "").replace(">", "")
+        patient_safe = (patient or "").replace("<", "").replace(">", "")
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>CardioGraph CDS — SMART on FHIR Launch</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;color:#0f1f2d;background:#f3f6f9}}
+.box{{background:#fff;border:1px solid #d7e0e8;border-radius:10px;padding:24px}}
+code{{background:#ecf1f6;padding:2px 6px;border-radius:4px;font-size:13px}}
+.btn{{display:inline-block;margin-top:16px;padding:10px 16px;border-radius:6px;background:#0f5c6e;color:#fff;text-decoration:none;font-weight:600}}</style>
+</head><body><div class="box">
+<h2>SMART on FHIR EHR Launch Ready</h2>
+<p>Received SMART launch context from FHIR server <code>{iss_safe}</code> (launch token: <code>{launch_safe}</code>{f", patient: <code>{patient_safe}</code>" if patient_safe else ""}).</p>
+<p>In a live SMART Health IT Sandbox or Epic/Cerner EHR, Patient + Observation LOINC resources are posted to <code>/v1/predict/fhir</code> (Stage 1) or <code>/v1/workup/predict/fhir</code> (Stage 2) to return a standards-compliant FHIR R4 <code>RiskAssessment</code>.</p>
+<a class="btn" href="/?smart_iss={iss_safe}">Open Bedside Clinician Workspace &rarr;</a>
+</div></body></html>"""
+        return HTMLResponse(content=html)
 
     @app.get("/metrics", response_class=PlainTextResponse, tags=["Operations"])
     def prometheus_metrics() -> PlainTextResponse:

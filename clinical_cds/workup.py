@@ -13,9 +13,7 @@ exercise stress-test, and perfusion scan biomarkers:
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-import pickle
 import time
 import uuid
 from dataclasses import dataclass
@@ -31,7 +29,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from scipy.optimize import minimize
 from scipy.special import expit, logit, softmax
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -44,7 +41,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRFClassifier
 
 from models import (
     GraphAugmentedClinicalTransformer,
@@ -58,6 +55,7 @@ from project_paths import ARTIFACTS_DIR, resolve_data_path
 from .bundle import (
     SUPPORTED_ALPHAS,
     _sha256_file,
+    _to_np,
     compute_multialpha_mondrian_quantiles,
 )
 from .schemas import (
@@ -69,7 +67,7 @@ from .schemas import (
     RecourseRecommendation,
 )
 
-WORKUP_BUNDLE_VERSION = "1.0.0-cardiology-workup-plr-unimp"
+WORKUP_BUNDLE_VERSION = "1.1.0-cardiology-workup-zeropickle"
 DEFAULT_WORKUP_BUNDLE_PATH = ARTIFACTS_DIR / "clinical_workup_bundle.pt"
 
 WORKUP_CAT_COLS = ["sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal"]
@@ -202,7 +200,7 @@ class CardiologyWorkupBundle:
 
     model: GraphAugmentedClinicalTransformer
     xgb_model: XGBClassifier
-    rf_model: RandomForestClassifier
+    rf_model: XGBRFClassifier
     ensemble_weights: tuple[float, float, float]
     temperature: float
     platt_a: float
@@ -247,7 +245,8 @@ class CardiologyWorkupBundle:
                 f"{expected_sha256}, got {actual_sha}."
             )
         dev = torch.device(device)
-        payload = torch.load(path, map_location=dev, weights_only=False)
+        # Strict Zero-Pickle safe deserialization (weights_only=True)
+        payload = torch.load(path, map_location=dev, weights_only=True)
 
         model = GraphAugmentedClinicalTransformer(**payload["model_config"]).to(dev)
         model.load_state_dict(payload["model_state_dict"])
@@ -255,12 +254,12 @@ class CardiologyWorkupBundle:
 
         xgb_model = XGBClassifier(n_jobs=1, device="cpu")
         xgb_model.load_model(bytearray(payload["xgb_booster_json"]))
-        rf_model = pickle.loads(io.BytesIO(payload["rf_pickle_bytes"]).read())
-        rf_model.n_jobs = 1
+        rf_model = XGBRFClassifier(n_jobs=1, device="cpu")
+        rf_model.load_model(bytearray(payload["rf_booster_json"]))
 
         H_tab = payload["H_tab_bank"].float().to(dev)
         H_norm = payload["H_bank_norm"].float().to(dev)
-        outcomes = np.asarray(payload["bank_outcomes"], dtype=np.int8)
+        outcomes = _to_np(payload["bank_outcomes"], np.int8)
 
         default_edges = np.linspace(0.0, 1.0, 11)
         default_props = np.full(10, 0.1, dtype=np.float64)
@@ -276,14 +275,14 @@ class CardiologyWorkupBundle:
             model_version=str(payload["model_version"]),
             bundle_sha256=actual_sha,
             feature_names=list(payload["feature_names"]),
-            cont_medians=np.asarray(payload["cont_medians"], dtype=np.float32),
-            cont_mean=np.asarray(payload["cont_mean"], dtype=np.float32),
-            cont_scale=np.asarray(payload["cont_scale"], dtype=np.float32),
+            cont_medians=_to_np(payload["cont_medians"], np.float32),
+            cont_mean=_to_np(payload["cont_mean"], np.float32),
+            cont_scale=_to_np(payload["cont_scale"], np.float32),
             H_bank_norm=H_norm,
             H_tab_bank=H_tab,
             bank_outcomes=outcomes,
             bank_outcomes_t=torch.from_numpy(outcomes.astype(np.int64)).to(dev),
-            bank_summary=np.asarray(payload["bank_summary"], dtype=np.float32),
+            bank_summary=_to_np(payload["bank_summary"], np.float32),
             k_neighbors=int(payload["k_neighbors"]),
             default_conformal_alpha=float(payload.get("conformal_alpha", 0.10)),
             conformal_quantiles={
@@ -292,8 +291,8 @@ class CardiologyWorkupBundle:
             },
             ood_distance_threshold=float(payload["ood_distance_threshold"]),
             ood_zscore_threshold=float(payload.get("ood_zscore_threshold", 4.5)),
-            val_risk_hist_edges=np.asarray(payload.get("val_risk_hist_edges", default_edges), dtype=np.float64),
-            val_risk_hist_props=np.asarray(payload.get("val_risk_hist_props", default_props), dtype=np.float64),
+            val_risk_hist_edges=_to_np(payload.get("val_risk_hist_edges", default_edges), np.float64),
+            val_risk_hist_props=_to_np(payload.get("val_risk_hist_props", default_props), np.float64),
             model_card=dict(payload["model_card"]),
         )
 
@@ -385,8 +384,16 @@ def build_workup_bundle(
         xgb_f.fit(xtab_tr, y_dev[f_tr], eval_set=[(xtab_va, y_dev[f_va])], verbose=False)
         oof_xgb[f_va] = xgb_f.predict_proba(xtab_va)[:, 1]
 
-        rf_f = RandomForestClassifier(
-            n_estimators=300, max_depth=6, min_samples_leaf=3, random_state=seed + fold, n_jobs=-1
+        rf_f = XGBRFClassifier(
+            n_estimators=300,
+            max_depth=6,
+            subsample=0.8,
+            colsample_bynode=0.8,
+            min_child_weight=2,
+            reg_lambda=1.5,
+            tree_method="hist",
+            random_state=seed + fold,
+            n_jobs=-1,
         )
         rf_f.fit(xtab_tr, y_dev[f_tr])
         oof_rf[f_va] = rf_f.predict_proba(xtab_va)[:, 1]
@@ -450,8 +457,16 @@ def build_workup_bundle(
         early_stopping_rounds=20, random_state=seed, n_jobs=-1,
     )
     final_xgb.fit(xtab_dev[sub_tr], y_dev[sub_tr], eval_set=[(xtab_dev[sub_es], y_dev[sub_es])], verbose=False)
-    final_rf = RandomForestClassifier(
-        n_estimators=300, max_depth=6, min_samples_leaf=3, random_state=seed, n_jobs=-1
+    final_rf = XGBRFClassifier(
+        n_estimators=300,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bynode=0.8,
+        min_child_weight=2,
+        reg_lambda=1.5,
+        tree_method="hist",
+        random_state=seed,
+        n_jobs=-1,
     )
     final_rf.fit(xtab_dev, y_dev)
 
@@ -573,35 +588,34 @@ def build_workup_bundle(
         ],
     }
 
-    rf_buf = io.BytesIO()
-    pickle.dump(final_rf, rf_buf)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "safe_serialization": "weights_only_tensors_json",
         "model_version": WORKUP_BUNDLE_VERSION,
         "model_config": model_config,
         "model_state_dict": {k: v.cpu() for k, v in final_gat.state_dict().items()},
         "xgb_booster_json": bytes(final_xgb.get_booster().save_raw("json")),
-        "rf_pickle_bytes": rf_buf.getvalue(),
+        "rf_booster_json": bytes(final_rf.get_booster().save_raw("json")),
         "ensemble_weights": (w_gat, w_xgb, w_rf),
         "temperature": temp_val,
         "platt_a": platt_a,
         "platt_b": platt_b,
         "feature_names": WORKUP_CAT_COLS + WORKUP_CONT_COLS,
-        "cont_medians": cont_imputer.statistics_.astype(np.float32),
-        "cont_mean": cont_scaler.mean_.astype(np.float32),
-        "cont_scale": cont_scaler.scale_.astype(np.float32),
+        "cont_medians": torch.from_numpy(cont_imputer.statistics_.astype(np.float32)),
+        "cont_mean": torch.from_numpy(cont_scaler.mean_.astype(np.float32)),
+        "cont_scale": torch.from_numpy(cont_scaler.scale_.astype(np.float32)),
         "H_bank_norm": h_dev_n.half().cpu(),
         "H_tab_bank": h_dev.half().cpu(),
-        "bank_outcomes": y_dev.astype(np.int8),
-        "bank_summary": summary_vals,
+        "bank_outcomes": torch.from_numpy(y_dev.astype(np.int8)),
+        "bank_summary": torch.from_numpy(summary_vals.astype(np.float32)),
         "k_neighbors": k_neighbors,
         "conformal_alpha": 0.10,
         "conformal_quantiles": conformal_quantiles,
         "ood_distance_threshold": ood_dist_threshold,
         "ood_zscore_threshold": 4.5,
-        "val_risk_hist_edges": hist_edges,
-        "val_risk_hist_props": hist_props,
+        "val_risk_hist_edges": torch.from_numpy(hist_edges.astype(np.float64)),
+        "val_risk_hist_props": torch.from_numpy(hist_props.astype(np.float64)),
         "model_card": model_card,
     }
     torch.save(payload, out)

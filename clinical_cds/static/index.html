@@ -1219,6 +1219,9 @@
               <button type="button" class="btn-escalate no-print" id="escalateBtn" onclick="escalateToWorkup()">
                 Escalate to Stage-2 Cardiology Workup &rarr;
               </button>
+              <button type="button" class="btn-ghost no-print" id="copyNoteBtn" onclick="copyClinicalNote()" title="Copy structured EHR progress note">
+                Copy Clinical Note
+              </button>
             </div>
             <p class="triage-reason" id="triageReason">Evaluating patient biomarkers and learned-space cohort prototypes...</p>
             <div class="meta-grid tabular">
@@ -1808,6 +1811,8 @@
         }
 
         const data = body.prediction;
+        state.lastPrediction = data;
+        state.lastPayload = payload;
         state.lastFhirJson = body.fhir_risk_assessment;
         document.getElementById("fhirCode").textContent = JSON.stringify(body.fhir_risk_assessment, null, 2);
         document.getElementById("reqMeta").textContent = `${data.request_id} · ${data.latency_ms} ms`;
@@ -2201,6 +2206,40 @@
       const btn = document.getElementById("copyFhirBtn");
       btn.textContent = "Copied";
       setTimeout(() => { btn.textContent = "Copy JSON"; }, 1600);
+    }
+
+    function copyClinicalNote() {
+      const d = state.lastPrediction;
+      const p = state.lastPayload;
+      if (!d || !p) return;
+      const isS1 = state.stage === "stage1";
+      const nomPct = Math.round((1 - d.conformal_alpha) * 100);
+      const topDrivers = Object.entries(d.dual_explanation.biomarker_attentions)
+        .slice(0, 3)
+        .map(([k, v]) => `${k} (${(v * 100).toFixed(1)}%)`)
+        .join(", ");
+      const cvdNbrs = d.dual_explanation.top_cohort_neighbors.filter(n => n.historical_outcome === "CVD+").length;
+      const totalNbrs = d.dual_explanation.top_cohort_neighbors.length;
+      const planLines = d.actionable_recourse.length
+        ? d.actionable_recourse.map(r => `- ${r.intervention}: projected ${(r.projected_risk_probability * 100).toFixed(1)}% (-${(r.absolute_risk_reduction * 100).toFixed(1)} pts)`).join("\n")
+        : "- Continue routine preventive cardiology follow-up.";
+      const demoLine = isS1
+        ? `Age ${p.age_years}y ${p.sex === 1 ? "M" : "F"} | BP ${p.systolic_bp}/${p.diastolic_bp} mmHg | Chol tier ${p.cholesterol_level}/3 | Gluc tier ${p.glucose_level}/3`
+        : `Age ${p.age}y ${p.sex === 1 ? "M" : "F"} | Resting SBP ${p.trestbps} mmHg | Chol ${p.chol} mg/dL | Peak HR ${p.thalach} bpm | ST dep ${p.oldpeak} mm`;
+      const note = [
+        `CARDIOGRAPH CDS — ${isS1 ? "STAGE 1 PRIMARY CARE SCREENING" : "STAGE 2 CARDIOLOGY WORKUP"} NOTE`,
+        `Patient Profile: ${demoLine}`,
+        `Calibrated Risk: ${(d.calibrated_risk_probability * 100).toFixed(1)}% | Triage: ${d.triage_decision} | Conformal Set (${nomPct}% target): {${d.conformal_prediction_set.join(", ")}}`,
+        `OOD Guardrail: ${d.ood_report.is_ood ? "ALERT — " + d.ood_report.reasons.join(" ") : "In-distribution"} | Max |z|=${d.ood_report.max_abs_zscore.toFixed(2)}`,
+        `Key Biomarker Drivers: ${topDrivers}`,
+        `Matched Historical Cohort: ${cvdNbrs}/${totalNbrs} nearest learned-space neighbors were CVD+ (Graph Gate=${d.dual_explanation.graph_reliance_gate.toFixed(2)})`,
+        `Modifiable Risk-Reduction Options:\n${planLines}`,
+        `Audit Ref: ${d.request_id} | Model: ${d.model_version} | SHA-256: ${d.bundle_sha256.slice(0, 16)} (Research CDS prototype; clinician oversight required.)`,
+      ].join("\n");
+      navigator.clipboard.writeText(note);
+      const btn = document.getElementById("copyNoteBtn");
+      btn.textContent = "Note Copied";
+      setTimeout(() => { btn.textContent = "Copy Clinical Note"; }, 1800);
     }
 
     updateDerivedVitals();

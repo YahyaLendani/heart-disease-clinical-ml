@@ -1,0 +1,53 @@
+{
+  "title": "CardioGraph CDS — Clinical Safety & Drift Monitor",
+  "uid": "cardiograph-cds-safety",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Stage-1 Screening Requests",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "targets": [{ "expr": "cardiograph_requests_total{stage=\"stage1\"}", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Stage-2 Cardiology Workups",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "targets": [{ "expr": "cardiograph_requests_total{stage=\"stage2\"}", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "type": "gauge",
+      "title": "Conformal Deferral Rate",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "targets": [{ "expr": "cardiograph_deferral_rate", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "OOD Safety Overrides",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "targets": [{ "expr": "cardiograph_ood_alerts_total", "refId": "A" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Triage Decisions Over Time",
+      "gridPos": { "x": 0, "y": 5, "w": 14, "h": 8 },
+      "targets": [{ "expr": "cardiograph_triage_total", "legendFormat": "{{decision}}", "refId": "A" }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Mean Inference Latency (ms)",
+      "gridPos": { "x": 14, "y": 5, "w": 10, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [{ "expr": "cardiograph_latency_ms_mean", "legendFormat": "Mean Latency", "refId": "A" }]
+    }
+  ]
+}

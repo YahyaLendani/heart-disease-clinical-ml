@@ -1,7 +1,7 @@
 {
   "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + RF)",
-  "model_version": "1.0.0-cardiology-workup-plr-unimp",
-  "created_utc": "2026-11-21T11:53:53.987158+00:00",
+  "model_version": "1.1.0-cardiology-workup-zeropickle",
+  "created_utc": "2026-11-21T12:05:03.956080+00:00",
   "training_cohort": {
     "source": "UCI 4-Center Cardiology Workup Cohort (Cleveland, Budapest, Zurich, VA Long Beach)",
     "n_total": 918,
@@ -23,7 +23,7 @@
     "temperature": 1.4299,
     "standalone_gat_roc_auc": 0.9014,
     "standalone_xgb_roc_auc": 0.9195,
-    "standalone_rf_roc_auc": 0.91,
+    "standalone_rf_roc_auc": 0.9044,
     "oof_ensemble_roc_auc": 0.8843
   },
   "mondrian_conformal_audit": {
@@ -74,5 +74,5 @@
     "High pre-test referral prevalence (~55%); intended strictly for Stage-2 cardiology workup after primary-care triage.",
     "Research decision-support prototype only; not FDA-cleared or CE-marked clinical diagnostic software."
   ],
-  "bundle_sha256": "a85a17f6f08650c7eb9e2439ae6db3309a5c1468356f9cb60ef1723f5dc1179a"
+  "bundle_sha256": "377c9f79ff1d3928236211cadb08dd880f36f3d9ec1705f9b5b01d9908c5c994"
 }

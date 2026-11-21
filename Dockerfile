@@ -17,6 +17,7 @@ RUN pip install -r requirements.txt && \
 
 COPY models/ ./models/
 COPY clinical_cds/ ./clinical_cds/
+COPY docs/ ./docs/
 COPY project_paths.py prepare_large_cvd_dataset.py ./
 COPY artifacts/clinical_*_bundle.pt ./artifacts/
 

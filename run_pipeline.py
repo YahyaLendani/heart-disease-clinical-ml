@@ -41,6 +41,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "build-workup-bundle": ("clinical_cds.workup", "Export Stage-2 Cardiology Workup bundle (N=918, ~0.92 AUC)."),
     "calibrate-site": ("clinical_cds.calibrate_site", "Locally recalibrate Temperature T* & Mondrian quantiles for a hospital site."),
     "external-validation": ("experiments.external_site_validation", "Benchmark zero-shot external site shift vs local calibrate-site recovery."),
+    "framingham-benchmark": ("experiments.framingham_benchmark", "Head-to-head benchmark vs Framingham 2008 Risk Score + Decision Curve Analysis."),
     "loco": ("experiments.cross_center_generalization", "Leave-one-center-out generalisation."),
     "fairness": ("evaluation.fairness_analysis", "Sex and age subgroup fairness analysis."),
     "reading-list": ("experiments.run_reading_list_suite", "TabTransformer, GNNs, calibration, conformal, causal, recourse."),

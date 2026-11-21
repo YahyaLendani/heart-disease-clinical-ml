@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thesis Defense — Graph-Augmented Transformer for Interpretable Clinical Risk Prediction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-canvas: #f3f6f9;
+      --bg-surface: #ffffff;
+      --bg-subtle: #ecf1f6;
+      --border: #d7e0e8;
+      --ink: #0f1f2d;
+      --ink-secondary: #3c4f61;
+      --ink-muted: #5a6e82;
+      --accent: #0f5c6e;
+      --accent-tint: #e4f1f4;
+      --low: #0c6e4f;
+      --low-bg: #e7f6f0;
+      --defer: #9a5504;
+      --defer-bg: #fef5e7;
+      --high: #a91e2c;
+      --high-bg: #fdecef;
+      --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #dce4ec;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    .tabular { font-variant-numeric: tabular-nums; }
+    .mono { font-family: var(--font-mono); }
+
+    .progress-bar {
+      position: fixed;
+      top: 0; left: 0;
+      height: 4px;
+      background: var(--accent);
+      transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 100;
+    }
+
+    .slide-deck {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    @media (min-width: 900px) {
+      .slide-deck {
+        max-width: calc(100vh * 16 / 9);
+        max-height: calc(100vw * 9 / 16);
+        margin: auto;
+        position: absolute;
+        inset: 0;
+        box-shadow: 0 24px 64px rgba(15, 31, 45, 0.16);
+      }
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-surface);
+      padding: 46px 60px 76px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 280ms ease;
+      overflow: hidden;
+    }
+    .slide.active { opacity: 1; visibility: visible; }
+
+    .slide-content {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .slide-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+    }
+    .slide-header h2 {
+      font-size: clamp(22px, 2.6vw, 34px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .slide-tag {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      background: var(--accent-tint);
+      padding: 4px 10px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .hero-slide {
+      justify-content: center;
+      gap: 24px;
+    }
+    .hero-title {
+      font-size: clamp(30px, 4.1vw, 52px);
+      font-weight: 700;
+      line-height: 1.12;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      max-width: 24ch;
+    }
+    .hero-sub {
+      font-size: clamp(15px, 1.5vw, 20px);
+      color: var(--ink-secondary);
+      max-width: 66ch;
+      line-height: 1.5;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .kpi-card {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+    .kpi-card span {
+      display: block;
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-bottom: 6px;
+    }
+    .kpi-card strong {
+      display: block;
+      font-size: clamp(20px, 2.3vw, 30px);
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+    .kpi-card small {
+      display: block;
+      margin-top: 4px;
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      gap: 28px;
+      flex: 1;
+      min-height: 0;
+      align-items: center;
+    }
+    .two-col.equal { grid-template-columns: 1fr 1fr; }
+
+    .bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .bullet-list li {
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-canvas);
+      font-size: clamp(13px, 1.15vw, 15px);
+      line-height: 1.45;
+      color: var(--ink-secondary);
+    }
+    .bullet-list li strong { color: var(--ink); }
+
+    .chart-box {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      height: 100%;
+      max-height: 360px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .chart-box canvas { width: 100% !important; height: 100% !important; }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: clamp(12px, 1.05vw, 14px);
+    }
+    .data-table th {
+      text-align: left;
+      padding: 9px 10px;
+      border-bottom: 2px solid var(--border);
+      color: var(--ink-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .data-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--ink-secondary);
+    }
+    .data-table tr.highlight td {
+      background: var(--accent-tint);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .arch-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .arch-step {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .arch-step .step-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    .arch-step h3 { font-size: 14.5px; margin-bottom: 6px; color: var(--ink); }
+    .arch-step p { font-size: 12.5px; color: var(--ink-secondary); line-height: 1.45; }
+
+    .slide-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--ink-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .nav-controls {
+      position: fixed;
+      bottom: 18px;
+      right: 26px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 100;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 12px;
+      box-shadow: 0 4px 16px rgba(15, 31, 45, 0.08);
+    }
+    .nav-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--bg-canvas);
+      color: var(--ink);
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .nav-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .slide-counter { font-family: var(--font-mono); font-size: 12px; color: var(--ink-secondary); min-width: 44px; text-align: center; }
+
+    @media (max-width: 820px) {
+      .slide { padding: 24px 20px 68px; overflow-y: auto; }
+      .kpi-grid, .arch-flow { grid-template-columns: repeat(2, 1fr); }
+      .two-col, .two-col.equal { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" id="progressBar"></div>
+
+  <div class="slide-deck" id="deck">
+    <!-- Slide 1: Title -->
+    <section class="slide active">
+      <div class="slide-content hero-slide">
+        <div>
+          <span class="slide-tag">Clinical AI Thesis Defense &middot; 2026</span>
+        </div>
+        <h1 class="hero-title">Graph-Augmented Transformer for Interpretable Clinical Risk Prediction</h1>
+        <p class="hero-sub">
+          Dual-level intra-patient feature attention &amp; inductive cohort graph reasoning, calibrated with Mondrian conformal triage, validated across 68,589 screening patients and 4 international cardiology centers, and deployed as a zero-pickle 2-Stage HL7 FHIR R4 clinical service.
+        </p>
+        <div class="kpi-grid tabular">
+          <div class="kpi-card"><span>Stage-1 Screening (68.6k)</span><strong>0.8007</strong><small>ECE 0.0094 &middot; 9.8 ms CPU</small></div>
+          <div class="kpi-card"><span>Stage-2 Workup (N=918)</span><strong>0.9180</strong><small>PR-AUC 0.9286 &middot; 9.5 ms CPU</small></div>
+          <div class="kpi-card"><span>vs. Framingham 2008</span><strong>+0.0991</strong><small>Paired DeLong p = 3.5e-116</small></div>
+          <div class="kpi-card"><span>Engineering Verification</span><strong>103 / 103</strong><small>92.2% test coverage &middot; Zero pickle</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: Clinical Problem -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Why High ROC-AUC Alone Fails at the Bedside</h2>
+          <span class="slide-tag">01 &middot; Problem Statement</span>
+        </div>
+        <div class="two-col equal">
+          <ul class="bullet-list">
+            <li><strong>Cross-Hospital Prevalence Shift:</strong> Across the 4 UCI centers, CAD prevalence spans <strong>36.2%</strong> (Budapest) to <strong>93.5%</strong> (Zurich). Fixed thresholds collapse to 64.2% accuracy zero-shot.</li>
+            <li><strong>Overconfident Miscalibration:</strong> Uncalibrated neural &amp; tree models distort clinical decision-curve net benefit and risk stratification.</li>
+            <li><strong>Silent Subgroup Disparities:</strong> Baseline models miss disease in women 3&times; more often than men (25.0% vs 7.4% FNR on small cohorts).</li>
+            <li><strong>Correlation &ne; Actionability:</strong> Observational risk drivers (e.g., exercise angina) carry massive confounding bias (+0.371); bedside recourse must lock immutable demographics.</li>
+          </ul>
+          <div class="chart-box">
+            <canvas id="locoChart"></canvas>
+          </div>
+        </div>
+        <div class="slide-footer">
+          <span>CardioGraph CDS &middot; Multi-Center Reliability Audit</span>
+          <span>UCI 4-Center Consortium (N = 918) &amp; OpenML 45547 (N = 68,589)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: Architecture -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Architecture: PLR + UniMP Graph-Augmented Clinical Transformer</h2>
+          <span class="slide-tag">02 &middot; Methodology</span>
+        </div>
+        <div class="arch-flow">
+          <div class="arch-step">
+            <div class="step-num">LEVEL 1 &middot; TOKENS</div>
+            <h3>PLR Periodic Embeddings</h3>
+            <p>Learnable Fourier periodic features + ReLU + linear skip capture sharp AHA blood-pressure and glycemic step thresholds (Gorishniy et al., NeurIPS 2022).</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">LEVEL 1 &middot; INTRA-PATIENT</div>
+            <h3>[CLS] Feature Transformer</h3>
+            <p>Multi-head self-attention models cross-biomarker interactions and outputs native patient-specific biomarker attention weights.</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">LEVEL 2 &middot; INTER-PATIENT</div>
+            <h3>UniMP Inductive Ego-GAT</h3>
+            <p>O(B&middot;k) exact cosine k-NN over 4,096 learned-space medoids with masked neighbor outcome embeddings (query self-loop strictly masked = 2 &rarr; zero leakage).</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">FUSION &amp; TRIAGE</div>
+            <h3>Gated 3-Paradigm Ensemble</h3>
+            <p>Sigmoid gate blends tabular &amp; cohort evidence, fused via 5-fold OOF simplex weights with XGBoost &amp; Lossguide-HGB/XGBRF + Mondrian Conformal Triage.</p>
+          </div>
+        </div>
+        <ul class="bullet-list" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <li><strong>Zero-Leakage Inductive Invariance:</strong> Perturbing eval patients produces bit-identical training logits (unit-tested in <span class="mono">test_graph_transformer.py</span>).</li>
+          <li><strong>Standalone Neural Breakthrough:</strong> Adding PLR + UniMP lifted standalone GAT-Transformer from <strong>0.7959 &rarr; 0.8006</strong> on 68.6k patients — beating standalone XGBoost (<strong>0.8003</strong>) and HGB (<strong>0.8003</strong>).</li>
+        </ul>
+        <div class="slide-footer">
+          <span>models/graph_augmented_transformer.py</span>
+          <span>Strict zero-leakage inductive protocol</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: Multi-Cohort Accuracy -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Two-Stage Benchmark: Primary Care (68.6k) &rarr; Cardiology Workup (N=918)</h2>
+          <span class="slide-tag">03 &middot; Empirical Results</span>
+        </div>
+        <div class="two-col">
+          <div>
+            <table class="data-table tabular">
+              <thead><tr><th>Stage / Cohort</th><th>ROC-AUC</th><th>PR-AUC</th><th>ECE &darr;</th><th>90% Cov</th></tr></thead>
+              <tbody>
+                <tr class="highlight"><td>Stage 1: PLR+UniMP CDS v3 (68.6k)</td><td>0.8007</td><td>0.7813</td><td>0.0094</td><td>90.22%</td></tr>
+                <tr><td>&nbsp;&nbsp;&rdsh; Standalone PLR+UniMP GAT-T</td><td>0.8006</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>&nbsp;&nbsp;&rdsh; Standalone XGBoost / Lossguide</td><td>0.8003</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr class="highlight"><td>Stage 2: Cardiology Workup (N=918)</td><td>0.9180</td><td>0.9286</td><td>0.0787</td><td>91.85%</td></tr>
+                <tr><td>&nbsp;&nbsp;&rdsh; Standalone PLR+UniMP GAT-T</td><td>0.9014</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>&nbsp;&nbsp;&rdsh; Previous UCI Best (XGBoost)</td><td>0.9090</td><td>0.9240</td><td>—</td><td>—</td></tr>
+              </tbody>
+            </table>
+            <p style="margin-top:14px;font-size:13px;color:var(--ink-secondary);line-height:1.5">
+              Patients deferred or flagged high-risk in Stage-1 primary screening escalate with 1 click into Stage-2 Cardiology Workup (auto-carrying Age, Sex, BP, Lipids, Glucose), lifting discrimination from <strong>0.801 &rarr; 0.918 ROC-AUC</strong> and cutting female FNR from <strong>25.0% &rarr; 12.5%</strong>.
+            </p>
+          </div>
+          <div class="chart-box">
+            <canvas id="stageChart"></canvas>
+          </div>
+        </div>
+        <div class="slide-footer">
+          <span>artifacts/clinical_cds_bundle.model_card.json &amp; clinical_workup_bundle.model_card.json</span>
+          <span>Strict untouched holdout splits (N=10,289 &amp; N=184)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: Framingham Clinical Guideline Benchmark -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Clinical Guideline Showdown: CardioGraph v3 vs. Framingham (2008)</h2>
+          <span class="slide-tag">04 &middot; Clinical Utility</span>
+        </div>
+        <div class="two-col">
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="kpi-grid tabular" style="grid-template-columns:1fr 1fr">
+              <div class="kpi-card"><span>ROC-AUC Gain</span><strong>+0.0991</strong><small>0.7996 vs 0.7005</small></div>
+              <div class="kpi-card"><span>Paired DeLong Test</span><strong>z = 22.9</strong><small>p = 3.48 &times; 10<sup>-116</sup></small></div>
+              <div class="kpi-card"><span>Net Benefit @ 50%</span><strong>0.2226</strong><small>+68% vs Framingham (0.1325)</small></div>
+              <div class="kpi-card"><span>PR-AUC Gain</span><strong>+0.1214</strong><small>0.7808 vs 0.6594</small></div>
+            </div>
+            <p style="font-size:13.5px;color:var(--ink-secondary);line-height:1.5">
+              Across every decision threshold from 15% to 70% on <strong>10,288</strong> untouched holdout patients, CardioGraph CDS v3 delivers strictly higher Decision Curve Net Benefit than both recalibrated Framingham (D'Agostino et al., <em>Circulation</em> 2008) and Treat-All / Treat-None policies.
+            </p>
+          </div>
+          <div class="chart-box">
+            <canvas id="dcaChart"></canvas>
+          </div>
+        </div>
+        <div class="slide-footer">
+          <span>heart-pipeline framingham-benchmark</span>
+          <span>artifacts/framingham_benchmark.md &amp; framingham_vs_cardiograph_dca.png</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: External Site Shift & Recalibration -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>External Hospital Shift &amp; 2-Second Local Recalibration Proof</h2>
+          <span class="slide-tag">05 &middot; Domain Shift</span>
+        </div>
+        <div class="two-col">
+          <div>
+            <table class="data-table tabular">
+              <thead><tr><th>Target Shifted Clinic</th><th>Prev.</th><th>Zero-Shot ECE</th><th>Recal. ECE</th><th>90% Coverage</th></tr></thead>
+              <tbody>
+                <tr class="highlight"><td>UCI 4-Center External (N=459)</td><td>55.3%</td><td>0.1875</td><td>0.0425 (-77%)</td><td>78.2% &rarr; 88.7%</td></tr>
+                <tr><td>Wellness Clinic &lt;50y (N=1,584)</td><td>35.0%</td><td>0.0254</td><td>0.0248</td><td>87.5% &rarr; 90.2%</td></tr>
+                <tr><td>Geriatric Clinic &ge;58y (N=1,450)</td><td>63.7%</td><td>0.0246</td><td>0.0266</td><td>92.7% &rarr; 92.5%</td></tr>
+              </tbody>
+            </table>
+            <ul class="bullet-list" style="margin-top:14px">
+              <li><strong>Zero Retraining Required:</strong> <span class="mono">heart-pipeline calibrate-site</span> refits Temperature T*, post-blend Platt intercept/slope, and sex-stratified Mondrian quantiles in &lt;2s on CPU.</li>
+              <li><strong>Why Stage-2 Exists:</strong> Stage-1 vitals alone get only 0.544 AUC on referred UCI cardiology patients — proving why deferred patients must escalate to ECG/stress Stage-2 (0.918 AUC).</li>
+            </ul>
+          </div>
+          <div class="chart-box">
+            <canvas id="shiftChart"></canvas>
+          </div>
+        </div>
+        <div class="slide-footer">
+          <span>heart-pipeline external-validation</span>
+          <span>artifacts/external_site_validation.md</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: Trust Layer -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Clinical Safety Guardrails: Conformal Triage, Fairness &amp; Recourse</h2>
+          <span class="slide-tag">06 &middot; Trustworthy AI</span>
+        </div>
+        <div class="two-col equal">
+          <ul class="bullet-list">
+            <li><strong>Multi-&alpha; Sex-Stratified Mondrian Conformal Triage:</strong> Clinicians tune nominal coverage live: <strong>85%</strong> (27.4% deferral), <strong>90%</strong> (90.22% empirical coverage, 43.1% deferral), or <strong>95%</strong> (95.1% coverage).</li>
+            <li><strong>OOD Fail-Safe Abstention:</strong> Dual max-|z-score| and learned-manifold cosine distance detectors automatically force <span class="mono">DEFER_TO_CLINICIAN</span> on out-of-distribution inputs.</li>
+            <li><strong>Demographic Parity at Scale:</strong> On 10,289 holdout patients (6,637 F / 3,652 M), Stage-1 maintains a <strong>0.82% sensitivity gap</strong> (Female AUC 0.7991, Male AUC 0.8037).</li>
+          </ul>
+          <ul class="bullet-list">
+            <li><strong>Dual Bedside Interpretability:</strong> Every prediction surfaces Level-1 biomarker attention bars + Level-2 matched historical cohort medoids with outcomes and GAT weights.</li>
+            <li><strong>Immutable-Safe Counterfactual Recourse:</strong> Single-pass counterfactuals simulate BP control, lipid lowering, weight reduction, and smoking cessation while strictly locking Age, Sex, and Height (0.000 violation).</li>
+            <li><strong>Causal Humility:</strong> Cross-fitted AIPW &amp; E-value audits explicitly document residual confounding rather than overclaiming causality from observational registries.</li>
+          </ul>
+        </div>
+        <div class="slide-footer">
+          <span>Fail-safe abstention + physiological Pydantic v2 validation</span>
+          <span>Research prototype &mdash; Clinician-in-the-loop required</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: Production Clinical Stack -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Production-Aligned Software Stack &amp; Hospital Interoperability</h2>
+          <span class="slide-tag">07 &middot; Clinical Engineering</span>
+        </div>
+        <div class="kpi-grid tabular">
+          <div class="kpi-card"><span>Stage-1 CPU Latency</span><strong>9.78 ms</strong><small>1.82 MB zero-pickle bundle</small></div>
+          <div class="kpi-card"><span>Stage-2 CPU Latency</span><strong>9.52 ms</strong><small>11&times; faster via XGBRF JSON</small></div>
+          <div class="kpi-card"><span>Deserialization Safety</span><strong>0 Pickle</strong><small>Strict weights_only=True + SHA-256</small></div>
+          <div class="kpi-card"><span>CI &amp; Test Suite</span><strong>92.2%</strong><small>103 tests &middot; Python 3.10&ndash;3.13</small></div>
+        </div>
+        <div class="arch-flow" style="margin-top:8px">
+          <div class="arch-step">
+            <div class="step-num">EHR INTEROP</div>
+            <h3>Bidirectional FHIR R4</h3>
+            <p>LOINC Bundle &rarr; RiskAssessment for both stages plus <span class="mono">/smart/launch</span> SMART on FHIR discovery.</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">BEDSIDE UX</div>
+            <h3>2-Stage Clinician UI</h3>
+            <p>Interactive conformal gauge, What-If recourse, Batch CSV Triage Queue, and 1-click EHR Progress Note copy.</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">SECURITY</div>
+            <h3>Hardened Runtime</h3>
+            <p>Non-root Docker image, optional Bearer/API-Key auth, CORS allow-list, HTTP security headers, SHA-256 pinning.</p>
+          </div>
+          <div class="arch-step">
+            <div class="step-num">OBSERVABILITY</div>
+            <h3>Prometheus + Grafana</h3>
+            <p><span class="mono">docker-compose up</span> launches CDS API + Prometheus (<span class="mono">/metrics</span>) + pre-built Clinical Safety Grafana dashboard.</p>
+          </div>
+        </div>
+        <div class="slide-footer">
+          <span>clinical_cds/ &middot; Dockerfile &middot; docker-compose.yml &middot; monitoring/</span>
+          <span>Live API: http://127.0.0.1:8000</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: Limitations & Roadmap -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="slide-header">
+          <h2>Transparent Limitations &amp; Path to Clinical Translation</h2>
+          <span class="slide-tag">08 &middot; Governance &amp; Next Steps</span>
+        </div>
+        <div class="two-col equal">
+          <ul class="bullet-list">
+            <li><strong>Retrospective Cohorts Only:</strong> OpenML 45547 and UCI 4-Center are retrospective registries; prospective silent-mode shadow trials are mandatory before clinical decision use.</li>
+            <li><strong>MIMIC-IV Demo Sample Size:</strong> The public ICU demo has only 275 admissions (15 deaths), reported strictly as a patient-grouped pipeline demonstration rather than a model ranking.</li>
+            <li><strong>Regulatory Boundary:</strong> Software is explicitly documented as a clinician-in-the-loop research prototype — not FDA-cleared or CE-marked SaMD.</li>
+          </ul>
+          <ul class="bullet-list">
+            <li><strong>1. Prospective Silent-Mode Shadow Trial:</strong> Measure clinician alert fatigue, deferral turnaround time, and calibration drift under live hospital EHR streams.</li>
+            <li><strong>2. Credentialed Full MIMIC-IV &amp; Raw 12-Lead ECG:</strong> Replace tabular stress summaries with end-to-end 1D ECG encoders fused into the Level-1 Transformer.</li>
+            <li><strong>3. Covariate-Shift Weighted Conformal Sets:</strong> Extend <span class="mono">calibrate-site</span> with Tibshirani et al. (2019) importance-weighted conformal guarantees for zero-label site transfer.</li>
+          </ul>
+        </div>
+        <div class="slide-footer">
+          <span>github.com/YahyaLendani/heart-disease-clinical-ml</span>
+          <span>Thank you &mdash; Questions &amp; Live Demo at http://127.0.0.1:8000</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="nav-controls" aria-label="Slide navigation">
+    <button type="button" class="nav-btn" id="prevBtn" aria-label="Previous slide">&larr;</button>
+    <span class="slide-counter" id="counter">1 / 9</span>
+    <button type="button" class="nav-btn" id="nextBtn" aria-label="Next slide">&rarr;</button>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    let idx = 0;
+
+    function showSlide(n) {
+      idx = Math.max(0, Math.min(slides.length - 1, n));
+      slides.forEach((s, i) => s.classList.toggle("active", i === idx));
+      document.getElementById("counter").textContent = `${idx + 1} / ${slides.length}`;
+      document.getElementById("progressBar").style.width = `${((idx + 1) / slides.length) * 100}%`;
+    }
+
+    document.getElementById("prevBtn").onclick = () => showSlide(idx - 1);
+    document.getElementById("nextBtn").onclick = () => showSlide(idx + 1);
+    document.addEventListener("keydown", e => {
+      if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); showSlide(idx + 1); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); showSlide(idx - 1); }
+    });
+
+    const fontFamily = '"IBM Plex Sans", sans-serif';
+    Chart.defaults.font.family = fontFamily;
+    Chart.defaults.color = "#3c4f61";
+
+    // Slide 2: LOCO Coverage vs Fixed-Threshold Accuracy
+    new Chart(document.getElementById("locoChart"), {
+      type: "bar",
+      data: {
+        labels: ["Cleveland", "Budapest", "Zurich", "Long Beach VA"],
+        datasets: [
+          { label: "90% Conformal Coverage (%)", data: [80.9, 91.1, 87.8, 88.9], backgroundColor: "#0f5c6e", borderRadius: 4 },
+          { label: "Fixed-Threshold Accuracy (%)", data: [65.3, 77.5, 64.2, 73.9], backgroundColor: "#94a3b8", borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "Leave-One-Center-Out Generalization (%)" }, legend: { position: "bottom" } },
+        scales: { y: { min: 50, max: 100 } },
+      },
+    });
+
+    // Slide 4: Two-Stage ROC-AUC Comparison
+    new Chart(document.getElementById("stageChart"), {
+      type: "bar",
+      data: {
+        labels: ["Framingham 2008", "Stage-1 GAT-T", "Stage-1 CDS v3", "UCI LogReg", "UCI XGBoost", "Stage-2 Workup"],
+        datasets: [{
+          label: "Holdout ROC-AUC",
+          data: [0.7005, 0.8006, 0.8007, 0.884, 0.909, 0.918],
+          backgroundColor: ["#9a5504", "#38a3b8", "#0f5c6e", "#94a3b8", "#64748b", "#0c6e4f"],
+          borderRadius: 5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "Holdout ROC-AUC Across Screening & Workup Stages" }, legend: { display: false } },
+        scales: { y: { min: 0.65, max: 0.96 } },
+      },
+    });
+
+    // Slide 5: Decision Curve Analysis vs Framingham 2008
+    new Chart(document.getElementById("dcaChart"), {
+      type: "line",
+      data: {
+        labels: ["15%", "25%", "35%", "45%", "50%", "55%", "65%"],
+        datasets: [
+          { label: "CardioGraph CDS v3 (0.7996)", data: [0.415, 0.352, 0.298, 0.249, 0.2226, 0.197, 0.145], borderColor: "#0f5c6e", backgroundColor: "rgba(15,92,110,0.08)", tension: 0.25, borderWidth: 3 },
+          { label: "Framingham 2008 Recal. (0.7005)", data: [0.404, 0.320, 0.245, 0.170, 0.1325, 0.098, 0.044], borderColor: "#9a5504", borderDash: [6, 4], tension: 0.25, borderWidth: 2.2 },
+          { label: "Treat All", data: [0.405, 0.325, 0.222, 0.081, -0.011, -0.123, -0.440], borderColor: "#94a3b8", borderDash: [3, 3], tension: 0.2, borderWidth: 1.5 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "Decision Curve Net Benefit (N = 10,288 Holdout)" }, legend: { position: "bottom" } },
+        scales: { y: { min: -0.05, max: 0.45, title: { display: true, text: "Net Benefit" } } },
+      },
+    });
+
+    // Slide 6: External Shift ECE Reduction
+    new Chart(document.getElementById("shiftChart"), {
+      type: "bar",
+      data: {
+        labels: ["UCI External (N=459)", "Wellness <50y", "Geriatric >=58y"],
+        datasets: [
+          { label: "Zero-Shot ECE", data: [0.1875, 0.0254, 0.0246], backgroundColor: "#a91e2c", borderRadius: 4 },
+          { label: "After calibrate-site ECE", data: [0.0425, 0.0248, 0.0266], backgroundColor: "#0c6e4f", borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: "Calibration Error (ECE ↓) Before vs. After calibrate-site" }, legend: { position: "bottom" } },
+        scales: { y: { min: 0, max: 0.22 } },
+      },
+    });
+
+    showSlide(0);
+  </script>
+</body>
+</html>

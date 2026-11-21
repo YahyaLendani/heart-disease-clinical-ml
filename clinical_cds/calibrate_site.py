@@ -133,8 +133,8 @@ def recalibrate_bundle_for_site(
     payload["platt_b"] = platt_b
     payload["conformal_quantiles"] = new_quantiles
     payload["ood_distance_threshold"] = new_ood_thresh
-    payload["val_risk_hist_edges"] = hist_edges
-    payload["val_risk_hist_props"] = hist_props
+    payload["val_risk_hist_edges"] = torch.from_numpy(hist_edges.astype(np.float64))
+    payload["val_risk_hist_props"] = torch.from_numpy(hist_props.astype(np.float64))
 
     updated_card = dict(bundle.model_card)
     updated_card["model_version"] = payload["model_version"]

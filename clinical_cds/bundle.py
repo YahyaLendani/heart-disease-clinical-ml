@@ -20,9 +20,7 @@ Major accuracy & clinical engineering upgrades over v2:
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-import pickle
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +35,6 @@ import torch.optim as optim
 from scipy.optimize import minimize
 from scipy.special import softmax
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import (
     accuracy_score,
@@ -59,9 +56,15 @@ from models import (
 )
 from project_paths import ARTIFACTS_DIR, resolve_data_path
 
-BUNDLE_VERSION = "3.0.0-plr-unimp-3paradigm-cds"
+BUNDLE_VERSION = "3.1.0-plr-unimp-zeropickle-cds"
 DEFAULT_BUNDLE_PATH = ARTIFACTS_DIR / "clinical_cds_bundle.pt"
 SUPPORTED_ALPHAS = (0.05, 0.10, 0.15)
+
+
+def _to_np(val: Any, dtype: Any) -> np.ndarray:
+    if isinstance(val, torch.Tensor):
+        return val.detach().cpu().numpy().astype(dtype)
+    return np.asarray(val, dtype=dtype)
 
 CAT_COLS = [
     "sex",
@@ -385,7 +388,8 @@ class ClinicalModelBundle:
             if device == "auto"
             else torch.device(device)
         )
-        payload = torch.load(path, map_location=dev, weights_only=False)
+        # Strict Zero-Pickle safe deserialization (weights_only=True)
+        payload = torch.load(path, map_location=dev, weights_only=True)
         cfg = payload["model_config"]
 
         model = GraphAugmentedClinicalTransformer(**cfg).to(dev)
@@ -397,9 +401,10 @@ class ClinicalModelBundle:
             xgb_model = XGBClassifier(n_jobs=1, device="cpu")
             xgb_model.load_model(bytearray(payload["xgb_booster_json"]))
 
-        hgb_model = None
-        if payload.get("hgb_pickle_bytes") is not None:
-            hgb_model = pickle.loads(io.BytesIO(payload["hgb_pickle_bytes"]).read())
+        hgb_model: XGBClassifier | None = None
+        if payload.get("hgb_booster_json") is not None:
+            hgb_model = XGBClassifier(n_jobs=1, device="cpu")
+            hgb_model.load_model(bytearray(payload["hgb_booster_json"]))
 
         if "ensemble_weights" in payload:
             ew = tuple(float(x) for x in payload["ensemble_weights"])
@@ -414,7 +419,7 @@ class ClinicalModelBundle:
             else F.normalize(H_tab, p=2, dim=1, eps=1e-8)
         )
 
-        bank_outcomes = np.asarray(payload["bank_outcomes"], dtype=np.int8)
+        bank_outcomes = _to_np(payload["bank_outcomes"], np.int8)
         bank_outcomes_t = torch.from_numpy(bank_outcomes.astype(np.int64)).to(dev)
 
         cq = {
@@ -434,26 +439,26 @@ class ClinicalModelBundle:
             cont_cols=list(payload["cont_cols"]),
             feature_names=list(payload["feature_names"]),
             cat_dims=list(cfg["categorical_dims"]),
-            cont_medians=np.asarray(payload["cont_medians"], dtype=np.float32),
-            cont_mean=np.asarray(payload["cont_mean"], dtype=np.float32),
-            cont_scale=np.asarray(payload["cont_scale"], dtype=np.float32),
-            graph_mean=np.asarray(payload["graph_mean"], dtype=np.float32),
-            graph_scale=np.asarray(payload["graph_scale"], dtype=np.float32),
+            cont_medians=_to_np(payload["cont_medians"], np.float32),
+            cont_mean=_to_np(payload["cont_mean"], np.float32),
+            cont_scale=_to_np(payload["cont_scale"], np.float32),
+            graph_mean=_to_np(payload["graph_mean"], np.float32),
+            graph_scale=_to_np(payload["graph_scale"], np.float32),
             H_bank_norm=H_norm,
             H_tab_bank=H_tab,
             bank_outcomes=bank_outcomes,
             bank_outcomes_t=bank_outcomes_t,
-            bank_summary=np.asarray(payload["bank_summary"], dtype=np.float32),
+            bank_summary=_to_np(payload["bank_summary"], np.float32),
             k_neighbors=int(payload["k_neighbors"]),
             default_conformal_alpha=float(payload.get("conformal_alpha", 0.10)),
             conformal_quantiles=cq,
             ood_distance_threshold=float(payload["ood_distance_threshold"]),
             ood_zscore_threshold=float(payload.get("ood_zscore_threshold", 4.5)),
-            val_risk_hist_edges=np.asarray(
-                payload.get("val_risk_hist_edges", np.linspace(0.0, 1.0, 11)), dtype=np.float64
+            val_risk_hist_edges=_to_np(
+                payload.get("val_risk_hist_edges", np.linspace(0.0, 1.0, 11)), np.float64
             ),
-            val_risk_hist_props=np.asarray(
-                payload.get("val_risk_hist_props", np.full(10, 0.1)), dtype=np.float64
+            val_risk_hist_props=_to_np(
+                payload.get("val_risk_hist_props", np.full(10, 0.1)), np.float64
             ),
             model_card=dict(payload["model_card"]),
             raw_payload=payload,
@@ -593,17 +598,24 @@ def build_clinical_bundle(
         xgb_f.fit(xtab_tr, y_dev[f_tr], eval_set=[(xtab_va, y_dev[f_va])], verbose=False)
         oof_xgb[f_va] = xgb_f.predict_proba(xtab_va)[:, 1]
 
-        # 3. HistGradientBoostingClassifier (LightGBM-style leaf-wise boosted trees)
-        hgb_f = HistGradientBoostingClassifier(
-            max_iter=300,
-            max_leaf_nodes=31,
-            learning_rate=0.045,
-            min_samples_leaf=30,
-            l2_regularization=2.0,
-            early_stopping=True,
-            random_state=seed + fold,
+        # 3. Leaf-wise Lossguide HistGBM (LightGBM-style leaf-wise boosted trees; zero-pickle JSON)
+        hgb_f = XGBClassifier(
+            n_estimators=400,
+            grow_policy="lossguide",
+            max_leaves=31,
+            max_depth=0,
+            learning_rate=0.04,
+            subsample=0.85,
+            colsample_bytree=0.8,
+            min_child_weight=15,
+            reg_lambda=2.5,
+            eval_metric="logloss",
+            early_stopping_rounds=25,
+            tree_method="hist",
+            random_state=seed + 100 + fold,
+            n_jobs=-1,
         )
-        hgb_f.fit(xtab_tr, y_dev[f_tr])
+        hgb_f.fit(xtab_tr, y_dev[f_tr], eval_set=[(xtab_va, y_dev[f_va])], verbose=False)
         oof_hgb[f_va] = hgb_f.predict_proba(xtab_va)[:, 1]
 
     # Temperature calibrate OOF GAT logits strictly on OOF data
@@ -685,16 +697,23 @@ def build_clinical_bundle(
     )
     final_xgb.fit(X_tab_dev[sub_tr], y_dev[sub_tr], eval_set=[(X_tab_dev[sub_es], y_dev[sub_es])], verbose=False)
 
-    final_hgb = HistGradientBoostingClassifier(
-        max_iter=320,
-        max_leaf_nodes=31,
-        learning_rate=0.045,
-        min_samples_leaf=30,
-        l2_regularization=2.0,
-        early_stopping=True,
-        random_state=seed,
+    final_hgb = XGBClassifier(
+        n_estimators=400,
+        grow_policy="lossguide",
+        max_leaves=31,
+        max_depth=0,
+        learning_rate=0.04,
+        subsample=0.85,
+        colsample_bytree=0.8,
+        min_child_weight=15,
+        reg_lambda=2.5,
+        eval_metric="logloss",
+        early_stopping_rounds=25,
+        tree_method="hist",
+        random_state=seed + 100,
+        n_jobs=-1,
     )
-    final_hgb.fit(X_tab_dev, y_dev)
+    final_hgb.fit(X_tab_dev[sub_tr], y_dev[sub_tr], eval_set=[(X_tab_dev[sub_es], y_dev[sub_es])], verbose=False)
 
     # Encode full 58,300 dev cohort into learned [CLS] manifold & compress to stratified clinical medoids
     xc_dev_t = torch.from_numpy(X_cat_dev).to(dev)
@@ -831,38 +850,42 @@ def build_clinical_bundle(
     }
 
     xgb_bytes = bytes(final_xgb.get_booster().save_raw("json"))
-    hgb_buf = io.BytesIO()
-    pickle.dump(final_hgb, hgb_buf)
+    hgb_bytes = bytes(final_hgb.get_booster().save_raw("json"))
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "safe_serialization": "weights_only_tensors_json",
         "model_version": BUNDLE_VERSION,
         "model_config": model_config,
         "model_state_dict": {k: v.cpu() for k, v in final_gat.state_dict().items()},
         "xgb_booster_json": xgb_bytes,
-        "hgb_pickle_bytes": hgb_buf.getvalue(),
+        "hgb_booster_json": hgb_bytes,
         "ensemble_weights": (w_gat, w_xgb, w_hgb),
         "temperature": temp_val,
+        "platt_a": 1.0,
+        "platt_b": 0.0,
         "cat_cols": CAT_COLS,
         "cont_cols": CONT_COLS,
         "feature_names": CAT_COLS + CONT_COLS,
-        "cont_medians": cont_imputer.statistics_.astype(np.float32),
-        "cont_mean": cont_scaler.mean_.astype(np.float32),
-        "cont_scale": cont_scaler.scale_.astype(np.float32),
-        "graph_mean": graph_scaler.mean_.astype(np.float32),
-        "graph_scale": graph_scaler.scale_.astype(np.float32),
+        "cont_medians": torch.from_numpy(cont_imputer.statistics_.astype(np.float32)),
+        "cont_mean": torch.from_numpy(cont_scaler.mean_.astype(np.float32)),
+        "cont_scale": torch.from_numpy(cont_scaler.scale_.astype(np.float32)),
+        "graph_mean": torch.from_numpy(graph_scaler.mean_.astype(np.float32)),
+        "graph_scale": torch.from_numpy(graph_scaler.scale_.astype(np.float32)),
         "H_bank_norm": H_proto_norm.half().cpu(),
         "H_tab_bank": H_proto_bank.half().cpu(),
-        "bank_outcomes": y_dev[proto_idx].astype(np.int8),
-        "bank_summary": dev_df[["age_years", "ap_hi", "bmi"]].values[proto_idx].astype(np.float32),
+        "bank_outcomes": torch.from_numpy(y_dev[proto_idx].astype(np.int8)),
+        "bank_summary": torch.from_numpy(
+            dev_df[["age_years", "ap_hi", "bmi"]].values[proto_idx].astype(np.float32)
+        ),
         "k_neighbors": k_neighbors,
         "conformal_alpha": conformal_alpha,
         "conformal_quantiles": conformal_quantiles,
         "ood_distance_threshold": ood_dist_threshold,
         "ood_zscore_threshold": 4.5,
-        "val_risk_hist_edges": hist_edges,
-        "val_risk_hist_props": hist_props,
+        "val_risk_hist_edges": torch.from_numpy(hist_edges.astype(np.float64)),
+        "val_risk_hist_props": torch.from_numpy(hist_props.astype(np.float64)),
         "model_card": model_card,
     }
     torch.save(payload, out)

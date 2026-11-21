@@ -586,3 +586,15 @@ class TestStage2CardiologyWorkup:
 
         metrics_txt = client.get("/metrics").text
         assert 'cardiograph_requests_total{stage="stage2"} 1' in metrics_txt
+
+        # Verify SMART on FHIR discovery & launch endpoints + strict zero-pickle weights_only=True loading
+        import torch
+
+        assert client.get("/.well-known/smart-configuration").status_code == 200
+        assert "stage2_cardiology_workup" in client.get("/.well-known/smart-configuration").json()["fhir_endpoints"]
+        assert client.get("/smart/launch?iss=https://sandbox.example/r4&launch=tok123").status_code == 200
+
+        p1 = torch.load(synthetic_cds_bundle, map_location="cpu", weights_only=True)
+        p2 = torch.load(synthetic_workup_bundle, map_location="cpu", weights_only=True)
+        assert p1.get("safe_serialization") == "weights_only_tensors_json"
+        assert p2.get("safe_serialization") == "weights_only_tensors_json"
