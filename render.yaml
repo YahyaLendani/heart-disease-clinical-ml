@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cardiograph-cds
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: CDS_DEVICE
+        value: cpu
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MALLOC_ARENA_MAX
+        value: "2"

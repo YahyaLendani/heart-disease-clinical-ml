@@ -90,7 +90,13 @@ def create_app(
         ),
     )
 
-    default_cors = "*" if os.environ.get("SPACE_ID") else "http://127.0.0.1:8000,http://localhost:8000"
+    render_origin = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if os.environ.get("SPACE_ID"):
+        default_cors = "*"
+    elif render_origin:
+        default_cors = render_origin
+    else:
+        default_cors = "http://127.0.0.1:8000,http://localhost:8000"
     cors_raw = os.environ.get("CDS_CORS_ORIGINS", default_cors)
     cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
     app.add_middleware(
