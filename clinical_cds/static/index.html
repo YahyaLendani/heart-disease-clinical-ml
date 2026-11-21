@@ -10,29 +10,27 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f5c6e'/%3E%3Cpath d='M5 17h5l2.5-6 4 12 3-7 2 1h5.5' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <style>
     :root {
-      /* Calm clinical daylight palette (hospital exam-room primary) */
-      --bg-canvas: #f4f7f9;
+      --bg-canvas: #f3f6f9;
       --bg-surface: #ffffff;
-      --bg-rail: #edf2f6;
-      --bg-subtle: #f8fafc;
-      --border: #d8e1e8;
-      --border-strong: #b9c7d4;
-      --ink: #10202e;
-      --ink-secondary: #3f5263;
-      --ink-muted: #5b6f82;
+      --bg-rail: #ecf1f6;
+      --bg-subtle: #f7fafc;
+      --border: #d7e0e8;
+      --border-strong: #b6c5d3;
+      --ink: #0f1f2d;
+      --ink-secondary: #3c4f61;
+      --ink-muted: #5a6e82;
       --accent: #0f5c6e;
-      --accent-hover: #0b4857;
-      --accent-tint: #e6f2f5;
-      --low: #0b6e4f;
+      --accent-hover: #0a4755;
+      --accent-tint: #e4f1f4;
+      --low: #0c6e4f;
       --low-bg: #e7f6f0;
       --low-border: #9bd6be;
       --defer: #9a5504;
       --defer-bg: #fef5e7;
-      --defer-border: #f0ca86;
+      --defer-border: #efc781;
       --high: #a91e2c;
       --high-bg: #fdecef;
-      --high-border: #ebb1b8;
-      --shadow-sm: 0 1px 2px rgba(16, 32, 46, 0.05), 0 4px 12px rgba(16, 32, 46, 0.04);
+      --high-border: #eab0b8;
       --radius-sm: 6px;
       --radius-md: 10px;
       --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -41,28 +39,27 @@
     }
 
     [data-theme="dark"] {
-      --bg-canvas: #0d151d;
+      --bg-canvas: #0c141c;
       --bg-surface: #131f2a;
       --bg-rail: #101a24;
       --bg-subtle: #182735;
-      --border: #263849;
+      --border: #253748;
       --border-strong: #395066;
       --ink: #eef4f8;
-      --ink-secondary: #bccbd8;
-      --ink-muted: #8da2b5;
+      --ink-secondary: #c0cedb;
+      --ink-muted: #8ea3b7;
       --accent: #38a3b8;
-      --accent-hover: #4db7cc;
+      --accent-hover: #4eb8cd;
       --accent-tint: #14323c;
-      --low: #46c89d;
+      --low: #47c99e;
       --low-bg: #102d25;
-      --low-border: #205c4b;
+      --low-border: #215d4c;
       --defer: #f0b24c;
       --defer-bg: #2e2412;
-      --defer-border: #63491c;
+      --defer-border: #664b1d;
       --high: #f27480;
       --high-bg: #32161c;
-      --high-border: #6d2833;
-      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25), 0 6px 18px rgba(0, 0, 0, 0.2);
+      --high-border: #6e2934;
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -82,11 +79,11 @@
     .tabular { font-variant-numeric: tabular-nums; }
     .mono { font-family: var(--font-mono); font-size: 12.5px; }
 
-    /* Top clinical navigation bar */
+    /* Top clinical bar */
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 20;
+      z-index: 30;
       background: var(--bg-surface);
       border-bottom: 1px solid var(--border);
       padding: 0 24px;
@@ -131,14 +128,15 @@
     .topbar-right {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+      flex-shrink: 0;
     }
 
     .status-pill {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 10px;
+      padding: 5px 11px;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 500;
@@ -151,9 +149,9 @@
       height: 7px;
       border-radius: 50%;
       background: var(--low);
+      flex-shrink: 0;
     }
 
-    /* Notice strip */
     .notice-bar {
       background: var(--defer-bg);
       border-bottom: 1px solid var(--defer-border);
@@ -167,32 +165,36 @@
       flex-wrap: wrap;
     }
 
-    /* Main 2-column Operate workspace */
+    /* Two-column clinical workspace */
     .workspace {
       display: grid;
-      grid-template-columns: 372px minmax(0, 1fr);
+      grid-template-columns: 376px minmax(0, 1fr);
       min-height: calc(100vh - 93px);
     }
     @media (max-width: 980px) {
       .workspace { grid-template-columns: 1fr; }
+      .topbar { padding: 0 16px; }
+      .notice-bar { padding: 7px 16px; }
+      .brand-meta { display: none; }
     }
 
-    /* Left Intake Rail */
+    /* Left Patient Intake Rail */
     .intake-rail {
       background: var(--bg-rail);
       border-right: 1px solid var(--border);
       padding: 20px 20px 28px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 16px;
+      min-width: 0;
     }
     @media (max-width: 980px) {
-      .intake-rail { border-right: none; border-bottom: 1px solid var(--border); }
+      .intake-rail { border-right: none; border-bottom: 1px solid var(--border); padding: 18px 16px 24px; }
     }
 
     .rail-header {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
       gap: 8px;
     }
@@ -203,7 +205,6 @@
       letter-spacing: -0.01em;
     }
 
-    /* Preset quick-fill strip */
     .preset-group {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -215,24 +216,31 @@
       background: var(--bg-surface);
       color: var(--ink-secondary);
       border-radius: var(--radius-sm);
-      padding: 6px 8px;
+      padding: 7px 10px;
+      font-family: var(--font-sans);
       font-size: 12px;
       font-weight: 500;
       text-align: left;
       cursor: pointer;
-      transition: border-color 160ms var(--ease), color 160ms var(--ease), background 160ms var(--ease);
+      transition: border-color 150ms var(--ease), color 150ms var(--ease), background 150ms var(--ease);
     }
     .btn-preset:hover {
       border-color: var(--accent);
       color: var(--ink);
       background: var(--accent-tint);
     }
-    .btn-preset:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+    .btn-preset[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: var(--accent-tint);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    button:focus-visible, input:focus-visible, select:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
 
-    /* Form controls */
     .field-group {
       display: flex;
       flex-direction: column;
@@ -248,12 +256,14 @@
     .field {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 5px;
+      min-width: 0;
     }
     .field-label {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
+      gap: 8px;
       font-size: 12.5px;
       font-weight: 500;
       color: var(--ink-secondary);
@@ -261,9 +271,10 @@
     .field-unit {
       font-size: 11.5px;
       color: var(--ink-muted);
+      white-space: nowrap;
     }
 
-    input[type="number"], select {
+    input[type="number"] {
       width: 100%;
       height: 36px;
       padding: 0 10px;
@@ -276,18 +287,25 @@
       font-variant-numeric: tabular-nums;
       transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
     }
-    input[type="number"]:hover, select:hover { border-color: var(--accent); }
-    input[type="number"]:focus, select:focus {
+    @media (max-width: 980px) {
+      input[type="number"] { font-size: 16px; height: 40px; }
+    }
+    input[type="number"]:hover { border-color: var(--accent); }
+    input[type="number"]:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-tint);
       outline: none;
     }
+    input[type="number"].invalid {
+      border-color: var(--high);
+      background: var(--high-bg);
+    }
 
     .slider-wrap {
       display: grid;
-      grid-template-columns: 1fr 68px;
+      grid-template-columns: 1fr 72px;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
     input[type="range"] {
       width: 100%;
@@ -303,7 +321,7 @@
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 8px 10px;
+      padding: 9px 12px;
     }
     .derived-cell span {
       display: block;
@@ -316,7 +334,7 @@
       color: var(--ink);
     }
 
-    /* Segmented toggle buttons */
+    /* Segmented toggle buttons (generous inset padding) */
     .seg-control {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -332,6 +350,7 @@
       border: none;
       background: transparent;
       color: var(--ink-secondary);
+      font-family: var(--font-sans);
       font-size: 12px;
       font-weight: 500;
       padding: 6px 10px;
@@ -340,13 +359,13 @@
       cursor: pointer;
       transition: background 150ms var(--ease), color 150ms var(--ease);
     }
+    .seg-btn:hover { color: var(--ink); background: var(--bg-subtle); }
     .seg-btn[aria-pressed="true"] {
       background: var(--accent);
       color: #ffffff;
       font-weight: 600;
     }
 
-    /* Primary & secondary buttons */
     .btn-primary {
       appearance: none;
       width: 100%;
@@ -355,6 +374,7 @@
       border-radius: var(--radius-sm);
       background: var(--accent);
       color: #ffffff;
+      font-family: var(--font-sans);
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
@@ -362,7 +382,7 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
-      transition: background 160ms var(--ease), transform 120ms var(--ease);
+      transition: background 150ms var(--ease), transform 120ms var(--ease);
     }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-primary:active { transform: translateY(1px); }
@@ -370,12 +390,13 @@
 
     .btn-ghost {
       appearance: none;
-      height: 32px;
-      padding: 0 10px;
+      min-height: 32px;
+      padding: 6px 11px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
       background: var(--bg-surface);
       color: var(--ink-secondary);
+      font-family: var(--font-sans);
       font-size: 12.5px;
       font-weight: 500;
       cursor: pointer;
@@ -408,10 +429,11 @@
       border-radius: var(--radius-sm);
       padding: 10px 12px;
       font-size: 12.5px;
+      line-height: 1.45;
     }
     .error-banner.visible { display: block; }
 
-    /* Main Results Workspace */
+    /* Main Workspace Pane */
     .main-pane {
       background: var(--bg-surface);
       display: flex;
@@ -432,16 +454,19 @@
     .tab-list {
       display: flex;
       gap: 4px;
+      overflow-x: auto;
     }
     .tab-btn {
       appearance: none;
       border: none;
       background: transparent;
       color: var(--ink-muted);
+      font-family: var(--font-sans);
       font-size: 13.5px;
       font-weight: 600;
       padding: 13px 14px 11px;
       border-bottom: 2px solid transparent;
+      white-space: nowrap;
       cursor: pointer;
       transition: color 150ms var(--ease), border-color 150ms var(--ease);
     }
@@ -455,20 +480,25 @@
       display: none;
       padding: 24px 28px 36px;
       max-width: 1080px;
+      min-width: 0;
     }
     .tab-panel.active { display: block; }
+    @media (max-width: 720px) {
+      .tabs-bar { padding: 0 16px; }
+      .tab-panel { padding: 20px 16px 32px; }
+    }
 
-    /* Assessment Summary Strip (Gauge + Triage Decision) */
+    /* Assessment Summary Strip */
     .assessment-hero {
       display: grid;
-      grid-template-columns: 270px minmax(0, 1fr);
-      gap: 28px;
+      grid-template-columns: 284px minmax(0, 1fr);
+      gap: 32px;
       align-items: center;
-      padding-bottom: 22px;
+      padding-bottom: 24px;
       border-bottom: 1px solid var(--border);
     }
-    @media (max-width: 720px) {
-      .assessment-hero { grid-template-columns: 1fr; }
+    @media (max-width: 760px) {
+      .assessment-hero { grid-template-columns: 1fr; gap: 20px; }
     }
 
     .gauge-box {
@@ -477,19 +507,43 @@
       align-items: center;
     }
     .gauge-svg {
-      width: 248px;
-      height: 146px;
-      overflow: visible;
+      width: 264px;
+      height: 158px;
+      display: block;
     }
     .gauge-needle {
       transition: transform 240ms var(--ease);
-      transform-origin: 120px 118px;
+      transform-origin: 132px 124px;
     }
-    .gauge-caption {
+    .gauge-readout {
+      margin-top: -12px;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--ink);
+    }
+    .gauge-legend {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
       font-size: 11.5px;
       color: var(--ink-muted);
-      text-align: center;
-      margin-top: 2px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .legend-swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      flex-shrink: 0;
     }
 
     .triage-header {
@@ -503,11 +557,12 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 5px 12px;
+      padding: 6px 13px;
       border-radius: 999px;
       font-size: 12.5px;
       font-weight: 700;
       letter-spacing: 0.02em;
+      transition: background 180ms var(--ease), color 180ms var(--ease), border-color 180ms var(--ease);
     }
     .triage-LOW_RISK { background: var(--low-bg); color: var(--low); border: 1px solid var(--low-border); }
     .triage-DEFER_TO_CLINICIAN { background: var(--defer-bg); color: var(--defer); border: 1px solid var(--defer-border); }
@@ -516,7 +571,7 @@
     .delta-pill {
       display: inline-flex;
       align-items: center;
-      padding: 3px 9px;
+      padding: 4px 10px;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
@@ -526,16 +581,16 @@
     }
 
     .triage-reason {
-      margin: 0 0 14px;
+      margin: 0 0 16px;
       color: var(--ink-secondary);
       max-width: 66ch;
     }
 
     .meta-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 18px;
-      padding-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+      gap: 12px 16px;
+      padding-top: 14px;
       border-top: 1px solid var(--border);
     }
     .meta-item span {
@@ -550,27 +605,28 @@
     }
 
     .ood-alert {
+      display: none;
       margin-top: 18px;
       padding: 12px 14px;
       border-radius: var(--radius-sm);
       background: var(--high-bg);
       border: 1px solid var(--high-border);
       color: var(--high);
-      display: flex;
       align-items: flex-start;
       gap: 10px;
       font-size: 13px;
     }
+    .ood-alert.visible { display: flex; }
 
-    /* Two-column explainability grid */
+    /* Dual Explainability Grid */
     .explain-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr);
       gap: 28px;
-      padding: 22px 0;
+      padding: 24px 0;
       border-bottom: 1px solid var(--border);
     }
-    @media (max-width: 820px) {
+    @media (max-width: 860px) {
       .explain-grid { grid-template-columns: 1fr; }
     }
 
@@ -586,11 +642,10 @@
       color: var(--ink-muted);
     }
 
-    /* Biomarker attention bars */
-    .bar-list { display: flex; flex-direction: column; gap: 9px; }
+    .bar-list { display: flex; flex-direction: column; gap: 10px; }
     .bar-row {
       display: grid;
-      grid-template-columns: 145px 1fr 48px;
+      grid-template-columns: 146px minmax(0, 1fr) 48px;
       align-items: center;
       gap: 10px;
       font-size: 13px;
@@ -619,7 +674,10 @@
       color: var(--ink);
     }
 
-    /* Cohort neighbor table */
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
     .data-table {
       width: 100%;
       border-collapse: collapse;
@@ -638,12 +696,13 @@
       padding: 8px 8px;
       border-bottom: 1px solid var(--border);
       color: var(--ink-secondary);
+      white-space: nowrap;
     }
     .data-table tbody tr:hover { background: var(--bg-subtle); }
 
     .outcome-chip {
       display: inline-block;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: 4px;
       font-size: 11.5px;
       font-weight: 600;
@@ -652,10 +711,10 @@
     .outcome-neg { background: var(--low-bg); color: var(--low); }
 
     /* Recourse section */
-    .recourse-sec { padding-top: 22px; }
+    .recourse-sec { padding-top: 24px; }
     .recourse-list {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
       gap: 12px;
     }
     .recourse-row {
@@ -667,6 +726,7 @@
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
       background: var(--bg-subtle);
+      min-width: 0;
     }
     .recourse-title {
       font-size: 13px;
@@ -695,12 +755,11 @@
       max-height: 540px;
     }
 
-    /* Telemetry / Model Card summary strip */
     .stat-strip {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
-      margin-bottom: 20px;
+      margin-bottom: 22px;
     }
     .stat-box {
       padding: 14px 16px;
@@ -715,19 +774,10 @@
       margin-bottom: 4px;
     }
     .stat-box strong {
-      font-size: 22px;
+      font-size: 21px;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
-
-    /* Skeleton loading state */
-    .skeleton {
-      background: linear-gradient(90deg, var(--bg-rail) 25%, var(--bg-subtle) 50%, var(--bg-rail) 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.2s infinite;
-      border-radius: 4px;
-    }
-    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition: none !important; animation: none !important; }
@@ -751,7 +801,7 @@
       </div>
       <div>
         <div class="brand-title">CardioGraph CDS</div>
-        <div class="brand-meta" id="headerMeta">Graph-Augmented Clinical Transformer &middot; Inductive 48k Cohort Bank</div>
+        <div class="brand-meta">Hybrid Graph-Augmented Clinical Transformer &middot; Learned-Space Prototypes</div>
       </div>
     </div>
     <div class="topbar-right">
@@ -760,7 +810,7 @@
         <span>Checking engine...</span>
       </div>
       <button type="button" class="btn-ghost no-print" onclick="window.print()" title="Print clinical summary">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
         Print
       </button>
       <button type="button" class="btn-ghost no-print" id="themeBtn" onclick="toggleTheme()" aria-label="Toggle color theme">
@@ -770,8 +820,8 @@
   </header>
 
   <div class="notice-bar" role="note">
-    <span><strong>Clinician-in-the-Loop Research Prototype:</strong> Supports cardiovascular risk triage with Mondrian conformal abstention and OOD guardrails. Not an FDA-cleared or CE-marked diagnostic device.</span>
-    <span class="mono" id="shaTag">SHA-256: loading...</span>
+    <span><strong>Clinician-in-the-Loop Research Prototype:</strong> Cardiovascular risk triage with sex-stratified Mondrian conformal abstention and OOD guardrails. Not FDA-cleared or CE-marked medical software.</span>
+    <span class="mono" id="shaTag">SHA-256: verifying...</span>
   </div>
 
   <div class="workspace">
@@ -784,11 +834,11 @@
 
       <div>
         <div class="field-label" style="margin-bottom:6px"><span>Clinical Presets</span><span class="field-unit">1-click scenarios</span></div>
-        <div class="preset-group">
-          <button type="button" class="btn-preset" onclick="applyPreset('low')">Low-Risk Control</button>
-          <button type="button" class="btn-preset" onclick="applyPreset('borderline')">Borderline (Defer)</button>
-          <button type="button" class="btn-preset" onclick="applyPreset('high')">High-Risk CVD</button>
-          <button type="button" class="btn-preset" onclick="applyPreset('ood')">OOD Safety Alert</button>
+        <div class="preset-group" role="group" aria-label="Clinical preset cases">
+          <button type="button" class="btn-preset" data-preset="low" aria-pressed="false" onclick="applyPreset('low')">Low-Risk Control</button>
+          <button type="button" class="btn-preset" data-preset="borderline" aria-pressed="false" onclick="applyPreset('borderline')">Borderline (Defer)</button>
+          <button type="button" class="btn-preset" data-preset="high" aria-pressed="false" onclick="applyPreset('high')">High-Risk CVD</button>
+          <button type="button" class="btn-preset" data-preset="ood" aria-pressed="false" onclick="applyPreset('ood')">OOD Safety Alert</button>
         </div>
       </div>
 
@@ -891,7 +941,7 @@
         </div>
 
         <div class="field">
-          <div class="field-label"><span>Conformal Coverage</span><span class="field-unit">1 &minus; &alpha;</span></div>
+          <div class="field-label"><span>Conformal Coverage</span><span class="field-unit">1 &minus; &alpha; target</span></div>
           <div class="seg-control cols-3" role="group" aria-label="Conformal nominal coverage">
             <button type="button" class="seg-btn" data-field="conformal_alpha" data-val="0.15" aria-pressed="false" onclick="setAlpha(0.15)">85%</button>
             <button type="button" class="seg-btn" data-field="conformal_alpha" data-val="0.10" aria-pressed="true" onclick="setAlpha(0.10)">90%</button>
@@ -901,7 +951,7 @@
       </div>
 
       <div class="toggle-row">
-        <label><input type="checkbox" id="liveWhatIf" checked /> Live What-If updates (~5 ms)</label>
+        <label><input type="checkbox" id="liveWhatIf" checked /> Live What-If updates</label>
       </div>
 
       <button type="button" class="btn-primary" id="assessBtn" onclick="assess(true)">
@@ -923,31 +973,99 @@
         <span class="mono" style="color:var(--ink-muted)" id="reqMeta">Ready</span>
       </nav>
 
-      <!-- Tab 1: Risk Assessment -->
+      <!-- Tab 1: Persistent DOM for smooth 60fps transitions without flicker -->
       <section id="tab-assessment" class="tab-panel active" role="tabpanel">
-        <div id="assessmentContent">
-          <div style="display:flex;flex-direction:column;gap:14px;padding:12px 0">
-            <div class="skeleton" style="height:120px;width:100%"></div>
-            <div class="skeleton" style="height:220px;width:100%"></div>
+        <div class="assessment-hero">
+          <div class="gauge-box">
+            <svg class="gauge-svg" viewBox="0 0 264 148" role="img" id="gaugeSvg" aria-label="Calibrated cardiovascular risk gauge">
+              <!-- Subtle track backdrop -->
+              <path d="M 38 124 A 94 94 0 0 1 226 124" fill="none" stroke="var(--bg-rail)" stroke-width="15" />
+              <!-- Semicircle conformal bands (large-arc-flag ALWAYS 0 for sub-arcs of a 180-deg semicircle) -->
+              <path id="arcLow" d="" fill="none" stroke="var(--low)" stroke-width="15" opacity="0.9" />
+              <path id="arcDefer" d="" fill="none" stroke="var(--defer)" stroke-width="15" opacity="0.88" />
+              <path id="arcHigh" d="" fill="none" stroke="var(--high)" stroke-width="15" opacity="0.9" />
+              <!-- Crisp boundary tick lines -->
+              <line id="tickLow" x1="132" y1="124" x2="132" y2="124" stroke="var(--bg-surface)" stroke-width="2.2" />
+              <line id="tickHigh" x1="132" y1="124" x2="132" y2="124" stroke="var(--bg-surface)" stroke-width="2.2" />
+              <!-- Animated needle -->
+              <g id="gaugeNeedle" class="gauge-needle" style="transform: rotate(0deg)">
+                <line x1="132" y1="124" x2="132" y2="42" stroke="var(--ink)" stroke-width="2.6" stroke-linecap="round" />
+                <circle cx="132" cy="124" r="6.5" fill="var(--ink)" />
+                <circle cx="132" cy="124" r="2.6" fill="var(--bg-surface)" />
+              </g>
+              <text x="30" y="142" text-anchor="start" fill="var(--ink-muted)" font-size="11" class="tabular">0%</text>
+              <text x="234" y="142" text-anchor="end" fill="var(--ink-muted)" font-size="11" class="tabular">100%</text>
+            </svg>
+            <div class="gauge-readout tabular" id="gaugePercent">--.-%</div>
+            <div class="gauge-legend tabular" id="gaugeLegend">
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--low)"></span>Low</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--defer)"></span>Defer</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--high)"></span>High</span>
+            </div>
           </div>
+
+          <div aria-live="polite">
+            <div class="triage-header">
+              <span class="triage-badge triage-DEFER_TO_CLINICIAN" id="triageBadge">ASSESSING...</span>
+              <span class="delta-pill tabular" id="deltaPill" style="display:none"></span>
+            </div>
+            <p class="triage-reason" id="triageReason">Evaluating patient biomarkers and learned-space cohort prototypes...</p>
+            <div class="meta-grid tabular">
+              <div class="meta-item"><span>Conformal Set</span><strong id="metaCset">--</strong></div>
+              <div class="meta-item"><span>GAT-T / XGBoost</span><strong id="metaModels">--</strong></div>
+              <div class="meta-item"><span>Disagreement |&Delta;|</span><strong id="metaDisagree">--</strong></div>
+              <div class="meta-item"><span>Graph Gate</span><strong id="metaGate">--</strong></div>
+              <div class="meta-item"><span>Max |z-score|</span><strong id="metaZscore">--</strong></div>
+              <div class="meta-item"><span>Latency</span><strong id="metaLatency">--</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ood-alert" id="oodAlert" role="alert">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          <div><strong>Out-of-Distribution Safety Override:</strong> <span id="oodReasons"></span></div>
+        </div>
+
+        <div class="explain-grid">
+          <div>
+            <h3 class="section-h3">Biomarker Attention</h3>
+            <p class="section-sub">Level-1 Transformer [CLS]-to-feature weights for this patient.</p>
+            <div class="bar-list" id="featBarList"></div>
+          </div>
+          <div>
+            <h3 class="section-h3">Matched Historical Cohort Neighbors</h3>
+            <p class="section-sub">Level-2 inductive GAT attention over top-5 learned-space clinical medoids.</p>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Cohort ID</th><th>Outcome</th><th>GAT Attn</th><th>Age</th><th>SBP</th><th>BMI</th></tr></thead>
+                <tbody id="nbrTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="recourse-sec">
+          <h3 class="section-h3">Modifiable Clinical Recourse</h3>
+          <p class="section-sub">Single-pass counterfactual projections. Age, biological sex, and height remain strictly locked.</p>
+          <div id="recourseContainer"></div>
         </div>
       </section>
 
       <!-- Tab 2: HL7 FHIR R4 RiskAssessment -->
       <section id="tab-fhir" class="tab-panel" role="tabpanel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
           <div>
             <h3 class="section-h3">HL7 FHIR R4 RiskAssessment Resource</h3>
             <p class="section-sub" style="margin:0">Standards-compliant output generated from the current patient assessment via LOINC-coded mapping.</p>
           </div>
-          <button type="button" class="btn-ghost" onclick="copyFhir()">Copy JSON</button>
+          <button type="button" class="btn-ghost" id="copyFhirBtn" onclick="copyFhir()">Copy JSON</button>
         </div>
         <pre class="code-box" id="fhirCode">Run an assessment to inspect the HL7 FHIR R4 RiskAssessment payload.</pre>
       </section>
 
       <!-- Tab 3: Live Drift & Safety Monitor -->
       <section id="tab-drift" class="tab-panel" role="tabpanel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
           <div>
             <h3 class="section-h3">Live Clinical Audit &amp; Drift Telemetry</h3>
             <p class="section-sub" style="margin:0">Aggregated from de-identified append-only JSONL audit logs (zero PII stored).</p>
@@ -973,10 +1091,12 @@
       alcohol: 0,
       active: 0,
       conformal_alpha: 0.10,
+      activePreset: null,
       baselineRisk: null,
       baselinePayload: null,
       lastFhirJson: null,
       debounceTimer: null,
+      abortController: null,
     };
 
     const PRESETS = {
@@ -1004,12 +1124,20 @@
       if (tabId === "modelcard") loadModelCard();
     }
 
+    function clearPresetHighlight() {
+      state.activePreset = null;
+      document.querySelectorAll(".btn-preset").forEach(b => b.setAttribute("aria-pressed", "false"));
+    }
+
     function setSeg(field, val, triggerAssess = true) {
       state[field] = val;
       document.querySelectorAll(`.seg-btn[data-field="${field}"]`).forEach(btn => {
         btn.setAttribute("aria-pressed", parseInt(btn.dataset.val, 10) === val ? "true" : "false");
       });
-      if (triggerAssess) scheduleLiveAssess();
+      if (triggerAssess) {
+        clearPresetHighlight();
+        scheduleLiveAssess();
+      }
     }
 
     function setAlpha(alphaVal) {
@@ -1022,6 +1150,7 @@
 
     function syncControl(inputId, val) {
       document.getElementById(inputId).value = val;
+      clearPresetHighlight();
       onVitalInput();
     }
 
@@ -1031,7 +1160,43 @@
       if (!Number.isNaN(num)) {
         el.value = Math.min(parseFloat(el.max), Math.max(parseFloat(el.min), num));
       }
+      clearPresetHighlight();
       onVitalInput();
+    }
+
+    function validateLocalVitals() {
+      const sbpEl = document.getElementById("systolic_bp");
+      const dbpEl = document.getElementById("diastolic_bp");
+      const hEl = document.getElementById("height_cm");
+      const wEl = document.getElementById("weight_kg");
+      const errEl = document.getElementById("errBanner");
+
+      const sbp = parseFloat(sbpEl.value);
+      const dbp = parseFloat(dbpEl.value);
+      const h = parseFloat(hEl.value);
+      const w = parseFloat(wEl.value);
+      const bmi = w / Math.pow(h / 100, 2);
+
+      sbpEl.classList.remove("invalid");
+      dbpEl.classList.remove("invalid");
+      wEl.classList.remove("invalid");
+
+      if (Number.isFinite(sbp) && Number.isFinite(dbp) && sbp <= dbp + 5) {
+        sbpEl.classList.add("invalid");
+        dbpEl.classList.add("invalid");
+        errEl.textContent = `Systolic BP (${sbp} mmHg) must exceed Diastolic BP (${dbp} mmHg) by more than 5 mmHg.`;
+        errEl.classList.add("visible");
+        return false;
+      }
+      if (Number.isFinite(bmi) && (bmi < 12 || bmi > 70)) {
+        wEl.classList.add("invalid");
+        errEl.textContent = `Derived BMI (${bmi.toFixed(1)} kg/m²) is outside physiological bounds [12, 70].`;
+        errEl.classList.add("visible");
+        return false;
+      }
+      errEl.classList.remove("visible");
+      errEl.textContent = "";
+      return true;
     }
 
     function updateDerivedVitals() {
@@ -1045,22 +1210,28 @@
       document.getElementById("derivedBmi").textContent = Number.isFinite(bmi) ? bmi.toFixed(1) : "—";
       document.getElementById("derivedPp").textContent = Number.isFinite(pp) ? pp.toFixed(0) : "—";
       document.getElementById("derivedMap").textContent = Number.isFinite(map) ? map.toFixed(1) : "—";
+      return validateLocalVitals();
     }
 
     function onVitalInput() {
-      updateDerivedVitals();
-      scheduleLiveAssess();
+      if (updateDerivedVitals()) {
+        scheduleLiveAssess();
+      }
     }
 
     function scheduleLiveAssess() {
       if (!document.getElementById("liveWhatIf").checked) return;
       clearTimeout(state.debounceTimer);
-      state.debounceTimer = setTimeout(() => assess(false), 90);
+      state.debounceTimer = setTimeout(() => assess(false), 75);
     }
 
     function applyPreset(key) {
       const p = PRESETS[key];
       if (!p) return;
+      state.activePreset = key;
+      document.querySelectorAll(".btn-preset").forEach(b => {
+        b.setAttribute("aria-pressed", b.dataset.preset === key ? "true" : "false");
+      });
       loadPayloadIntoForm(p);
       state.baselineRisk = null;
       state.baselinePayload = null;
@@ -1070,14 +1241,14 @@
 
     function loadPayloadIntoForm(p) {
       document.getElementById("age_years").value = p.age_years;
-      syncSlider("age_slider", p.age_years);
+      document.getElementById("age_slider").value = Math.min(105, Math.max(18, p.age_years));
       document.getElementById("height_cm").value = p.height_cm;
       document.getElementById("weight_kg").value = p.weight_kg;
-      syncSlider("weight_slider", p.weight_kg);
+      document.getElementById("weight_slider").value = Math.min(160, Math.max(40, p.weight_kg));
       document.getElementById("systolic_bp").value = p.systolic_bp;
-      syncSlider("sbp_slider", p.systolic_bp);
+      document.getElementById("sbp_slider").value = Math.min(240, Math.max(85, p.systolic_bp));
       document.getElementById("diastolic_bp").value = p.diastolic_bp;
-      syncSlider("dbp_slider", p.diastolic_bp);
+      document.getElementById("dbp_slider").value = Math.min(150, Math.max(50, p.diastolic_bp));
       setSeg("sex", p.sex, false);
       setSeg("cholesterol_level", p.cholesterol_level, false);
       setSeg("glucose_level", p.glucose_level, false);
@@ -1108,6 +1279,7 @@
       if (state.baselinePayload === null) {
         state.baselinePayload = readFormPayload();
       }
+      clearPresetHighlight();
       const next = { ...readFormPayload(), ...changes };
       loadPayloadIntoForm(next);
       document.getElementById("resetBaselineBtn").style.display = "inline-flex";
@@ -1122,45 +1294,70 @@
       assess(true);
     }
 
-    function arcPath(cx, cy, r, pStart, pEnd) {
-      const a0 = Math.PI * (1 - pStart);
-      const a1 = Math.PI * (1 - pEnd);
+    /* Strictly valid semicircle sub-arc: max sweep is 180 deg, so large-arc-flag is ALWAYS 0. */
+    function semicircleArc(cx, cy, r, pStart, pEnd) {
+      const s = Math.max(0, Math.min(1, pStart));
+      const e = Math.max(0, Math.min(1, pEnd));
+      if (e - s < 0.002) return "";
+      const a0 = Math.PI * (1 - s);
+      const a1 = Math.PI * (1 - e);
       const x0 = cx + r * Math.cos(a0);
       const y0 = cy - r * Math.sin(a0);
       const x1 = cx + r * Math.cos(a1);
       const y1 = cy - r * Math.sin(a1);
-      const large = Math.abs(pEnd - pStart) > 0.5 ? 1 : 0;
-      return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+      return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
     }
 
-    function renderGaugeSvg(prob, lowT, highT) {
-      const lo = Math.max(0.02, Math.min(lowT, highT));
-      const hi = Math.min(0.98, Math.max(lowT, highT));
-      const angleDeg = -90 + prob * 180;
-      return `
-        <svg class="gauge-svg" viewBox="0 0 240 142" role="img" aria-label="Calibrated cardiovascular risk ${(prob*100).toFixed(1)} percent">
-          <path d="${arcPath(120, 118, 86, 0, lo)}" fill="none" stroke="var(--low)" stroke-width="14" stroke-linecap="butt" opacity="0.88" />
-          <path d="${arcPath(120, 118, 86, lo, hi)}" fill="none" stroke="var(--defer)" stroke-width="14" stroke-linecap="butt" opacity="0.85" />
-          <path d="${arcPath(120, 118, 86, hi, 1)}" fill="none" stroke="var(--high)" stroke-width="14" stroke-linecap="butt" opacity="0.88" />
-          <g class="gauge-needle" style="transform: rotate(${angleDeg.toFixed(1)}deg)">
-            <line x1="120" y1="118" x2="120" y2="42" stroke="var(--ink)" stroke-width="2.5" stroke-linecap="round" />
-            <circle cx="120" cy="118" r="6" fill="var(--ink)" />
-            <circle cx="120" cy="118" r="2.5" fill="var(--bg-surface)" />
-          </g>
-          <text x="120" y="96" text-anchor="middle" fill="var(--ink)" font-size="28" font-weight="800" class="tabular">${(prob*100).toFixed(1)}%</text>
-          <text x="22" y="135" text-anchor="start" fill="var(--ink-muted)" font-size="11" class="tabular">0%</text>
-          <text x="120" y="136" text-anchor="middle" fill="var(--ink-muted)" font-size="10.5" class="tabular">Defer: ${(lo*100).toFixed(0)}–${(hi*100).toFixed(0)}%</text>
-          <text x="218" y="135" text-anchor="end" fill="var(--ink-muted)" font-size="11" class="tabular">100%</text>
-        </svg>
+    function setBoundaryTick(lineId, cx, cy, rInner, rOuter, p) {
+      const el = document.getElementById(lineId);
+      const clamped = Math.max(0, Math.min(1, p));
+      if (clamped <= 0.01 || clamped >= 0.99) {
+        el.setAttribute("opacity", "0");
+        return;
+      }
+      const a = Math.PI * (1 - clamped);
+      el.setAttribute("opacity", "1");
+      el.setAttribute("x1", (cx + rInner * Math.cos(a)).toFixed(2));
+      el.setAttribute("y1", (cy - rInner * Math.sin(a)).toFixed(2));
+      el.setAttribute("x2", (cx + rOuter * Math.cos(a)).toFixed(2));
+      el.setAttribute("y2", (cy - rOuter * Math.sin(a)).toFixed(2));
+    }
+
+    function updateGauge(prob, lowT, highT) {
+      const cx = 132, cy = 124, r = 94;
+      const lo = Math.max(0, Math.min(lowT, highT));
+      const hi = Math.min(1, Math.max(lowT, highT));
+
+      document.getElementById("arcLow").setAttribute("d", semicircleArc(cx, cy, r, 0, lo));
+      document.getElementById("arcDefer").setAttribute("d", semicircleArc(cx, cy, r, lo, hi));
+      document.getElementById("arcHigh").setAttribute("d", semicircleArc(cx, cy, r, hi, 1));
+
+      setBoundaryTick("tickLow", cx, cy, r - 9, r + 9, lo);
+      setBoundaryTick("tickHigh", cx, cy, r - 9, r + 9, hi);
+
+      const angleDeg = -90 + Math.max(0, Math.min(1, prob)) * 180;
+      document.getElementById("gaugeNeedle").style.transform = `rotate(${angleDeg.toFixed(1)}deg)`;
+      document.getElementById("gaugePercent").textContent = `${(prob * 100).toFixed(1)}%`;
+      document.getElementById("gaugeSvg").setAttribute(
+        "aria-label",
+        `Calibrated cardiovascular risk ${(prob * 100).toFixed(1)} percent; deferral band ${(lo * 100).toFixed(0)} to ${(hi * 100).toFixed(0)} percent`
+      );
+      document.getElementById("gaugeLegend").innerHTML = `
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--low)"></span>Low &lt;${(lo * 100).toFixed(0)}%</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--defer)"></span>Defer ${(lo * 100).toFixed(0)}–${(hi * 100).toFixed(0)}%</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--high)"></span>High &gt;${(hi * 100).toFixed(0)}%</span>
       `;
     }
 
     async function assess(captureBaseline = false) {
+      if (!validateLocalVitals()) return;
       const errEl = document.getElementById("errBanner");
-      const btn = document.getElementById("assessBtn");
-      errEl.classList.remove("visible");
-      errEl.textContent = "";
-      btn.disabled = true;
+
+      // Cancel any superseded in-flight request to prevent out-of-order UI jumps
+      if (state.abortController) {
+        state.abortController.abort();
+      }
+      state.abortController = new AbortController();
 
       const payload = readFormPayload();
       try {
@@ -1168,6 +1365,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: state.abortController.signal,
         });
         const body = await res.json();
         if (!res.ok) {
@@ -1187,14 +1385,42 @@
         if (captureBaseline || state.baselineRisk === null) {
           state.baselineRisk = data.calibrated_risk_probability;
         }
+
+        // Update gauge smoothly in-place
+        updateGauge(data.calibrated_risk_probability, data.conformal_low_threshold, data.conformal_high_threshold);
+
+        const badge = document.getElementById("triageBadge");
+        badge.className = `triage-badge triage-${data.triage_decision}`;
+        badge.textContent = data.triage_decision.replaceAll("_", " ");
+
         const deltaPts = (data.calibrated_risk_probability - state.baselineRisk) * 100;
-        const deltaHtml = Math.abs(deltaPts) >= 0.2
-          ? `<span class="delta-pill tabular">${deltaPts > 0 ? "+" : ""}${deltaPts.toFixed(1)} pts vs baseline</span>`
-          : "";
+        const deltaEl = document.getElementById("deltaPill");
+        if (Math.abs(deltaPts) >= 0.2) {
+          deltaEl.textContent = `${deltaPts > 0 ? "+" : ""}${deltaPts.toFixed(1)} pts vs baseline`;
+          deltaEl.style.display = "inline-flex";
+        } else {
+          deltaEl.style.display = "none";
+        }
+
+        document.getElementById("triageReason").textContent = data.triage_reason;
+        document.getElementById("metaCset").textContent = `{${data.conformal_prediction_set.join(", ")}}`;
+        document.getElementById("metaModels").textContent = `${(data.gat_transformer_probability * 100).toFixed(1)}% / ${data.xgboost_probability !== null ? (data.xgboost_probability * 100).toFixed(1) + "%" : "—"}`;
+        document.getElementById("metaDisagree").textContent = `${(data.model_disagreement * 100).toFixed(1)} pts`;
+        document.getElementById("metaGate").textContent = data.dual_explanation.graph_reliance_gate.toFixed(2);
+        document.getElementById("metaZscore").textContent = data.ood_report.max_abs_zscore.toFixed(2);
+        document.getElementById("metaLatency").textContent = `${data.latency_ms} ms`;
+
+        const oodBox = document.getElementById("oodAlert");
+        if (data.ood_report.is_ood) {
+          document.getElementById("oodReasons").textContent = data.ood_report.reasons.join(" ");
+          oodBox.classList.add("visible");
+        } else {
+          oodBox.classList.remove("visible");
+        }
 
         const topFeats = Object.entries(data.dual_explanation.biomarker_attentions).slice(0, 7);
         const maxW = Math.max(...topFeats.map(f => f[1]), 0.01);
-        const featHtml = topFeats.map(([k, v]) => `
+        document.getElementById("featBarList").innerHTML = topFeats.map(([k, v]) => `
           <div class="bar-row">
             <span class="bar-name">${k}</span>
             <div class="bar-track"><div class="bar-fill" style="width:${(v / maxW * 100).toFixed(1)}%"></div></div>
@@ -1202,7 +1428,7 @@
           </div>
         `).join("");
 
-        const nbrRows = data.dual_explanation.top_cohort_neighbors.map(n => `
+        document.getElementById("nbrTableBody").innerHTML = data.dual_explanation.top_cohort_neighbors.map(n => `
           <tr>
             <td class="mono">#${n.cohort_index}</td>
             <td><span class="outcome-chip ${n.historical_outcome === 'CVD+' ? 'outcome-pos' : 'outcome-neg'}">${n.historical_outcome}</span></td>
@@ -1213,12 +1439,12 @@
           </tr>
         `).join("");
 
-        const recHtml = data.actionable_recourse.length
+        document.getElementById("recourseContainer").innerHTML = data.actionable_recourse.length
           ? `<div class="recourse-list">${data.actionable_recourse.map(r => {
               const encoded = encodeURIComponent(JSON.stringify(r.changes));
               return `
                 <div class="recourse-row">
-                  <div>
+                  <div style="min-width:0">
                     <div class="recourse-title">${r.intervention}</div>
                     <div class="recourse-impact tabular">Projected ${(r.projected_risk_probability * 100).toFixed(1)}% (&minus;${(r.absolute_risk_reduction * 100).toFixed(1)} pts)</div>
                   </div>
@@ -1227,66 +1453,10 @@
               `;
             }).join("")}</div>`
           : `<p style="color:var(--ink-muted);margin:0">Patient is already in the low-risk conformal regime; no urgent modifiable intervention recommended.</p>`;
-
-        const oodHtml = data.ood_report.is_ood
-          ? `<div class="ood-alert" role="alert">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-              <div><strong>Out-of-Distribution Safety Override:</strong> ${data.ood_report.reasons.join(" ")}</div>
-            </div>`
-          : "";
-
-        document.getElementById("assessmentContent").innerHTML = `
-          <div class="assessment-hero">
-            <div class="gauge-box">
-              ${renderGaugeSvg(data.calibrated_risk_probability, data.conformal_low_threshold, data.conformal_high_threshold)}
-              <div class="gauge-caption">Sex-stratified Mondrian ${Math.round((1 - data.conformal_alpha) * 100)}% bands</div>
-            </div>
-            <div>
-              <div class="triage-header">
-                <span class="triage-badge triage-${data.triage_decision}">${data.triage_decision.replaceAll("_", " ")}</span>
-                ${deltaHtml}
-              </div>
-              <p class="triage-reason">${data.triage_reason}</p>
-              <div class="meta-grid tabular">
-                <div class="meta-item"><span>Conformal Set</span><strong>{${data.conformal_prediction_set.join(", ")}}</strong></div>
-                <div class="meta-item"><span>GAT-T / XGBoost</span><strong>${(data.gat_transformer_probability * 100).toFixed(1)}% / ${data.xgboost_probability !== null ? (data.xgboost_probability * 100).toFixed(1) + '%' : '—'}</strong></div>
-                <div class="meta-item"><span>Disagreement |&Delta;|</span><strong>${(data.model_disagreement * 100).toFixed(1)} pts</strong></div>
-                <div class="meta-item"><span>Graph Gate</span><strong>${data.dual_explanation.graph_reliance_gate.toFixed(2)}</strong></div>
-                <div class="meta-item"><span>Max |z-score|</span><strong>${data.ood_report.max_abs_zscore.toFixed(2)}</strong></div>
-                <div class="meta-item"><span>Latency</span><strong>${data.latency_ms} ms</strong></div>
-              </div>
-            </div>
-          </div>
-
-          ${oodHtml}
-
-          <div class="explain-grid">
-            <div>
-              <h3 class="section-h3">Biomarker Attention</h3>
-              <p class="section-sub">Level-1 Transformer [CLS]-to-feature importance weights for this patient.</p>
-              <div class="bar-list">${featHtml}</div>
-            </div>
-            <div>
-              <h3 class="section-h3">Matched Historical Cohort Neighbors</h3>
-              <p class="section-sub">Level-2 inductive GAT attention over top-5 similar training patients.</p>
-              <table class="data-table">
-                <thead><tr><th>Cohort ID</th><th>Outcome</th><th>GAT Attn</th><th>Age</th><th>SBP</th><th>BMI</th></tr></thead>
-                <tbody>${nbrRows}</tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="recourse-sec">
-            <h3 class="section-h3">Modifiable Clinical Recourse</h3>
-            <p class="section-sub">Single-pass counterfactual projections. Age, biological sex, and height remain strictly locked.</p>
-            ${recHtml}
-          </div>
-        `;
       } catch (err) {
+        if (err.name === "AbortError") return;
         errEl.textContent = "Unable to reach Clinical CDS API: " + err.message;
         errEl.classList.add("visible");
-      } finally {
-        btn.disabled = false;
       }
     }
 
@@ -1320,12 +1490,14 @@
             <div class="stat-box"><span>Mean Latency</span><strong>${d.mean_latency_ms.toFixed(2)} ms</strong></div>
           </div>
           <h3 class="section-h3">Triage Breakdown</h3>
-          <table class="data-table tabular" style="max-width:480px;margin-top:8px">
-            <thead><tr><th>Triage State</th><th>Count</th><th>Share</th></tr></thead>
-            <tbody>
-              ${Object.entries(d.triage_counts).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td><td>${(v / d.total_requests * 100).toFixed(1)}%</td></tr>`).join("")}
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="data-table tabular" style="max-width:480px;margin-top:8px">
+              <thead><tr><th>Triage State</th><th>Count</th><th>Share</th></tr></thead>
+              <tbody>
+                ${Object.entries(d.triage_counts).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td><td>${(v / d.total_requests * 100).toFixed(1)}%</td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
         `;
       } catch (err) {
         container.textContent = "Failed to load telemetry: " + err.message;
@@ -1340,6 +1512,18 @@
         const hp = mc.holdout_performance;
         const ca = mc.mondrian_conformal_audit;
         const sg = mc.subgroup_performance;
+        const byAlpha = mc.mondrian_conformal_by_alpha || {};
+        const ew = mc.ensemble_weights || {};
+
+        const alphaRows = Object.entries(byAlpha).map(([a, m]) => `
+          <tr>
+            <td class="tabular" style="font-weight:600">${Math.round(m.nominal_coverage * 100)}% (&alpha;=${a})</td>
+            <td class="tabular">${(m.empirical_test_coverage * 100).toFixed(2)}%</td>
+            <td class="tabular">${(m.deferral_rate * 100).toFixed(1)}%</td>
+            <td class="tabular">${m.mean_set_size.toFixed(3)}</td>
+          </tr>
+        `).join("");
+
         container.innerHTML = `
           <h3 class="section-h3">${mc.model_name} (${mc.model_version})</h3>
           <p class="section-sub">${mc.intended_use}</p>
@@ -1347,15 +1531,27 @@
             <div class="stat-box"><span>Holdout ROC-AUC</span><strong>${hp.roc_auc.toFixed(4)}</strong></div>
             <div class="stat-box"><span>Holdout PR-AUC</span><strong>${hp.pr_auc.toFixed(4)}</strong></div>
             <div class="stat-box"><span>ECE (T*=${hp.temperature})</span><strong>${hp.ece.toFixed(4)}</strong></div>
-            <div class="stat-box"><span>Mondrian Coverage</span><strong>${(ca.empirical_test_coverage * 100).toFixed(2)}%</strong></div>
+            <div class="stat-box"><span>90% Coverage</span><strong>${(ca.empirical_test_coverage * 100).toFixed(2)}%</strong></div>
+            ${ew.graph_augmented_transformer !== undefined ? `<div class="stat-box"><span>GAT-T / XGB Blend</span><strong>${Math.round(ew.graph_augmented_transformer*100)} / ${Math.round(ew.xgboost*100)}</strong></div>` : ""}
           </div>
-          <h3 class="section-h3">Sex-Stratified Holdout Subgroup Audit (N=${mc.training_cohort.n_test.toLocaleString()})</h3>
-          <table class="data-table tabular" style="margin:8px 0 18px">
-            <thead><tr><th>Subgroup</th><th>Test N</th><th>ROC-AUC</th><th>Sensitivity</th><th>Specificity</th><th>Missed Disease (FNR)</th></tr></thead>
-            <tbody>
-              ${Object.entries(sg).map(([k, m]) => `<tr><td style="text-transform:capitalize;font-weight:600">${k}</td><td>${m.n_test.toLocaleString()}</td><td>${m.roc_auc.toFixed(4)}</td><td>${(m.sensitivity*100).toFixed(1)}%</td><td>${(m.specificity*100).toFixed(1)}%</td><td>${(m.fnr*100).toFixed(1)}%</td></tr>`).join("")}
-            </tbody>
-          </table>
+          ${alphaRows ? `
+            <h3 class="section-h3">Multi-Alpha Mondrian Conformal Trade-off (N=${mc.training_cohort.n_test.toLocaleString()})</h3>
+            <div class="table-scroll" style="margin:8px 0 20px">
+              <table class="data-table tabular" style="max-width:560px">
+                <thead><tr><th>Target Coverage</th><th>Empirical Coverage</th><th>Deferral Rate</th><th>Mean Set Size</th></tr></thead>
+                <tbody>${alphaRows}</tbody>
+              </table>
+            </div>
+          ` : ""}
+          <h3 class="section-h3">Sex-Stratified Holdout Subgroup Audit</h3>
+          <div class="table-scroll" style="margin:8px 0 20px">
+            <table class="data-table tabular">
+              <thead><tr><th>Subgroup</th><th>Test N</th><th>ROC-AUC</th><th>Sensitivity</th><th>Specificity</th><th>Missed Disease (FNR)</th></tr></thead>
+              <tbody>
+                ${Object.entries(sg).map(([k, m]) => `<tr><td style="text-transform:capitalize;font-weight:600">${k}</td><td>${m.n_test.toLocaleString()}</td><td>${m.roc_auc.toFixed(4)}</td><td>${(m.sensitivity*100).toFixed(1)}%</td><td>${(m.specificity*100).toFixed(1)}%</td><td>${(m.fnr*100).toFixed(1)}%</td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
           <h3 class="section-h3">Documented Limitations</h3>
           <ul style="margin:6px 0 0;padding-left:18px;color:var(--ink-secondary)">
             ${mc.limitations.map(l => `<li style="margin-bottom:4px">${l}</li>`).join("")}
@@ -1369,6 +1565,9 @@
     function copyFhir() {
       if (!state.lastFhirJson) return;
       navigator.clipboard.writeText(JSON.stringify(state.lastFhirJson, null, 2));
+      const btn = document.getElementById("copyFhirBtn");
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = "Copy JSON"; }, 1600);
     }
 
     updateDerivedVitals();
