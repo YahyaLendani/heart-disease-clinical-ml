@@ -1,13 +1,17 @@
 # Graph-Augmented Transformer for Interpretable Clinical Risk Prediction
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-cardiograph--cds.onrender.com-0f5c6e.svg)](https://cardiograph-cds.onrender.com)
+[![Defense Slides](https://img.shields.io/badge/Defense%20Slides-yahyalendani.me-0c6e4f.svg)](https://yahyalendani.me/cardiograph-slides/)
 [![CI Pipeline](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YahyaLendani/heart-disease-clinical-ml/actions/workflows/ci.yml)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
-[![Tests: 131 passing](https://img.shields.io/badge/tests-131%20passing-success.svg)](tests/)
+[![Tests: 132 passing](https://img.shields.io/badge/tests-132%20passing-success.svg)](tests/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> **Try it live (zero install):** [**2-Stage Bedside Clinician UI & FHIR R4 API**](https://cardiograph-cds.onrender.com) · [**Interactive 9-Slide Defense Deck**](https://yahyalendani.me/cardiograph-slides/) · [**OpenAPI / Swagger Docs**](https://cardiograph-cds.onrender.com/docs) *(hosted on Render Free Tier — first request after idle wakes the container in ~30s)*.
 
 An end-to-end, test-verified clinical machine-learning framework centered on [`GraphAugmentedClinicalTransformer`](models/graph_augmented_transformer.py)—a dual-level **Graph-Augmented Transformer for Interpretable Clinical Risk Prediction**—evaluated across the **four UCI heart-disease centers** (*Cleveland, Budapest, Zurich, VA Long Beach*; $N=918$), a **68,589-patient OpenML cardiovascular cohort** (`OpenML 45547`) via scalable $O(B \cdot k)$ mini-batch inductive neighbor attention, and **in-hospital ICU mortality** on the **MIMIC-IV demo**.
 
