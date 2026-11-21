@@ -174,6 +174,10 @@ class ClinicalInferenceEngine:
             probs = probs + w_hgb * hgb_probs
             total_w += w_hgb
         probs = probs / max(total_w, 1e-8)
+        if self.bundle.platt_a != 1.0 or self.bundle.platt_b != 0.0:
+            clipped = np.clip(probs, 1e-5, 1.0 - 1e-5)
+            z = self.bundle.platt_a * np.log(clipped / (1.0 - clipped)) + self.bundle.platt_b
+            probs = 1.0 / (1.0 + np.exp(-np.clip(z, -30.0, 30.0)))
 
         return {
             "probs": probs,
@@ -279,6 +283,7 @@ class ClinicalInferenceEngine:
         if self.audit_log_path is None:
             return
         record = {
+            "stage": "stage1",
             "request_id": response.request_id,
             "timestamp_utc": response.timestamp_utc,
             "patient_id_hash": _hash_pseudo_id(patient.patient_pseudo_id),

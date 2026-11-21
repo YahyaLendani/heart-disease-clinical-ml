@@ -1,0 +1,80 @@
+{
+  "bundle_version": "3.0.0-plr-unimp-3paradigm-cds",
+  "scenarios": [
+    {
+      "site_id": "UCI_4Center_External",
+      "label": "UCI 4-Center Hospital Consortium (External Dataset)",
+      "n_calibration": 459,
+      "zero_shot": {
+        "n_eval": 459,
+        "prevalence": 0.5534,
+        "roc_auc": 0.5433,
+        "brier": 0.2831,
+        "ece": 0.1875,
+        "conformal_90_coverage": 0.7821,
+        "deferral_rate": 0.4749
+      },
+      "recalibrated": {
+        "n_eval": 459,
+        "prevalence": 0.5534,
+        "roc_auc": 0.5437,
+        "brier": 0.2475,
+        "ece": 0.0425,
+        "conformal_90_coverage": 0.8867,
+        "deferral_rate": 0.7603
+      },
+      "ece_delta": -0.145,
+      "coverage_delta": 0.1046
+    },
+    {
+      "site_id": "Geriatric_Cardiology_Clinic",
+      "label": "Geriatric Cardiology Clinic (Age >= 58, High Prevalence)",
+      "n_calibration": 1449,
+      "zero_shot": {
+        "n_eval": 1450,
+        "prevalence": 0.6372,
+        "roc_auc": 0.7252,
+        "brier": 0.1981,
+        "ece": 0.0246,
+        "conformal_90_coverage": 0.9269,
+        "deferral_rate": 0.5869
+      },
+      "recalibrated": {
+        "n_eval": 1450,
+        "prevalence": 0.6372,
+        "roc_auc": 0.7252,
+        "brier": 0.1981,
+        "ece": 0.0266,
+        "conformal_90_coverage": 0.9255,
+        "deferral_rate": 0.6697
+      },
+      "ece_delta": 0.002,
+      "coverage_delta": -0.0014
+    },
+    {
+      "site_id": "Preventive_Wellness_Clinic",
+      "label": "Preventive Wellness Clinic (Age < 50, Low Prevalence)",
+      "n_calibration": 1584,
+      "zero_shot": {
+        "n_eval": 1584,
+        "prevalence": 0.3504,
+        "roc_auc": 0.8342,
+        "brier": 0.1492,
+        "ece": 0.0254,
+        "conformal_90_coverage": 0.875,
+        "deferral_rate": 0.2096
+      },
+      "recalibrated": {
+        "n_eval": 1584,
+        "prevalence": 0.3504,
+        "roc_auc": 0.8341,
+        "brier": 0.1491,
+        "ece": 0.0248,
+        "conformal_90_coverage": 0.9021,
+        "deferral_rate": 0.3927
+      },
+      "ece_delta": -0.0006,
+      "coverage_delta": 0.0271
+    }
+  ]
+}

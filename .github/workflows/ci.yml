@@ -64,14 +64,15 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev]"
 
-      - name: Execute unit and integration test suite
+      - name: Execute unit and integration test suite with coverage
         run: |
-          pytest tests/ -v --tb=short
+          pytest tests/ -v --tb=short --cov=clinical_cds --cov=models --cov-report=term-missing --cov-fail-under=75
 
       - name: Verify CLI entrypoint help
         run: |
           heart-pipeline --help
           heart-pipeline baselines --help
+          heart-pipeline build-workup-bundle --help
 
   pipeline-smoke:
     name: Pipeline smoke run (regenerates artifacts)
@@ -95,10 +96,12 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
 
-      - name: Run a short end-to-end pipeline into a scratch directory
+      - name: Run a short end-to-end pipeline + Stage-2 Workup bundle smoke check
         run: |
           heart-pipeline --epochs 5 --cv-folds 3 --cv-repeats 1 --run-baselines \
             --run-advancements --output-dir ci_artifacts
+          heart-pipeline build-workup-bundle --epochs 5 --cv-folds 2 \
+            --output ci_artifacts/ci_workup_bundle.pt
 
       - name: Upload regenerated artifacts
         uses: actions/upload-artifact@v4

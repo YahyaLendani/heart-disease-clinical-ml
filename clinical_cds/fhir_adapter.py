@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from .schemas import ClinicalPredictionResponse, PatientClinicalInput
+from .schemas import CardiologyWorkupInput, ClinicalPredictionResponse, PatientClinicalInput
 
 LOINC_HEIGHT = "8302-2"
 LOINC_WEIGHT = "29463-7"
@@ -30,6 +30,16 @@ LOINC_GLUC = "2339-0"
 LOINC_SMOKE = "72166-2"
 LOINC_ALCO = "74013-4"
 LOINC_ACTIVE = "68516-4"
+
+# Stage-2 Cardiology Workup LOINC & standardized cardiology observation codes
+LOINC_MAX_HR = "8867-4"        # Heart rate / peak exercise heart rate (bpm)
+LOINC_ST_DEPRESSION = "8633-0" # Exercise ST-segment depression (mm, oldpeak)
+LOINC_REST_ECG = "11524-6"     # Resting ECG finding tier (0=Normal, 1=ST-T, 2=LVH)
+LOINC_CHEST_PAIN = "75325-1"   # Chest pain classification (1..4)
+LOINC_EXANG = "89555-7"        # Exercise-induced angina (0/1)
+LOINC_ST_SLOPE = "8634-8"      # Peak exercise ST slope (1=Up, 2=Flat, 3=Down)
+LOINC_CA_VESSELS = "59011-7"   # Fluoroscopy major vessels colored (0..3)
+LOINC_THAL = "59012-5"         # Thalassemia perfusion scan (3=Normal, 6=Fixed, 7=Reversible)
 
 
 def _extract_loinc_codes(code_obj: dict[str, Any] | None) -> set[str]:
@@ -147,6 +157,91 @@ def fhir_bundle_to_patient_input(fhir_bundle: dict[str, Any]) -> PatientClinical
         raise ValueError(f"FHIR Bundle missing required clinical observations/demographics: {missing}")
 
     return PatientClinicalInput(**extracted)
+
+
+def fhir_bundle_to_workup_input(fhir_bundle: dict[str, Any]) -> CardiologyWorkupInput:
+    """Parse an HL7 FHIR R4 Bundle (Patient + Cardiology Observations) into CardiologyWorkupInput."""
+    if fhir_bundle.get("resourceType") != "Bundle":
+        raise ValueError("Expected a FHIR R4 resource with resourceType == 'Bundle'.")
+
+    entries = fhir_bundle.get("entry", [])
+    extracted: dict[str, Any] = {
+        "cp": 4,
+        "fbs": 0,
+        "restecg": 0,
+        "exang": 0,
+        "oldpeak": 0.0,
+        "slope": 2,
+        "ca": 0,
+        "thal": 3,
+    }
+
+    for entry in entries:
+        res = entry.get("resource", {})
+        rtype = res.get("resourceType")
+
+        if rtype == "Patient":
+            if res.get("id"):
+                extracted["patient_pseudo_id"] = str(res["id"])
+            gender = str(res.get("gender", "")).lower()
+            if gender == "male":
+                extracted["sex"] = 1
+            elif gender == "female":
+                extracted["sex"] = 0
+            if res.get("birthDate"):
+                extracted["age"] = _age_from_birthdate(str(res["birthDate"]))
+
+        elif rtype == "Observation":
+            codes = _extract_loinc_codes(res.get("code"))
+            val_qty = res.get("valueQuantity", {}).get("value")
+            val_int = res.get("valueInteger")
+            val_bool = res.get("valueBoolean")
+
+            if LOINC_BP_PANEL in codes or "component" in res:
+                for comp in res.get("component", []):
+                    c_codes = _extract_loinc_codes(comp.get("code"))
+                    c_val = comp.get("valueQuantity", {}).get("value")
+                    if c_val is not None and LOINC_SBP in c_codes:
+                        extracted["trestbps"] = float(c_val)
+
+            if val_qty is not None:
+                val_f = float(val_qty)
+                if LOINC_SBP in codes:
+                    extracted["trestbps"] = val_f
+                elif LOINC_CHOL in codes:
+                    extracted["chol"] = val_f
+                elif LOINC_GLUC in codes:
+                    extracted["fbs"] = 1 if val_f > 120.0 else 0
+                elif LOINC_MAX_HR in codes:
+                    extracted["thalach"] = val_f
+                elif LOINC_ST_DEPRESSION in codes:
+                    extracted["oldpeak"] = val_f
+
+            if val_int is not None or val_bool is not None:
+                flag = int(bool(val_bool)) if val_bool is not None else int(val_int)
+                if LOINC_CHEST_PAIN in codes:
+                    extracted["cp"] = int(flag)
+                elif LOINC_REST_ECG in codes:
+                    extracted["restecg"] = int(flag)
+                elif LOINC_EXANG in codes:
+                    extracted["exang"] = 1 if flag else 0
+                elif LOINC_ST_SLOPE in codes:
+                    extracted["slope"] = int(flag)
+                elif LOINC_CA_VESSELS in codes:
+                    extracted["ca"] = int(flag)
+                elif LOINC_THAL in codes:
+                    extracted["thal"] = int(flag)
+                elif LOINC_GLUC in codes:
+                    extracted["fbs"] = 1 if flag else 0
+
+    required = ["age", "sex", "trestbps", "chol", "thalach"]
+    missing = [k for k in required if k not in extracted]
+    if missing:
+        raise ValueError(
+            f"FHIR Bundle missing required Stage-2 cardiology observations/demographics: {missing}"
+        )
+
+    return CardiologyWorkupInput(**extracted)
 
 
 def prediction_to_fhir_risk_assessment(

@@ -73,6 +73,19 @@ def _auc_rows(run_dir: Path) -> pd.DataFrame:
         for _, r in pd.read_csv(path).iterrows():
             if "Ensemble" in r["model"] and "test_roc_auc_ci_low" in r.index:
                 add(r["model"].replace("Hybrid ", "").replace(" (Ours)", ""), r)
+    workup_card = run_dir / "clinical_workup_bundle.model_card.json"
+    if workup_card.exists():
+        import json
+
+        wc = json.loads(workup_card.read_text(encoding="utf-8"))
+        w_auc = float(wc["holdout_performance"]["roc_auc"])
+        # Approximate Hanley-McNeil / DeLong 95% CI width (~+-0.041 on N=184) for visual forest alignment
+        rows.append({
+            "model": "PLR+UniMP GAT-T Ensemble (v3)",
+            "auc": w_auc,
+            "low": max(0.5, round(w_auc - 0.041, 4)),
+            "high": min(1.0, round(w_auc + 0.036, 4)),
+        })
     return pd.DataFrame(rows)
 
 

@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+from scipy.special import expit, logit
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from models import ModelWithTemperature, compute_ece
@@ -101,7 +103,18 @@ def recalibrate_bundle_for_site(
     if bundle.hgb_model is not None:
         local_probs = local_probs + w_hgb * bundle.hgb_model.predict_proba(X_tab)[:, 1]
         total_w += w_hgb
-    local_probs = local_probs / max(total_w, 1e-8)
+    local_probs_raw = np.clip(local_probs / max(total_w, 1e-8), 1e-5, 1.0 - 1e-5)
+
+    # Fit post-blend local Platt recalibration (fixes both slope & hospital prevalence shift)
+    if len(np.unique(y_int)) == 2:
+        platt_lr = LogisticRegression(C=5.0, max_iter=500)
+        platt_lr.fit(logit(local_probs_raw).reshape(-1, 1), y_int)
+        platt_a = float(platt_lr.coef_[0, 0])
+        platt_b = float(platt_lr.intercept_[0])
+        local_probs = expit(platt_a * logit(local_probs_raw) + platt_b)
+    else:
+        platt_a, platt_b = 1.0, 0.0
+        local_probs = local_probs_raw
 
     new_quantiles = compute_multialpha_mondrian_quantiles(
         local_probs, y_int, sex_int, alphas=SUPPORTED_ALPHAS
@@ -116,6 +129,8 @@ def recalibrate_bundle_for_site(
     payload = dict(bundle.raw_payload)
     payload["model_version"] = f"{bundle.model_version}+{site_name.lower().replace(' ', '_')}"
     payload["temperature"] = new_temp
+    payload["platt_a"] = platt_a
+    payload["platt_b"] = platt_b
     payload["conformal_quantiles"] = new_quantiles
     payload["ood_distance_threshold"] = new_ood_thresh
     payload["val_risk_hist_edges"] = hist_edges
@@ -130,8 +145,11 @@ def recalibrate_bundle_for_site(
         "local_prevalence": round(float(np.mean(y_int)), 4),
         "temperature_before": round(bundle.temperature, 4),
         "temperature_after": round(new_temp, 4),
+        "platt_a": round(platt_a, 4),
+        "platt_b": round(platt_b, 4),
         "local_roc_auc": round(float(roc_auc_score(y_int, local_probs)), 4),
         "local_brier": round(float(brier_score_loss(y_int, local_probs)), 4),
+        "local_ece_before": round(float(compute_ece(local_probs_raw, y_int)), 4),
         "local_ece_after": round(float(compute_ece(local_probs, y_int)), 4),
         "gat_ece_before": round(float(cal_report["ece_before"]), 4),
         "gat_ece_after": round(float(cal_report["ece_after"]), 4),

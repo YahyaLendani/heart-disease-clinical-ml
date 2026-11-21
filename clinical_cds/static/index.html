@@ -1172,6 +1172,7 @@
       <nav class="tabs-bar" aria-label="Clinical workspace views">
         <div class="tab-list" role="tablist">
           <button type="button" class="tab-btn" role="tab" aria-selected="true" data-tab="assessment" onclick="switchTab('assessment')">Risk Assessment</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" data-tab="batch" onclick="switchTab('batch')">Batch Triage</button>
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-tab="fhir" onclick="switchTab('fhir')">HL7 FHIR R4</button>
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-tab="drift" onclick="switchTab('drift')">Safety &amp; Drift Monitor</button>
           <button type="button" class="tab-btn" role="tab" aria-selected="false" data-tab="modelcard" onclick="switchTab('modelcard')">Model Card</button>
@@ -1261,7 +1262,30 @@
         </div>
       </section>
 
-      <!-- Tab 2: HL7 FHIR R4 RiskAssessment -->
+      <!-- Tab 2: Batch Cohort Triage Queue (POST /v1/predict/batch) -->
+      <section id="tab-batch" class="tab-panel" role="tabpanel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+          <div>
+            <h3 class="section-h3">Batch Clinic Panel Screening &amp; Triage Queue</h3>
+            <p class="section-sub" style="margin:0">Upload a Stage-1 CSV (up to 512 patients) or run the built-in 8-patient clinic panel. Sorted by OOD alert &rarr; risk.</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label class="btn-ghost" style="cursor:pointer">
+              Upload CSV
+              <input type="file" id="batchCsvFile" accept=".csv,text/csv" style="display:none" onchange="handleBatchCsvUpload(event)" />
+            </label>
+            <button type="button" class="btn-ghost" onclick="runSampleBatchPanel()">Run Sample Panel (8)</button>
+            <button type="button" class="btn-ghost" id="exportBatchBtn" style="display:none" onclick="exportBatchCsv()">Export Results CSV</button>
+          </div>
+        </div>
+        <div id="batchError" class="error-banner" role="alert" style="margin-bottom:12px"></div>
+        <div id="batchSummary"></div>
+        <div class="table-scroll" id="batchTableWrap" style="color:var(--ink-muted)">
+          Load a CSV with columns <span class="mono">age_years, sex, height_cm, weight_kg, systolic_bp, diastolic_bp, cholesterol_level, glucose_level</span> (optional: <span class="mono">patient_pseudo_id, smoke, alcohol, active</span>) or click <strong>Run Sample Panel (8)</strong>.
+        </div>
+      </section>
+
+      <!-- Tab 3: HL7 FHIR R4 RiskAssessment -->
       <section id="tab-fhir" class="tab-panel" role="tabpanel">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
           <div>
@@ -1273,14 +1297,21 @@
         <pre class="code-box" id="fhirCode">Run an assessment to inspect the HL7 FHIR R4 RiskAssessment payload.</pre>
       </section>
 
-      <!-- Tab 3: Live Drift & Safety Monitor -->
+      <!-- Tab 4: Live Drift & Safety Monitor -->
       <section id="tab-drift" class="tab-panel" role="tabpanel">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
           <div>
             <h3 class="section-h3">Live Clinical Audit &amp; Drift Telemetry</h3>
             <p class="section-sub" style="margin:0">Aggregated from de-identified append-only JSONL audit logs (zero PII stored).</p>
           </div>
-          <button type="button" class="btn-ghost" onclick="loadDrift()">Refresh Telemetry</button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="seg-control cols-3" role="group" aria-label="Drift stage filter">
+              <button type="button" class="seg-btn" data-drift="all" aria-pressed="true" onclick="setDriftStage('all')">All</button>
+              <button type="button" class="seg-btn" data-drift="stage1" aria-pressed="false" onclick="setDriftStage('stage1')">Stage 1</button>
+              <button type="button" class="seg-btn" data-drift="stage2" aria-pressed="false" onclick="setDriftStage('stage2')">Stage 2</button>
+            </div>
+            <button type="button" class="btn-ghost" onclick="loadDrift()">Refresh</button>
+          </div>
         </div>
         <div id="driftBody" style="color:var(--ink-muted)">Loading audit telemetry...</div>
       </section>
@@ -1318,6 +1349,8 @@
       baselineRisk: null,
       baselinePayload: null,
       lastFhirJson: null,
+      driftStage: "all",
+      lastBatchRows: [],
       debounceTimer: null,
       abortController: null,
     };
@@ -1882,16 +1915,28 @@
       }
     }
 
+    function setDriftStage(stageKey) {
+      state.driftStage = stageKey;
+      document.querySelectorAll('.seg-btn[data-drift]').forEach(btn => {
+        btn.setAttribute("aria-pressed", btn.dataset.drift === stageKey ? "true" : "false");
+      });
+      loadDrift();
+    }
+
     async function loadDrift() {
       const container = document.getElementById("driftBody");
       try {
-        const res = await fetch("/v1/drift");
+        const res = await fetch(`/v1/drift?stage=${encodeURIComponent(state.driftStage)}`);
         const d = await res.json();
         if (d.total_requests === 0) {
-          container.innerHTML = `<p>No audit records logged yet. Run patient assessments to populate live drift telemetry.</p>`;
+          container.innerHTML = `<p>No audit records logged for <strong>${state.driftStage}</strong> yet. Run patient assessments to populate live drift telemetry.</p>`;
           return;
         }
+        const stageRow = d.stage_counts && Object.keys(d.stage_counts).length
+          ? `<p class="section-sub" style="margin:0 0 14px">Audit volume by stage: ${Object.entries(d.stage_counts).map(([k, v]) => `<strong>${k}</strong>: ${v}`).join(" &middot; ")}</p>`
+          : "";
         container.innerHTML = `
+          ${stageRow}
           <div class="stat-strip tabular">
             <div class="stat-box"><span>Total Assessments</span><strong>${d.total_requests}</strong></div>
             <div class="stat-box"><span>Risk PSI (${d.psi_status})</span><strong>${d.psi.toFixed(3)}</strong></div>
@@ -1913,6 +1958,162 @@
       } catch (err) {
         container.textContent = "Failed to load telemetry: " + err.message;
       }
+    }
+
+    const SAMPLE_BATCH_PANEL = [
+      { patient_pseudo_id: "CLINIC-101", age_years: 38, sex: 0, height_cm: 165, weight_kg: 61, systolic_bp: 112, diastolic_bp: 72, cholesterol_level: 1, glucose_level: 1, smoke: 0, alcohol: 0, active: 1 },
+      { patient_pseudo_id: "CLINIC-102", age_years: 52, sex: 1, height_cm: 176, weight_kg: 84, systolic_bp: 134, diastolic_bp: 86, cholesterol_level: 2, glucose_level: 1, smoke: 0, alcohol: 0, active: 1 },
+      { patient_pseudo_id: "CLINIC-103", age_years: 64, sex: 1, height_cm: 173, weight_kg: 96, systolic_bp: 166, diastolic_bp: 98, cholesterol_level: 3, glucose_level: 2, smoke: 1, alcohol: 0, active: 0 },
+      { patient_pseudo_id: "CLINIC-104", age_years: 59, sex: 0, height_cm: 162, weight_kg: 79, systolic_bp: 148, diastolic_bp: 92, cholesterol_level: 2, glucose_level: 2, smoke: 0, alcohol: 0, active: 0 },
+      { patient_pseudo_id: "CLINIC-105", age_years: 45, sex: 1, height_cm: 180, weight_kg: 78, systolic_bp: 120, diastolic_bp: 78, cholesterol_level: 1, glucose_level: 1, smoke: 0, alcohol: 0, active: 1 },
+      { patient_pseudo_id: "CLINIC-106", age_years: 68, sex: 0, height_cm: 160, weight_kg: 88, systolic_bp: 174, diastolic_bp: 102, cholesterol_level: 3, glucose_level: 3, smoke: 0, alcohol: 0, active: 0 },
+      { patient_pseudo_id: "CLINIC-107", age_years: 55, sex: 0, height_cm: 164, weight_kg: 74, systolic_bp: 130, diastolic_bp: 84, cholesterol_level: 2, glucose_level: 1, smoke: 0, alcohol: 0, active: 1 },
+      { patient_pseudo_id: "CLINIC-108", age_years: 105, sex: 0, height_cm: 142, weight_kg: 118, systolic_bp: 240, diastolic_bp: 146, cholesterol_level: 3, glucose_level: 3, smoke: 1, alcohol: 1, active: 0 },
+    ];
+
+    function parseBatchCsv(text) {
+      const lines = text.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length < 2) throw new Error("CSV must contain a header row and at least 1 patient row.");
+      const headers = lines[0].split(",").map(h => h.trim());
+      return lines.slice(1, 513).map((line, idx) => {
+        const vals = line.split(",").map(v => v.trim());
+        const row = {};
+        headers.forEach((h, i) => { row[h] = vals[i]; });
+        return {
+          patient_pseudo_id: row.patient_pseudo_id || `ROW-${idx + 1}`,
+          age_years: parseFloat(row.age_years),
+          sex: parseInt(row.sex, 10),
+          height_cm: parseFloat(row.height_cm),
+          weight_kg: parseFloat(row.weight_kg),
+          systolic_bp: parseFloat(row.systolic_bp),
+          diastolic_bp: parseFloat(row.diastolic_bp),
+          cholesterol_level: parseInt(row.cholesterol_level, 10),
+          glucose_level: parseInt(row.glucose_level, 10),
+          smoke: row.smoke !== undefined && row.smoke !== "" ? parseInt(row.smoke, 10) : 0,
+          alcohol: row.alcohol !== undefined && row.alcohol !== "" ? parseInt(row.alcohol, 10) : 0,
+          active: row.active !== undefined && row.active !== "" ? parseInt(row.active, 10) : 1,
+          conformal_alpha: state.conformal_alpha,
+        };
+      });
+    }
+
+    function handleBatchCsvUpload(evt) {
+      const file = evt.target.files && evt.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const patients = parseBatchCsv(String(reader.result || ""));
+          runBatchInference(patients);
+        } catch (err) {
+          const el = document.getElementById("batchError");
+          el.textContent = err.message;
+          el.classList.add("visible");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function runSampleBatchPanel() {
+      const panel = SAMPLE_BATCH_PANEL.map(p => ({ ...p, conformal_alpha: state.conformal_alpha }));
+      runBatchInference(panel);
+    }
+
+    async function runBatchInference(patients) {
+      const errEl = document.getElementById("batchError");
+      errEl.classList.remove("visible");
+      try {
+        const res = await fetch("/v1/predict/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patients),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          errEl.textContent = Array.isArray(body.detail)
+            ? body.detail.map(e => `${e.loc.join(".")}: ${e.msg}`).join(" | ")
+            : (body.detail || "Batch inference failed.");
+          errEl.classList.add("visible");
+          return;
+        }
+        const rows = body.map((pred, i) => ({
+          id: patients[i].patient_pseudo_id || `PT-${i + 1}`,
+          input: patients[i],
+          pred,
+        }));
+        rows.sort((a, b) => {
+          if (a.pred.ood_report.is_ood !== b.pred.ood_report.is_ood) return a.pred.ood_report.is_ood ? -1 : 1;
+          return b.pred.calibrated_risk_probability - a.pred.calibrated_risk_probability;
+        });
+        state.lastBatchRows = rows;
+        document.getElementById("exportBatchBtn").style.display = "inline-flex";
+
+        const nHigh = rows.filter(r => r.pred.triage_decision === "HIGH_RISK").length;
+        const nDefer = rows.filter(r => r.pred.triage_decision === "DEFER_TO_CLINICIAN").length;
+        const nLow = rows.filter(r => r.pred.triage_decision === "LOW_RISK").length;
+        const nOod = rows.filter(r => r.pred.ood_report.is_ood).length;
+        document.getElementById("batchSummary").innerHTML = `
+          <div class="stat-strip tabular">
+            <div class="stat-box"><span>Panel Size</span><strong>${rows.length}</strong></div>
+            <div class="stat-box"><span>High Risk</span><strong style="color:var(--high)">${nHigh}</strong></div>
+            <div class="stat-box"><span>Defer to Clinician</span><strong style="color:var(--defer)">${nDefer}</strong></div>
+            <div class="stat-box"><span>Low Risk</span><strong style="color:var(--low)">${nLow}</strong></div>
+            <div class="stat-box"><span>OOD Alerts</span><strong style="color:var(--high)">${nOod}</strong></div>
+          </div>
+        `;
+        document.getElementById("batchTableWrap").innerHTML = `
+          <table class="data-table tabular">
+            <thead><tr><th>Patient ID</th><th>Triage</th><th>Risk</th><th>Conformal Set</th><th>OOD</th><th>Age / SBP</th><th>Action</th></tr></thead>
+            <tbody>
+              ${rows.map((r, idx) => `
+                <tr>
+                  <td class="mono">${r.id}</td>
+                  <td><span class="triage-badge triage-${r.pred.triage_decision}" style="padding:3px 9px;font-size:11px">${r.pred.triage_decision.replaceAll("_", " ")}</span></td>
+                  <td style="font-weight:700">${(r.pred.calibrated_risk_probability * 100).toFixed(1)}%</td>
+                  <td class="mono">{${r.pred.conformal_prediction_set.join(", ")}}</td>
+                  <td>${r.pred.ood_report.is_ood ? '<span class="outcome-chip outcome-pos">OOD</span>' : "OK"}</td>
+                  <td>${r.input.age_years}y / ${r.input.systolic_bp}</td>
+                  <td><button type="button" class="btn-ghost" onclick="inspectBatchPatient(${idx})">Inspect</button></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        errEl.textContent = "Batch request error: " + err.message;
+        errEl.classList.add("visible");
+      }
+    }
+
+    function inspectBatchPatient(idx) {
+      const row = state.lastBatchRows[idx];
+      if (!row) return;
+      loadPayloadIntoForm(row.input);
+      if (state.stage !== "stage1") setStage("stage1");
+      switchTab("assessment");
+      assess(true);
+    }
+
+    function exportBatchCsv() {
+      if (!state.lastBatchRows.length) return;
+      const header = "patient_id,triage_decision,calibrated_risk_probability,conformal_set,is_ood,max_abs_zscore,age_years,systolic_bp";
+      const body = state.lastBatchRows.map(r => [
+        r.id,
+        r.pred.triage_decision,
+        r.pred.calibrated_risk_probability.toFixed(4),
+        `"{${r.pred.conformal_prediction_set.join(';')}}"`,
+        r.pred.ood_report.is_ood,
+        r.pred.ood_report.max_abs_zscore.toFixed(2),
+        r.input.age_years,
+        r.input.systolic_bp,
+      ].join(","));
+      const blob = new Blob([[header, ...body].join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cardiograph_batch_triage.csv";
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     async function loadModelCard() {

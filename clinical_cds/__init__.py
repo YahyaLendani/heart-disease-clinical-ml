@@ -19,7 +19,11 @@ from .bundle import (
 )
 from .calibrate_site import recalibrate_bundle_for_site
 from .engine import ClinicalInferenceEngine, compute_psi
-from .fhir_adapter import fhir_bundle_to_patient_input, prediction_to_fhir_risk_assessment
+from .fhir_adapter import (
+    fhir_bundle_to_patient_input,
+    fhir_bundle_to_workup_input,
+    prediction_to_fhir_risk_assessment,
+)
 from .schemas import (
     CardiologyWorkupInput,
     ClinicalPredictionResponse,
@@ -53,5 +57,6 @@ __all__ = [
     "MatchedCohortNeighbor",
     "RecourseRecommendation",
     "fhir_bundle_to_patient_input",
+    "fhir_bundle_to_workup_input",
     "prediction_to_fhir_risk_assessment",
 ]

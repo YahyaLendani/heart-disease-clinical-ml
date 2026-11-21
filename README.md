@@ -5,7 +5,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
-[![Tests: 102 passing](https://img.shields.io/badge/tests-102%20passing-success.svg)](tests/)
+[![Tests: 103 passing](https://img.shields.io/badge/tests-103%20passing-success.svg)](tests/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -118,7 +118,7 @@ flowchart TB
         E1["Result tables<br/>artifacts/*.md, *.csv"]:::out
         E2["Figures, light & dark<br/>artifacts/figures/"]:::out
         E3["Thesis tables updated in place<br/>thesis_draft.md"]:::out
-        E4["102 pytest tests + 2-Stage FHIR CDS API<br/>CI on Python 3.10-3.13"]:::out
+        E4["103 pytest tests + 2-Stage FHIR CDS API<br/>CI + coverage on Python 3.10-3.13"]:::out
     end
 
     Data --> Prep --> Models --> Trust --> Output
@@ -170,18 +170,22 @@ flowchart TB
 The upgraded **v3 2-Stage Clinical CDS stack** ([`clinical_cds/`](clinical_cds/), [`Dockerfile`](Dockerfile)) pairs a **Stage-1 Primary Care Screening** engine ($N=68{,}589$) with an inline **Stage-2 Cardiology Workup** escalation engine ($N=918$, ECG + stress-test + perfusion biomarkers), powered by **PLR Periodic Numerical Embeddings** (Gorishniy et al., NeurIPS 2022), **UniMP Masked Label Propagation** (Shi et al., IJCAI 2021, with strict query self-loop masking for zero leakage), and **5-Fold Out-of-Fold 3-Paradigm Ensembling**:
 
 - **Stage-1 Primary Care Screening v3 ([`artifacts/clinical_cds_bundle.model_card.json`](artifacts/clinical_cds_bundle.model_card.json)):** 5-fold OOF cross-fitted on all 58,300 dev patients with 19 engineered clinical features (including AHA BP stage & metabolic burden) and 4,096 learned-space prototypes (**1.87 MB**, **12 ms CPU latency**). On the 10,289-patient holdout set, the standalone **PLR+UniMP GAT-Transformer achieves 0.8006 ROC-AUC** (outperforming standalone XGBoost `0.8003` and HistGradientBoosting `0.8005`), and the 3-paradigm ensemble achieves **0.8009 ROC-AUC**, **0.7816 PR-AUC**, **0.0069 ECE** (sub-0.7% calibration error), **90.20% empirical coverage** at 90% nominal target (27.6% deferral at 85% coverage), and **0.82% sex sensitivity gap** across 6,637 female and 3,652 male test patients.
-- **Stage-2 Cardiology Workup Escalation ([`artifacts/clinical_workup_bundle.model_card.json`](artifacts/clinical_workup_bundle.model_card.json)):** Triggered directly from Stage-1 `DEFER_TO_CLINICIAN` or `HIGH_RISK` cases (auto-carrying Age, Sex, Resting BP, and estimated Cholesterol/Glucose into the ECG/stress-test intake). On the 184-patient 4-center UCI holdout split, the 5-fold OOF `PLR+UniMP GAT-T + XGBoost + RF` ensemble achieves **0.9180 ROC-AUC** (standalone PLR+UniMP GAT-T `0.9014`), **0.9286 PR-AUC**, **0.1178 Brier**, **91.85% empirical coverage** at 90% nominal target (16.3% deferral at 85% coverage), and cuts female missed-disease rate (FNR) to **12.5%** (0.9213 female ROC-AUC).
-- **Fail-Safe Guardrails, Local Site Recalibration, PSI Drift & HL7 FHIR R4:** Rejects physiologically impossible vitals, forces `DEFER_TO_CLINICIAN` on Out-of-Distribution inputs, tracks live **Population Stability Index (`PSI`)** drift at `GET /v1/drift`, supports 2-second hospital site recalibration (`heart-pipeline calibrate-site`), and serves a daylight-first **2-Stage Bedside Clinician UI** (`GET /`) with an interactive SVG conformal gauge, live "What-If" recourse simulator, `85% / 90% / 95%` coverage selector, and HL7 FHIR R4 `RiskAssessment` endpoints for both stages (`/v1/predict/fhir`, `/v1/workup/predict/with-fhir`).
+- **Stage-2 Cardiology Workup Escalation ([`artifacts/clinical_workup_bundle.model_card.json`](artifacts/clinical_workup_bundle.model_card.json)):** Triggered directly from Stage-1 `DEFER_TO_CLINICIAN` or `HIGH_RISK` cases (auto-carrying Age, Sex, Resting BP, and estimated Cholesterol/Glucose into the ECG/stress-test intake). On the 184-patient 4-center UCI holdout split, the 5-fold OOF `PLR+UniMP GAT-T + XGBoost + RF` ensemble with post-blend OOF Platt calibration achieves **0.9180 ROC-AUC** (standalone PLR+UniMP GAT-T `0.9014`), **0.9286 PR-AUC**, **0.0787 ECE** (down from `0.0888`), **91.85% empirical coverage** at 90% nominal target (16.3% deferral at 85% coverage), and cuts female missed-disease rate (FNR) to **12.5%** (0.9213 female ROC-AUC).
+- **External Site Transfer & Local Recalibration Proof ([`artifacts/external_site_validation.md`](artifacts/external_site_validation.md)):** Tested zero-shot vs. 2-second local Platt + Mondrian recalibration (`heart-pipeline external-validation`) across 3 shifted cohorts. On the completely unseen **UCI 4-Center Hospital Consortium** ($N=459$ eval), `calibrate-site` slashes ECE by **77%** (`0.1875 → 0.0425`) and recovers 90% conformal coverage from `78.2% → 88.7%`; on a shifted **Preventive Wellness Clinic** (35.0% prevalence, $N=1{,}584$), 90% coverage recovers from `87.5% → 90.2%` (ROC-AUC `0.8341`).
+- **Production Hardening, Batch Screening, Observability & Full Bidirectional HL7 FHIR R4:** Includes non-root [`Dockerfile`](Dockerfile) packaging both stages, optional API-key auth (`CDS_API_KEY`) & SHA-256 bundle pinning (`CDS_EXPECTED_SHA256`), HTTP security headers + CORS, Prometheus telemetry (`GET /metrics`), stage-filtered JSONL audit & PSI drift monitoring (`GET /v1/drift?stage=stage1|stage2|all`), a **Batch Triage** CSV screening queue tab (`POST /v1/predict/batch`), and bidirectional HL7 FHIR R4 `Bundle` → `RiskAssessment` across both stages (`POST /v1/predict/fhir`, `POST /v1/workup/predict/fhir`).
 
 ```bash
 # Export Stage-1 Primary Care Screening v3 bundle (1.87 MB) + Stage-2 Cardiology Workup bundle
 heart-pipeline build-cds-bundle
 heart-pipeline build-workup-bundle
 
-# Locally recalibrate Temperature T* & Mondrian quantiles for a new hospital site
+# Benchmark zero-shot external site shift vs local calibrate-site recovery
+heart-pipeline external-validation
+
+# Locally recalibrate Temperature T*, Platt calibration & Mondrian quantiles for a new hospital site
 heart-pipeline calibrate-site --local-csv path/to/site.csv --site-name Hospital_A
 
-# Launch 2-Stage Bedside Clinician UI + HL7 FHIR R4 REST API (http://127.0.0.1:8000)
+# Launch 2-Stage Bedside Clinician UI + HL7 FHIR R4 REST API + Prometheus /metrics (http://127.0.0.1:8000)
 uvicorn clinical_cds.api:app --host 127.0.0.1 --port 8000
 ```
 

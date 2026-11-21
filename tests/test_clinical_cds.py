@@ -483,3 +483,106 @@ class TestStage2CardiologyWorkup:
         fhir_resp = client.post("/v1/workup/predict/with-fhir", json=high_pt.model_dump())
         assert fhir_resp.status_code == 200
         assert fhir_resp.json()["fhir_risk_assessment"]["resourceType"] == "RiskAssessment"
+        assert fhir_resp.headers["x-content-type-options"] == "nosniff"
+        assert fhir_resp.headers["x-frame-options"] == "DENY"
+
+    def test_workup_fhir_intake_audit_metrics_and_api_key_auth(
+        self, synthetic_cds_bundle: Path, synthetic_workup_bundle: Path, tmp_path: Path
+    ):
+        # Verify Stage-2 SHA-256 tamper detection
+        with pytest.raises(ValueError, match="integrity check failed"):
+            CardiologyWorkupBundle.load(
+                synthetic_workup_bundle, device="cpu", expected_sha256="0" * 64
+            )
+
+        audit_file = tmp_path / "two_stage_audit.jsonl"
+        s1_eng = ClinicalInferenceEngine.from_bundle(
+            synthetic_cds_bundle, device="cpu", audit_log_path=audit_file
+        )
+        w_eng = CardiologyWorkupEngine.from_bundle(
+            synthetic_workup_bundle, device="cpu", audit_log_path=audit_file
+        )
+        app = create_app(engine=s1_eng, workup_engine=w_eng, api_key="hospital-secret-key")
+        client = TestClient(app)
+
+        # Public health & Prometheus endpoints stay reachable without auth
+        assert client.get("/v1/health").status_code == 200
+        assert client.get("/v1/health").json()["auth_enabled"] is True
+        assert client.get("/metrics").status_code == 200
+
+        # Protected clinical inference rejects missing/wrong API key
+        workup_fhir_bundle = {
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": [
+                {
+                    "resource": {
+                        "resourceType": "Patient",
+                        "id": "cardio-pt-42",
+                        "gender": "male",
+                        "birthDate": "1962-03-10",
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "8480-6"}]},
+                        "valueQuantity": {"value": 152},
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "2093-3"}]},
+                        "valueQuantity": {"value": 274},
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "8867-4"}]},
+                        "valueQuantity": {"value": 122},
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "8633-0"}]},
+                        "valueQuantity": {"value": 2.2},
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "89555-7"}]},
+                        "valueBoolean": True,
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Observation",
+                        "code": {"coding": [{"code": "59011-7"}]},
+                        "valueInteger": 2,
+                    }
+                },
+            ],
+        }
+        assert client.post("/v1/workup/predict/fhir", json=workup_fhir_bundle).status_code == 401
+
+        auth_headers = {"Authorization": "Bearer hospital-secret-key"}
+        r_fhir = client.post(
+            "/v1/workup/predict/fhir", json=workup_fhir_bundle, headers=auth_headers
+        )
+        assert r_fhir.status_code == 200
+        ra = r_fhir.json()
+        assert ra["resourceType"] == "RiskAssessment"
+        assert ra["subject"]["reference"] == "Patient/cardio-pt-42"
+
+        # Stage-2 audit record logged & filterable in /v1/drift?stage=stage2 and /metrics
+        drift_s2 = client.get("/v1/drift?stage=stage2", headers=auth_headers)
+        assert drift_s2.status_code == 200
+        assert drift_s2.json()["total_requests"] == 1
+        assert drift_s2.json()["stage_counts"]["stage2"] == 1
+
+        metrics_txt = client.get("/metrics").text
+        assert 'cardiograph_requests_total{stage="stage2"} 1' in metrics_txt

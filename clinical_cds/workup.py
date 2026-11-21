@@ -12,6 +12,7 @@ exercise stress-test, and perfusion scan biomarkers:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import pickle
@@ -29,9 +30,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from scipy.optimize import minimize
-from scipy.special import softmax
+from scipy.special import expit, logit, softmax
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -203,6 +205,8 @@ class CardiologyWorkupBundle:
     rf_model: RandomForestClassifier
     ensemble_weights: tuple[float, float, float]
     temperature: float
+    platt_a: float
+    platt_b: float
     model_version: str
     bundle_sha256: str
     feature_names: list[str]
@@ -219,6 +223,8 @@ class CardiologyWorkupBundle:
     conformal_quantiles: dict[str, dict[str, float]]
     ood_distance_threshold: float
     ood_zscore_threshold: float
+    val_risk_hist_edges: np.ndarray
+    val_risk_hist_props: np.ndarray
     model_card: dict[str, Any]
 
     @classmethod
@@ -226,6 +232,7 @@ class CardiologyWorkupBundle:
         cls,
         bundle_path: str | Path = DEFAULT_WORKUP_BUNDLE_PATH,
         device: str = "cpu",
+        expected_sha256: str | None = None,
     ) -> CardiologyWorkupBundle:
         path = Path(bundle_path)
         if not path.exists():
@@ -234,6 +241,11 @@ class CardiologyWorkupBundle:
                 "Build it with `heart-pipeline build-workup-bundle`."
             )
         actual_sha = _sha256_file(path)
+        if expected_sha256 is not None and actual_sha.lower() != expected_sha256.lower():
+            raise ValueError(
+                f"Stage-2 Workup bundle integrity check failed! Expected SHA-256 "
+                f"{expected_sha256}, got {actual_sha}."
+            )
         dev = torch.device(device)
         payload = torch.load(path, map_location=dev, weights_only=False)
 
@@ -250,12 +262,17 @@ class CardiologyWorkupBundle:
         H_norm = payload["H_bank_norm"].float().to(dev)
         outcomes = np.asarray(payload["bank_outcomes"], dtype=np.int8)
 
+        default_edges = np.linspace(0.0, 1.0, 11)
+        default_props = np.full(10, 0.1, dtype=np.float64)
+
         return cls(
             model=model,
             xgb_model=xgb_model,
             rf_model=rf_model,
             ensemble_weights=tuple(float(x) for x in payload["ensemble_weights"]),  # type: ignore[arg-type]
             temperature=float(payload["temperature"]),
+            platt_a=float(payload.get("platt_a", 1.0)),
+            platt_b=float(payload.get("platt_b", 0.0)),
             model_version=str(payload["model_version"]),
             bundle_sha256=actual_sha,
             feature_names=list(payload["feature_names"]),
@@ -275,6 +292,8 @@ class CardiologyWorkupBundle:
             },
             ood_distance_threshold=float(payload["ood_distance_threshold"]),
             ood_zscore_threshold=float(payload.get("ood_zscore_threshold", 4.5)),
+            val_risk_hist_edges=np.asarray(payload.get("val_risk_hist_edges", default_edges), dtype=np.float64),
+            val_risk_hist_props=np.asarray(payload.get("val_risk_hist_props", default_props), dtype=np.float64),
             model_card=dict(payload["model_card"]),
         )
 
@@ -391,13 +410,24 @@ def build_workup_bundle(
 
     w_opt = softmax(minimize(_obj, np.zeros(3), method="Nelder-Mead").x)
     w_gat, w_xgb, w_rf = float(w_opt[0]), float(w_opt[1]), float(w_opt[2])
-    oof_ens = P_oof @ w_opt
+    oof_ens_raw = np.clip(P_oof @ w_opt, 1e-5, 1.0 - 1e-5)
+
+    # Post-blend OOF Platt calibration on combined ensemble logits (strictly fit on OOF -> zero leakage)
+    platt_lr = LogisticRegression(C=10.0, max_iter=500)
+    platt_lr.fit(logit(oof_ens_raw).reshape(-1, 1), y_dev)
+    platt_a = float(platt_lr.coef_[0, 0])
+    platt_b = float(platt_lr.intercept_[0])
+    oof_ens = expit(platt_a * logit(oof_ens_raw) + platt_b)
 
     dev_sex = pd.to_numeric(dev_df["sex"], errors="coerce").fillna(1).astype(int).values
     conformal_quantiles = compute_multialpha_mondrian_quantiles(
         oof_ens, y_dev, dev_sex, alphas=SUPPORTED_ALPHAS
     )
     ood_dist_threshold = float(np.quantile(oof_min_dists, 0.99))
+    hist_edges = np.linspace(0.0, 1.0, 11)
+    hist_counts, _ = np.histogram(oof_ens, bins=hist_edges)
+    hist_props = np.clip(hist_counts / max(len(oof_ens), 1), 1e-6, 1.0)
+    hist_props = hist_props / hist_props.sum()
 
     # Fit final full-cohort workup models
     cont_imputer = SimpleImputer(strategy="median")
@@ -442,7 +472,8 @@ def build_workup_bundle(
     te_gat_p = 1.0 / (1.0 + np.exp(-te_lg / max(temp_val, 1e-3)))
     te_xgb_p = final_xgb.predict_proba(xtab_te)[:, 1]
     te_rf_p = final_rf.predict_proba(xtab_te)[:, 1]
-    te_probs = w_gat * te_gat_p + w_xgb * te_xgb_p + w_rf * te_rf_p
+    te_raw = np.clip(w_gat * te_gat_p + w_xgb * te_xgb_p + w_rf * te_rf_p, 1e-5, 1.0 - 1e-5)
+    te_probs = expit(platt_a * logit(te_raw) + platt_b)
     te_preds = (te_probs >= 0.5).astype(int)
 
     summary_vals = np.column_stack([
@@ -554,6 +585,8 @@ def build_workup_bundle(
         "rf_pickle_bytes": rf_buf.getvalue(),
         "ensemble_weights": (w_gat, w_xgb, w_rf),
         "temperature": temp_val,
+        "platt_a": platt_a,
+        "platt_b": platt_b,
         "feature_names": WORKUP_CAT_COLS + WORKUP_CONT_COLS,
         "cont_medians": cont_imputer.statistics_.astype(np.float32),
         "cont_mean": cont_scaler.mean_.astype(np.float32),
@@ -567,6 +600,8 @@ def build_workup_bundle(
         "conformal_quantiles": conformal_quantiles,
         "ood_distance_threshold": ood_dist_threshold,
         "ood_zscore_threshold": 4.5,
+        "val_risk_hist_edges": hist_edges,
+        "val_risk_hist_props": hist_props,
         "model_card": model_card,
     }
     torch.save(payload, out)
@@ -585,17 +620,63 @@ def build_workup_bundle(
 
 
 class CardiologyWorkupEngine:
-    """Stage-2 Cardiology Workup inference engine (~0.91 ROC-AUC)."""
+    """Stage-2 Cardiology Workup inference engine (~0.92 ROC-AUC) with audit logging."""
 
-    def __init__(self, bundle: CardiologyWorkupBundle) -> None:
+    def __init__(
+        self,
+        bundle: CardiologyWorkupBundle,
+        audit_log_path: str | Path | None = None,
+    ) -> None:
         self.bundle = bundle
         self.device = next(bundle.model.parameters()).device
+        self.audit_log_path = Path(audit_log_path) if audit_log_path else None
+        if self.audit_log_path is not None:
+            self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def from_bundle(
-        cls, bundle_path: str | Path = DEFAULT_WORKUP_BUNDLE_PATH, device: str = "cpu"
+        cls,
+        bundle_path: str | Path = DEFAULT_WORKUP_BUNDLE_PATH,
+        device: str = "cpu",
+        expected_sha256: str | None = None,
+        audit_log_path: str | Path | None = None,
     ) -> CardiologyWorkupEngine:
-        return cls(CardiologyWorkupBundle.load(bundle_path, device=device))
+        return cls(
+            CardiologyWorkupBundle.load(
+                bundle_path, device=device, expected_sha256=expected_sha256
+            ),
+            audit_log_path=audit_log_path,
+        )
+
+    def _append_audit_record(
+        self, patient: CardiologyWorkupInput, response: ClinicalPredictionResponse
+    ) -> None:
+        if self.audit_log_path is None:
+            return
+        pid_hash = (
+            hashlib.sha256(patient.patient_pseudo_id.encode("utf-8")).hexdigest()[:16]
+            if patient.patient_pseudo_id
+            else None
+        )
+        record = {
+            "stage": "stage2",
+            "request_id": response.request_id,
+            "timestamp_utc": response.timestamp_utc,
+            "patient_id_hash": pid_hash,
+            "model_version": response.model_version,
+            "bundle_sha256": response.bundle_sha256[:16],
+            "calibrated_risk_probability": response.calibrated_risk_probability,
+            "model_disagreement": response.model_disagreement,
+            "triage_decision": response.triage_decision,
+            "conformal_alpha": response.conformal_alpha,
+            "conformal_set": response.conformal_prediction_set,
+            "is_ood": response.ood_report.is_ood,
+            "max_abs_zscore": response.ood_report.max_abs_zscore,
+            "min_neighbor_cosine_distance": response.ood_report.min_neighbor_cosine_distance,
+            "latency_ms": response.latency_ms,
+        }
+        with self.audit_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
 
     def _featurize(self, patients: list[CardiologyWorkupInput]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         cat_rows, cont_rows = [], []
@@ -648,7 +729,11 @@ class CardiologyWorkupEngine:
         rf_p = self.bundle.rf_model.predict_proba(xtab_np)[:, 1].astype(np.float64)
 
         w_g, w_x, w_r = self.bundle.ensemble_weights
-        probs = w_g * gat_p + w_x * xgb_p + w_r * rf_p
+        raw_probs = np.clip(w_g * gat_p + w_x * xgb_p + w_r * rf_p, 1e-5, 1.0 - 1e-5)
+        if self.bundle.platt_a != 1.0 or self.bundle.platt_b != 0.0:
+            probs = expit(self.bundle.platt_a * logit(raw_probs) + self.bundle.platt_b)
+        else:
+            probs = raw_probs
         return {
             "probs": probs,
             "gat_probs": gat_p,
@@ -769,7 +854,7 @@ class CardiologyWorkupEngine:
                         )
                 recourse.sort(key=lambda r: r.absolute_risk_reduction, reverse=True)
 
-        return ClinicalPredictionResponse(
+        resp = ClinicalPredictionResponse(
             request_id=f"workup-{uuid.uuid4().hex[:10]}",
             timestamp_utc=datetime.now(timezone.utc).isoformat(),
             model_version=self.bundle.model_version,
@@ -800,6 +885,8 @@ class CardiologyWorkupEngine:
             actionable_recourse=recourse[:4],
             latency_ms=round(latency_ms, 2),
         )
+        self._append_audit_record(patient, resp)
+        return resp
 
 
 def main(argv: list[str] | None = None) -> None:

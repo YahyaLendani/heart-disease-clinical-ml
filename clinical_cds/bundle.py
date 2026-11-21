@@ -353,6 +353,8 @@ class ClinicalModelBundle:
     val_risk_hist_props: np.ndarray
     model_card: dict[str, Any]
     raw_payload: dict[str, Any] | None = None
+    platt_a: float = 1.0
+    platt_b: float = 0.0
 
     @property
     def ensemble_gat_weight(self) -> float:
@@ -455,6 +457,8 @@ class ClinicalModelBundle:
             ),
             model_card=dict(payload["model_card"]),
             raw_payload=payload,
+            platt_a=float(payload.get("platt_a", 1.0)),
+            platt_b=float(payload.get("platt_b", 0.0)),
         )
 
 
