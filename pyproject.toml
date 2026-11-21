@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "heart-disease-clinical-ml"
 version = "1.0.0"
-description = "Trustworthy Deep Learning, Graph Neural Networks, Conformal Triage, and Causal Recourse for Cardiovascular Risk & MIMIC-IV Mortality Prediction"
+description = "Graph-Augmented Transformer for Interpretable Clinical Risk Prediction: Dual-Level Feature & Inductive Cohort Attention, Conformal Triage, and Causal Recourse"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -72,6 +72,7 @@ py-modules = [
     "clean_data",
     "eda",
     "prepare_heart_combined",
+    "prepare_large_cvd_dataset",
     "mimic_prepare_dataset",
     "validate_scratch_mlp",
 ]

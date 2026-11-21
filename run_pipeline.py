@@ -30,11 +30,13 @@ MULTI_CENTER_DATASET = "cleaned_heart_disease_combined.csv"
 STEPS: dict[str, tuple[str, str]] = {
     "clean": ("clean_data", "Clean the raw Cleveland heart data into data/processed."),
     "prepare-combined": ("prepare_heart_combined", "Build the 4-center combined heart cohort."),
+    "prepare-large-cvd": ("prepare_large_cvd_dataset", "Fetch and clean the 68,589-patient OpenML 45547 CVD cohort."),
     "prepare-mimic": ("mimic_prepare_dataset", "Build the MIMIC-IV mortality dataset from the demo extract."),
     "eda": ("eda", "Exploratory data analysis tables."),
     "train-mlp": ("training.train_model", "PyTorch HeartMLP (SGD vs Adam) with repeated CV."),
     "baselines": ("training.baseline_models", "Logistic Regression, Random Forest and XGBoost baselines."),
     "ensemble": ("training.ensemble_models", "Soft-voting and stacking ensembles."),
+    "graph-transformer": ("experiments.train_graph_transformer", "Graph-Augmented Clinical Transformer (UCI CV, MIMIC CV, 68.6k mini-batch)."),
     "loco": ("experiments.cross_center_generalization", "Leave-one-center-out generalisation."),
     "fairness": ("evaluation.fairness_analysis", "Sex and age subgroup fairness analysis."),
     "reading-list": ("experiments.run_reading_list_suite", "TabTransformer, GNNs, calibration, conformal, causal, recourse."),
@@ -115,6 +117,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-ensemble", action="store_true", help="Run hybrid ensemble benchmark (MLP + XGBoost + RF + LogReg).")
     parser.add_argument("--run-loco", action="store_true", help="Run Leave-One-Center-Out (LOCO) cross-hospital generalization.")
     parser.add_argument("--run-fairness", action="store_true", help="Run demographic fairness and disparity analysis.")
+    parser.add_argument("--run-graph-transformer", action="store_true", help="Run Graph-Augmented Clinical Transformer multi-cohort & 68.6k suite.")
     parser.add_argument("--run-reading-list", action="store_true", help="Run full AI Thesis reading list suite.")
     parser.add_argument("--run-tests", action="store_true", help="Run pytest before the pipeline (CI already runs it).")
     parser.add_argument("--skip-tests", action="store_true", help=argparse.SUPPRESS)  # kept for old command lines
@@ -184,6 +187,18 @@ def run_full_pipeline(args: argparse.Namespace) -> None:
 
     if args.run_advancements or args.run_fairness:
         run_step("fairness", ["--n-jobs", str(args.n_jobs), *multi_center])
+
+    if args.run_advancements or args.run_graph_transformer:
+        run_step(
+            "graph-transformer",
+            [
+                "--dataset", args.dataset,
+                "--cv-folds", str(args.cv_folds),
+                "--epochs", str(args.epochs),
+                "--seed", str(args.seed),
+                "--output-dir", args.output_dir,
+            ],
+        )
 
     if args.run_reading_list:
         run_step(
