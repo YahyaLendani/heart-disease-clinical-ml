@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
@@ -377,6 +378,7 @@ class ClinicalInferenceEngine:
                 cset = [0, 1]
 
             nom_pct = int(round((1.0 - used_alpha) * 100))
+            triage: Literal["LOW_RISK", "HIGH_RISK", "DEFER_TO_CLINICIAN"]
             if is_ood:
                 triage = "DEFER_TO_CLINICIAN"
                 triage_reason = "Automatic fail-safe abstention triggered by Out-of-Distribution alert."

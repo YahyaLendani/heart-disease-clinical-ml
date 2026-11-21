@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CLINICAL_DISCLAIMER = (
     "RESEARCH & CLINICIAN-IN-THE-LOOP DECISION SUPPORT ONLY. "
@@ -42,10 +42,17 @@ class PatientClinicalInput(BaseModel):
     smoke: Literal[0, 1] = Field(default=0, description="Current tobacco smoker (0 = No, 1 = Yes).")
     alcohol: Literal[0, 1] = Field(default=0, description="Regular alcohol intake (0 = No, 1 = Yes).")
     active: Literal[0, 1] = Field(default=1, description="Physically active lifestyle (0 = No, 1 = Yes).")
-    conformal_alpha: Literal[0.05, 0.10, 0.15] = Field(
+    conformal_alpha: float = Field(
         default=0.10,
         description="Conformal miscoverage level (0.05 = 95% coverage, 0.10 = 90%, 0.15 = 85%).",
     )
+
+    @field_validator("conformal_alpha")
+    @classmethod
+    def validate_conformal_alpha(cls, v: float) -> float:
+        if round(float(v), 2) not in (0.05, 0.10, 0.15):
+            raise ValueError("conformal_alpha must be one of 0.05, 0.10, or 0.15.")
+        return round(float(v), 2)
 
     @model_validator(mode="after")
     def validate_physiological_consistency(self) -> PatientClinicalInput:
@@ -204,7 +211,14 @@ class CardiologyWorkupInput(BaseModel):
         default=3,
         description="Thalassemia perfusion scan (3=Normal, 6=Fixed defect, 7=Reversible defect).",
     )
-    conformal_alpha: Literal[0.05, 0.10, 0.15] = Field(
+    conformal_alpha: float = Field(
         default=0.10,
         description="Conformal miscoverage level (0.05 = 95% coverage, 0.10 = 90%, 0.15 = 85%).",
     )
+
+    @field_validator("conformal_alpha")
+    @classmethod
+    def validate_conformal_alpha(cls, v: float) -> float:
+        if round(float(v), 2) not in (0.05, 0.10, 0.15):
+            raise ValueError("conformal_alpha must be one of 0.05, 0.10, or 0.15.")
+        return round(float(v), 2)

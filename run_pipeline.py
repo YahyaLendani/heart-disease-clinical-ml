@@ -39,6 +39,7 @@ STEPS: dict[str, tuple[str, str]] = {
     "graph-transformer": ("experiments.train_graph_transformer", "Graph-Augmented Clinical Transformer (UCI CV, MIMIC CV, 68.6k mini-batch)."),
     "build-cds-bundle": ("clinical_cds.bundle", "Export SHA-256-verified Stage-1 Clinical CDS bundle + Model Card."),
     "build-workup-bundle": ("clinical_cds.workup", "Export Stage-2 Cardiology Workup bundle (N=918, ~0.92 AUC)."),
+    "download-bundles": ("clinical_cds.download_bundles", "Download & SHA-256-verify pre-built CDS bundles from GitHub Releases."),
     "calibrate-site": ("clinical_cds.calibrate_site", "Locally recalibrate Temperature T* & Mondrian quantiles for a hospital site."),
     "external-validation": ("experiments.external_site_validation", "Benchmark zero-shot external site shift vs local calibrate-site recovery."),
     "framingham-benchmark": ("experiments.framingham_benchmark", "Head-to-head benchmark vs Framingham 2008 Risk Score + Decision Curve Analysis."),

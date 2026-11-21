@@ -5,7 +5,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
-[![Tests: 103 passing](https://img.shields.io/badge/tests-103%20passing-success.svg)](tests/)
+[![Tests: 127 passing](https://img.shields.io/badge/tests-127%20passing-success.svg)](tests/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -118,7 +118,7 @@ flowchart TB
         E1["Result tables<br/>artifacts/*.md, *.csv"]:::out
         E2["Figures, light & dark<br/>artifacts/figures/"]:::out
         E3["Thesis tables updated in place<br/>thesis_draft.md"]:::out
-        E4["103 pytest tests + 2-Stage FHIR CDS API<br/>CI + coverage on Python 3.10-3.13"]:::out
+        E4["127 pytest tests + mypy + FHIR CDS API<br/>CI + 92% cov on Python 3.10-3.13"]:::out
     end
 
     Data --> Prep --> Models --> Trust --> Output
@@ -176,7 +176,10 @@ The upgraded **v3 2-Stage Clinical CDS stack** ([`clinical_cds/`](clinical_cds/)
 - **Zero-Pickle Security, Observability, SMART on FHIR & Interactive Thesis Deck:** Strict `torch.load(..., weights_only=True)` + pure JSON boosters (zero `pickle`), non-root [`Dockerfile`](Dockerfile), full **Docker Compose + Prometheus + Grafana** safety stack ([`docker-compose.yml`](docker-compose.yml), [`monitoring/`](monitoring/)), optional Bearer/API-Key auth (`CDS_API_KEY`) & SHA-256 pinning, bidirectional HL7 FHIR R4 + **SMART on FHIR** launch (`/.well-known/smart-configuration`, `/smart/launch`), **Batch Triage** CSV queue & **1-click EHR Clinical Note** copy in the UI, and an interactive **Thesis Defense Slide Deck** ([`docs/thesis_defense_slides.html`](docs/thesis_defense_slides.html) / `GET /slides`).
 
 ```bash
-# Export zero-pickle Stage-1 (1.82 MB) & Stage-2 Cardiology Workup bundles
+# Quickstart: download & SHA-256-verify pre-built zero-pickle bundles (~10s)
+heart-pipeline download-bundles
+
+# Or train & export both zero-pickle bundles from scratch (Stage-1 1.82 MB + Stage-2)
 heart-pipeline build-cds-bundle
 heart-pipeline build-workup-bundle
 

@@ -241,6 +241,7 @@ def _train_gat_transformer_model(
 
     has_val = X_cat_va is not None and X_cont_va is not None and y_va is not None
     if has_val:
+        assert X_cat_va is not None and X_cont_va is not None and y_va is not None
         xc_va = torch.from_numpy(X_cat_va).to(dev)
         xct_va = torch.from_numpy(X_cont_va).to(dev)
         y_va_t = torch.from_numpy(y_va.astype(np.float32)).to(dev).view(-1, 1)
@@ -801,7 +802,7 @@ def build_clinical_bundle(
         }
 
     default_akey = f"{conformal_alpha:.2f}"
-    model_card = {
+    model_card: dict[str, Any] = {
         "model_name": "PLR+UniMP GraphAugmentedTransformer + XGBoost + HistGBM (CDS v3)",
         "model_version": BUNDLE_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),

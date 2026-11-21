@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -545,7 +545,7 @@ def build_workup_bundle(
                 "fnr": round(1.0 - sens, 4),
             }
 
-    model_card = {
+    model_card: dict[str, Any] = {
         "model_name": "Stage-2 Cardiology Workup Ensemble (PLR+UniMP GAT-T + XGBoost + RF)",
         "model_version": WORKUP_BUNDLE_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -797,6 +797,7 @@ class CardiologyWorkupEngine:
             cset = [0, 1]
 
         nom_pct = int(round((1.0 - patient.conformal_alpha) * 100))
+        triage: Literal["LOW_RISK", "HIGH_RISK", "DEFER_TO_CLINICIAN"]
         if is_ood:
             triage, reason = "DEFER_TO_CLINICIAN", "Automatic fail-safe abstention triggered by cardiology OOD alert."
         elif cset == [0]:

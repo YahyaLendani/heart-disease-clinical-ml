@@ -27,11 +27,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Ruff
-        run: python -m pip install "ruff>=0.3.0"
+      - name: Install Ruff & Mypy
+        run: python -m pip install "ruff>=0.3.0" "mypy>=1.10.0"
 
       - name: Run Ruff with the rules configured in pyproject.toml
         run: ruff check . --output-format=github
+
+      - name: Run Mypy static type check on clinical_cds
+        run: mypy clinical_cds --ignore-missing-imports --no-error-summary
 
   test:
     name: Python ${{ matrix.python-version }} (${{ matrix.os }})
@@ -94,7 +97,7 @@ jobs:
       - name: Install CPU PyTorch and project dependencies
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e .
+          pip install -e ".[cds]"
 
       - name: Run a short end-to-end pipeline + Stage-2 Workup bundle smoke check
         run: |
