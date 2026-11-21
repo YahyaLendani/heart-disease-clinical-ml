@@ -598,3 +598,49 @@ class TestStage2CardiologyWorkup:
         p2 = torch.load(synthetic_workup_bundle, map_location="cpu", weights_only=True)
         assert p1.get("safe_serialization") == "weights_only_tensors_json"
         assert p2.get("safe_serialization") == "weights_only_tensors_json"
+
+    def test_silent_shadow_mode_suppresses_clinical_output_and_logs_audit(
+        self, synthetic_cds_bundle: Path, synthetic_workup_bundle: Path, tmp_path: Path
+    ):
+        audit_file = tmp_path / "shadow_audit.jsonl"
+        s1_eng = ClinicalInferenceEngine.from_bundle(
+            synthetic_cds_bundle, device="cpu", audit_log_path=audit_file
+        )
+        w_eng = CardiologyWorkupEngine.from_bundle(
+            synthetic_workup_bundle, device="cpu", audit_log_path=audit_file
+        )
+        app = create_app(engine=s1_eng, workup_engine=w_eng, shadow_mode=True)
+        client = TestClient(app)
+
+        health = client.get("/v1/health")
+        assert health.status_code == 200
+        assert health.json()["shadow_mode"] is True
+        assert health.headers["x-cds-shadow-mode"] == "true"
+
+        pt1 = PatientClinicalInput(
+            patient_pseudo_id="SHADOW-1",
+            age_years=60, sex=1, height_cm=175, weight_kg=85,
+            systolic_bp=150, diastolic_bp=92, cholesterol_level=2, glucose_level=1,
+        )
+        r1 = client.post("/v1/shadow/stage1", json=pt1.model_dump())
+        assert r1.status_code == 200
+        body1 = r1.json()
+        assert body1["status"] == "logged_silently"
+        assert body1["shadow_mode"] is True
+        assert "calibrated_risk_probability" not in body1
+        assert "triage_decision" not in body1
+
+        pt2 = CardiologyWorkupInput(
+            patient_pseudo_id="SHADOW-2",
+            age=62, sex=1, cp=4, trestbps=150, chol=260, fbs=1, restecg=2,
+            thalach=125, exang=1, oldpeak=2.0, slope=2, ca=1, thal=7,
+        )
+        r2 = client.post("/v1/shadow/stage2", json=pt2.model_dump())
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "logged_silently"
+        assert "calibrated_risk_probability" not in r2.json()
+
+        # Both encounters must be silently recorded in de-identified audit log
+        lines = audit_file.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 2
+        assert "SHADOW-1" not in lines[0] and "SHADOW-2" not in lines[1]

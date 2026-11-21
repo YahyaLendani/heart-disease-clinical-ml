@@ -73,6 +73,7 @@ def create_app(
     workup_engine: CardiologyWorkupEngine | None = None,
     workup_bundle_path: str | Path | None = None,
     api_key: str | None = None,
+    shadow_mode: bool | None = None,
 ) -> FastAPI:
     """Create the FastAPI Clinical Decision Support application."""
     app = FastAPI(
@@ -97,6 +98,11 @@ def create_app(
     )
 
     configured_api_key = api_key if api_key is not None else os.environ.get("CDS_API_KEY", "").strip()
+    configured_shadow_mode = (
+        shadow_mode
+        if shadow_mode is not None
+        else os.environ.get("CDS_SHADOW_MODE", "false").strip().lower() in ("1", "true", "yes")
+    )
 
     @app.middleware("http")
     async def security_and_auth_middleware(request: Request, call_next: Any) -> Response:
@@ -116,6 +122,8 @@ def create_app(
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if configured_shadow_mode:
+            response.headers["X-CDS-Shadow-Mode"] = "true"
         return response
 
     state_engine: dict[str, Any] = {
@@ -307,6 +315,31 @@ code{{background:#ecf1f6;padding:2px 6px;border-radius:4px;font-size:13px}}
             "supported_alphas": sorted(eng.bundle.conformal_quantiles.keys()),
             "workup_available": workup_avail,
             "auth_enabled": bool(configured_api_key),
+            "shadow_mode": configured_shadow_mode,
+        }
+
+    @app.post("/v1/shadow/stage1", tags=["Silent-Mode Shadow Trial"])
+    def shadow_ingest_stage1(patient: PatientClinicalInput) -> dict[str, Any]:
+        """Log a Stage-1 prediction silently to the de-identified audit log without returning risk scores."""
+        pred = _get_engine().predict(patient)
+        return {
+            "status": "logged_silently",
+            "stage": "stage1",
+            "request_id": pred.request_id,
+            "shadow_mode": True,
+            "latency_ms": pred.latency_ms,
+        }
+
+    @app.post("/v1/shadow/stage2", tags=["Silent-Mode Shadow Trial"])
+    def shadow_ingest_stage2(patient: CardiologyWorkupInput) -> dict[str, Any]:
+        """Log a Stage-2 prediction silently to the de-identified audit log without returning risk scores."""
+        pred = _get_workup_engine().predict(patient)
+        return {
+            "status": "logged_silently",
+            "stage": "stage2",
+            "request_id": pred.request_id,
+            "shadow_mode": True,
+            "latency_ms": pred.latency_ms,
         }
 
     @app.get("/v1/model-card", tags=["Governance"])
