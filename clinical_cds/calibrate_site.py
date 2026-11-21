@@ -170,6 +170,91 @@ def recalibrate_bundle_for_site(
     return out, updated_card
 
 
+def compute_weighted_conformal_sets(
+    X_source: np.ndarray,
+    cal_probs: np.ndarray,
+    cal_y: np.ndarray,
+    X_target: np.ndarray,
+    target_probs: np.ndarray,
+    alpha: float = 0.10,
+    max_weight_ratio: float = 20.0,
+    seed: int = 42,
+) -> tuple[list[list[int]], dict[str, float]]:
+    """Zero-label Covariate-Shift Weighted Conformal Prediction (Tibshirani et al., NeurIPS 2019).
+
+    Estimates density ratios ``w(x) = P(target | x) / P(source | x) * (n_src / n_tgt)``
+    using a regularized domain classifier trained strictly on **unlabeled** features from
+    the source calibration set and the target hospital. Each calibration non-conformity score
+    ``s_i = 1 - p_i(y_i)`` is reweighted by ``w(X_i)`` to compute per-patient weighted
+    ``(1 - alpha)`` quantiles without requiring any target hospital outcome labels.
+    """
+    X_src = np.asarray(X_source, dtype=np.float64)
+    X_tgt = np.asarray(X_target, dtype=np.float64)
+    p_cal = np.clip(np.asarray(cal_probs, dtype=np.float64), 1e-6, 1.0 - 1e-6)
+    y_cal = np.asarray(cal_y, dtype=int)
+    p_tgt = np.clip(np.asarray(target_probs, dtype=np.float64), 1e-6, 1.0 - 1e-6)
+
+    # Standardize features jointly for stable logistic domain classification
+    X_all = np.vstack([X_src, X_tgt])
+    mu = np.mean(X_all, axis=0)
+    sd = np.std(X_all, axis=0)
+    sd = np.where(sd < 1e-8, 1.0, sd)
+    X_all_std = (X_all - mu) / sd
+    domain_y = np.concatenate([np.zeros(len(X_src), dtype=int), np.ones(len(X_tgt), dtype=int)])
+
+    domain_clf = LogisticRegression(C=0.5, max_iter=500, random_state=seed)
+    domain_clf.fit(X_all_std, domain_y)
+    dom_probs = np.clip(domain_clf.predict_proba(X_all_std)[:, 1], 1e-4, 1.0 - 1e-4)
+
+    prior_ratio = len(X_src) / max(len(X_tgt), 1)
+    raw_weights = (dom_probs / (1.0 - dom_probs)) * prior_ratio
+    weights = np.clip(raw_weights, 1.0 / max_weight_ratio, max_weight_ratio)
+    w_src = weights[: len(X_src)]
+    w_tgt = weights[len(X_src) :]
+
+    # Class-conditional (Mondrian) weighted calibration score arrays sorted ascending
+    class_scores: dict[int, np.ndarray] = {}
+    class_cumw: dict[int, np.ndarray] = {}
+    class_sumw: dict[int, float] = {}
+    for cls in (0, 1):
+        mask = y_cal == cls
+        if not np.any(mask):
+            class_scores[cls] = np.array([1.0], dtype=np.float64)
+            class_cumw[cls] = np.array([1.0], dtype=np.float64)
+            class_sumw[cls] = 1.0
+            continue
+        scores_c = (1.0 - p_cal[mask]) if cls == 1 else p_cal[mask]
+        w_c = w_src[mask]
+        order = np.argsort(scores_c)
+        class_scores[cls] = scores_c[order]
+        class_cumw[cls] = np.cumsum(w_c[order])
+        class_sumw[cls] = float(np.sum(w_c))
+
+    pred_sets: list[list[int]] = []
+    for p_i, w_i in zip(p_tgt, w_tgt, strict=True):
+        cset: list[int] = []
+        for cls in (0, 1):
+            s_test = (1.0 - float(p_i)) if cls == 1 else float(p_i)
+            denom = class_sumw[cls] + float(w_i)
+            target_mass = (1.0 - alpha) * denom
+            idx = int(np.searchsorted(class_cumw[cls], target_mass, side="left"))
+            q_val = float(class_scores[cls][idx]) if idx < len(class_scores[cls]) else float("inf")
+            if s_test <= q_val:
+                cset.append(cls)
+        if not cset:
+            cset = [0, 1]
+        pred_sets.append(cset)
+
+    ess = float((np.sum(w_src) ** 2) / max(float(np.sum(w_src**2)), 1e-12))
+    diagnostics = {
+        "domain_auc": round(float(roc_auc_score(domain_y, dom_probs)), 4),
+        "effective_sample_size": round(ess, 1),
+        "ess_fraction": round(ess / max(len(X_src), 1), 4),
+        "mean_source_weight": round(float(np.mean(w_src)), 4),
+    }
+    return pred_sets, diagnostics
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Locally recalibrate Clinical CDS Bundle for a hospital site.")
     parser.add_argument("--local-csv", type=str, required=True, help="Local labeled hospital calibration CSV.")

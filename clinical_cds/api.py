@@ -21,11 +21,13 @@ Endpoints:
 from __future__ import annotations
 
 import hmac
+import html
 import json
 import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlparse
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
@@ -122,6 +124,16 @@ def create_app(
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'",
+        )
         if configured_shadow_mode:
             response.headers["X-CDS-Shadow-Mode"] = "true"
         return response
@@ -241,10 +253,18 @@ def create_app(
         patient: str | None = None,
     ) -> HTMLResponse:
         """Lightweight SMART on FHIR EHR launch handoff (compatible with SMART Health IT Sandbox)."""
-        iss_safe = (iss or "https://launch.smarthealthit.org/v/r4/fhir").replace("<", "").replace(">", "")
-        launch_safe = (launch or "sandbox-demo").replace("<", "").replace(">", "")
-        patient_safe = (patient or "").replace("<", "").replace(">", "")
-        html = f"""<!DOCTYPE html>
+        default_iss = "https://launch.smarthealthit.org/v/r4/fhir"
+        raw_iss = (iss or default_iss).strip()
+        parsed_iss = urlparse(raw_iss)
+        if parsed_iss.scheme not in ("http", "https") or not parsed_iss.netloc:
+            raw_iss = default_iss
+
+        iss_html = html.escape(raw_iss, quote=True)
+        iss_query = quote(raw_iss, safe="")
+        launch_html = html.escape((launch or "sandbox-demo").strip(), quote=True)
+        patient_html = html.escape((patient or "").strip(), quote=True)
+        patient_snippet = f", patient: <code>{patient_html}</code>" if patient_html else ""
+        page_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>CardioGraph CDS — SMART on FHIR Launch</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;color:#0f1f2d;background:#f3f6f9}}
@@ -253,11 +273,11 @@ code{{background:#ecf1f6;padding:2px 6px;border-radius:4px;font-size:13px}}
 .btn{{display:inline-block;margin-top:16px;padding:10px 16px;border-radius:6px;background:#0f5c6e;color:#fff;text-decoration:none;font-weight:600}}</style>
 </head><body><div class="box">
 <h2>SMART on FHIR EHR Launch Ready</h2>
-<p>Received SMART launch context from FHIR server <code>{iss_safe}</code> (launch token: <code>{launch_safe}</code>{f", patient: <code>{patient_safe}</code>" if patient_safe else ""}).</p>
+<p>Received SMART launch context from FHIR server <code>{iss_html}</code> (launch token: <code>{launch_html}</code>{patient_snippet}).</p>
 <p>In a live SMART Health IT Sandbox or Epic/Cerner EHR, Patient + Observation LOINC resources are posted to <code>/v1/predict/fhir</code> (Stage 1) or <code>/v1/workup/predict/fhir</code> (Stage 2) to return a standards-compliant FHIR R4 <code>RiskAssessment</code>.</p>
-<a class="btn" href="/?smart_iss={iss_safe}">Open Bedside Clinician Workspace &rarr;</a>
+<a class="btn" href="/?smart_iss={iss_query}">Open Bedside Clinician Workspace &rarr;</a>
 </div></body></html>"""
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=page_html)
 
     @app.get("/metrics", response_class=PlainTextResponse, tags=["Operations"])
     def prometheus_metrics() -> PlainTextResponse:

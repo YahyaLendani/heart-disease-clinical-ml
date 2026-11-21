@@ -17,7 +17,7 @@ from .bundle import (
     build_clinical_bundle,
     engineer_screening_interactions,
 )
-from .calibrate_site import recalibrate_bundle_for_site
+from .calibrate_site import compute_weighted_conformal_sets, recalibrate_bundle_for_site
 from .engine import ClinicalInferenceEngine, compute_psi
 from .fhir_adapter import (
     fhir_bundle_to_patient_input,
@@ -33,6 +33,7 @@ from .schemas import (
     PatientClinicalInput,
     RecourseRecommendation,
 )
+from .shadow_report import generate_shadow_trial_report
 from .workup import (
     CardiologyWorkupBundle,
     CardiologyWorkupEngine,
@@ -44,6 +45,8 @@ __all__ = [
     "build_clinical_bundle",
     "engineer_screening_interactions",
     "recalibrate_bundle_for_site",
+    "compute_weighted_conformal_sets",
+    "generate_shadow_trial_report",
     "ClinicalInferenceEngine",
     "CardiologyWorkupBundle",
     "CardiologyWorkupEngine",

@@ -3,6 +3,9 @@
   "delong_z": 22.913,
   "delong_p_value": 3.479085774636968e-116,
   "auc_gain": 0.0991,
+  "delong_vs_score2_z": 25.809,
+  "delong_vs_score2_p_value": 6.95916241728664e-147,
+  "auc_gain_vs_score2": 0.1232,
   "models": {
     "cardiograph_cds_v3": {
       "roc_auc": 0.7996,
@@ -13,6 +16,22 @@
       "pr_auc": 0.7808,
       "brier": 0.1824,
       "ece": 0.018
+    },
+    "esc_score2_2021_high_risk_raw": {
+      "roc_auc": 0.6764,
+      "roc_auc_ci_95": [
+        0.6667,
+        0.6862
+      ],
+      "pr_auc": 0.6422,
+      "brier": 0.4706,
+      "ece": 0.4744
+    },
+    "esc_score2_2021_high_risk_recalibrated": {
+      "roc_auc": 0.6764,
+      "pr_auc": 0.6422,
+      "brier": 0.2259,
+      "ece": 0.0301
     },
     "framingham_2008_raw": {
       "roc_auc": 0.7005,
@@ -35,176 +54,226 @@
     {
       "threshold": 0.1,
       "cardiograph_nb": 0.4401,
+      "esc_score2_recal_nb": 0.4387,
       "framingham_recal_nb": 0.4387,
       "treat_all_nb": 0.4387,
+      "nb_gain_over_score2": 0.0014,
       "nb_gain_over_framingham": 0.0014
     },
     {
       "threshold": 0.125,
       "cardiograph_nb": 0.4265,
+      "esc_score2_recal_nb": 0.4227,
       "framingham_recal_nb": 0.4227,
       "treat_all_nb": 0.4227,
+      "nb_gain_over_score2": 0.0038,
       "nb_gain_over_framingham": 0.0037
     },
     {
       "threshold": 0.15,
       "cardiograph_nb": 0.4126,
+      "esc_score2_recal_nb": 0.4059,
       "framingham_recal_nb": 0.4062,
       "treat_all_nb": 0.4057,
+      "nb_gain_over_score2": 0.0066,
       "nb_gain_over_framingham": 0.0064
     },
     {
       "threshold": 0.175,
       "cardiograph_nb": 0.3971,
+      "esc_score2_recal_nb": 0.3885,
       "framingham_recal_nb": 0.3885,
       "treat_all_nb": 0.3877,
+      "nb_gain_over_score2": 0.0086,
       "nb_gain_over_framingham": 0.0086
     },
     {
       "threshold": 0.2,
       "cardiograph_nb": 0.3809,
+      "esc_score2_recal_nb": 0.3712,
       "framingham_recal_nb": 0.3712,
       "treat_all_nb": 0.3686,
+      "nb_gain_over_score2": 0.0097,
       "nb_gain_over_framingham": 0.0097
     },
     {
       "threshold": 0.225,
       "cardiograph_nb": 0.3661,
+      "esc_score2_recal_nb": 0.3547,
       "framingham_recal_nb": 0.3542,
       "treat_all_nb": 0.3482,
+      "nb_gain_over_score2": 0.0115,
       "nb_gain_over_framingham": 0.012
     },
     {
       "threshold": 0.25,
       "cardiograph_nb": 0.3539,
+      "esc_score2_recal_nb": 0.3365,
       "framingham_recal_nb": 0.3374,
       "treat_all_nb": 0.3265,
+      "nb_gain_over_score2": 0.0174,
       "nb_gain_over_framingham": 0.0166
     },
     {
       "threshold": 0.275,
       "cardiograph_nb": 0.3399,
+      "esc_score2_recal_nb": 0.3176,
       "framingham_recal_nb": 0.3197,
       "treat_all_nb": 0.3032,
+      "nb_gain_over_score2": 0.0223,
       "nb_gain_over_framingham": 0.0201
     },
     {
       "threshold": 0.3,
       "cardiograph_nb": 0.3248,
+      "esc_score2_recal_nb": 0.2957,
       "framingham_recal_nb": 0.3022,
       "treat_all_nb": 0.2784,
+      "nb_gain_over_score2": 0.0291,
       "nb_gain_over_framingham": 0.0227
     },
     {
       "threshold": 0.325,
       "cardiograph_nb": 0.3112,
+      "esc_score2_recal_nb": 0.2737,
       "framingham_recal_nb": 0.2832,
       "treat_all_nb": 0.2516,
+      "nb_gain_over_score2": 0.0374,
       "nb_gain_over_framingham": 0.028
     },
     {
       "threshold": 0.35,
       "cardiograph_nb": 0.2988,
+      "esc_score2_recal_nb": 0.2536,
       "framingham_recal_nb": 0.2697,
       "treat_all_nb": 0.2228,
+      "nb_gain_over_score2": 0.0452,
       "nb_gain_over_framingham": 0.029
     },
     {
       "threshold": 0.375,
       "cardiograph_nb": 0.2837,
+      "esc_score2_recal_nb": 0.2342,
       "framingham_recal_nb": 0.2539,
       "treat_all_nb": 0.1918,
+      "nb_gain_over_score2": 0.0495,
       "nb_gain_over_framingham": 0.0298
     },
     {
       "threshold": 0.4,
       "cardiograph_nb": 0.2718,
+      "esc_score2_recal_nb": 0.216,
       "framingham_recal_nb": 0.233,
       "treat_all_nb": 0.1581,
+      "nb_gain_over_score2": 0.0558,
       "nb_gain_over_framingham": 0.0388
     },
     {
       "threshold": 0.425,
       "cardiograph_nb": 0.2587,
+      "esc_score2_recal_nb": 0.1908,
       "framingham_recal_nb": 0.2086,
       "treat_all_nb": 0.1215,
+      "nb_gain_over_score2": 0.0679,
       "nb_gain_over_framingham": 0.0501
     },
     {
       "threshold": 0.45,
       "cardiograph_nb": 0.2456,
+      "esc_score2_recal_nb": 0.1677,
       "framingham_recal_nb": 0.1825,
       "treat_all_nb": 0.0815,
+      "nb_gain_over_score2": 0.0779,
       "nb_gain_over_framingham": 0.0631
     },
     {
       "threshold": 0.475,
       "cardiograph_nb": 0.2351,
+      "esc_score2_recal_nb": 0.1476,
       "framingham_recal_nb": 0.1571,
       "treat_all_nb": 0.0378,
+      "nb_gain_over_score2": 0.0875,
       "nb_gain_over_framingham": 0.078
     },
     {
       "threshold": 0.5,
       "cardiograph_nb": 0.2226,
+      "esc_score2_recal_nb": 0.1227,
       "framingham_recal_nb": 0.1325,
       "treat_all_nb": -0.0103,
+      "nb_gain_over_score2": 0.0999,
       "nb_gain_over_framingham": 0.0901
     },
     {
       "threshold": 0.525,
       "cardiograph_nb": 0.211,
+      "esc_score2_recal_nb": 0.1003,
       "framingham_recal_nb": 0.111,
       "treat_all_nb": -0.0635,
+      "nb_gain_over_score2": 0.1108,
       "nb_gain_over_framingham": 0.1
     },
     {
       "threshold": 0.55,
       "cardiograph_nb": 0.1999,
+      "esc_score2_recal_nb": 0.0783,
       "framingham_recal_nb": 0.0922,
       "treat_all_nb": -0.1226,
+      "nb_gain_over_score2": 0.1216,
       "nb_gain_over_framingham": 0.1076
     },
     {
       "threshold": 0.575,
       "cardiograph_nb": 0.1885,
+      "esc_score2_recal_nb": 0.0598,
       "framingham_recal_nb": 0.0704,
       "treat_all_nb": -0.1886,
+      "nb_gain_over_score2": 0.1287,
       "nb_gain_over_framingham": 0.1181
     },
     {
       "threshold": 0.6,
       "cardiograph_nb": 0.1782,
+      "esc_score2_recal_nb": 0.0401,
       "framingham_recal_nb": 0.0542,
       "treat_all_nb": -0.2629,
+      "nb_gain_over_score2": 0.138,
       "nb_gain_over_framingham": 0.1239
     },
     {
       "threshold": 0.625,
       "cardiograph_nb": 0.1668,
+      "esc_score2_recal_nb": 0.024,
       "framingham_recal_nb": 0.0354,
       "treat_all_nb": -0.3471,
+      "nb_gain_over_score2": 0.1427,
       "nb_gain_over_framingham": 0.1313
     },
     {
       "threshold": 0.65,
       "cardiograph_nb": 0.1553,
+      "esc_score2_recal_nb": 0.0133,
       "framingham_recal_nb": 0.0184,
       "treat_all_nb": -0.4433,
+      "nb_gain_over_score2": 0.142,
       "nb_gain_over_framingham": 0.1369
     },
     {
       "threshold": 0.675,
       "cardiograph_nb": 0.1423,
+      "esc_score2_recal_nb": 0.0094,
       "framingham_recal_nb": 0.0111,
       "treat_all_nb": -0.5543,
+      "nb_gain_over_score2": 0.1329,
       "nb_gain_over_framingham": 0.1312
     },
     {
       "threshold": 0.7,
       "cardiograph_nb": 0.1287,
+      "esc_score2_recal_nb": 0.0044,
       "framingham_recal_nb": 0.0033,
       "treat_all_nb": -0.6838,
+      "nb_gain_over_score2": 0.1243,
       "nb_gain_over_framingham": 0.1254
     }
   ]

@@ -1,13 +1,18 @@
-"""Clinical Guideline Benchmark: CardioGraph CDS v3 vs. Framingham Risk Score (D'Agostino et al., 2008).
+"""Clinical Guideline Benchmark: CardioGraph CDS v3 vs. US Framingham (2008) & European ESC SCORE2 (2021).
 
 Evaluates our Stage-1 PLR+UniMP 3-Paradigm Clinical CDS v3 bundle head-to-head against
-the standard clinical guideline **Framingham General Cardiovascular Risk Profile**
-(D'Agostino et al., *Circulation* 2008) on the untouched 10,289-patient OpenML 45547
-holdout test split:
-- Discrimination: ROC-AUC with 1,000-resample bootstrap 95% CIs + paired DeLong p-value
+two published international cardiology risk guidelines on the untouched 10,288-patient
+OpenML 45547 holdout test split:
+
+1. **Framingham General CVD Risk Profile** (D'Agostino et al., *Circulation* 2008; US standard)
+2. **ESC SCORE2 — High-Risk European Region (Poland / Central & Eastern Europe)**
+   (SCORE2 Working Group, *European Heart Journal* 2021; 42:2439–2454)
+
+Metrics:
+- Discrimination: ROC-AUC with 500-resample bootstrap 95% CIs + paired DeLong p-values
 - Precision-Recall & Calibration: PR-AUC, Brier Score, ECE
 - Clinical Utility: Decision Curve Analysis (Net Benefit across 10%..70% decision thresholds)
-  compared against Framingham, Treat-All, and Treat-None strategies.
+  compared against ESC SCORE2, Framingham, Treat-All, and Treat-None strategies.
 
 Outputs:
 - ``artifacts/framingham_benchmark.json``
@@ -73,6 +78,74 @@ def compute_framingham_2008_risk(df: pd.DataFrame) -> np.ndarray:
     risk_m = 1.0 - np.power(0.88936, np.exp(lp_m - 23.9802))
 
     return np.clip(np.where(sex == 1, risk_m, risk_f), 1e-6, 1.0 - 1e-6)
+
+
+def compute_esc_score2_2021_risk(df: pd.DataFrame, region: str = "high") -> np.ndarray:
+    """Compute European ESC SCORE2 (2021) 10-year CVD risk for High-Risk European regions (e.g. Poland).
+
+    Uses the published sex-specific competing-risk Cox coefficients and age-interaction terms
+    from the SCORE2 Working Group (*European Heart Journal* 2021; 42:2439–2454, Supplementary
+    Methods Tables 2–3), calibrated by default to the **High-Risk European region**
+    (Poland, Hungary, Czechia, Estonia, Slovakia).
+    """
+    age = np.clip(df["age_years"].values.astype(np.float64), 30.0, 89.0)
+    sex = df["sex"].values.astype(int)  # 0=Female, 1=Male
+    sbp = np.clip(df["ap_hi"].values.astype(np.float64), 85.0, 240.0)
+    chol_tier = df["cholesterol"].values.astype(int)
+    tot_chol_mg = np.where(chol_tier == 0, 185.0, np.where(chol_tier == 1, 225.0, 275.0))
+    hdl_mg = np.where(sex == 0, 55.0, 45.0)
+    tot_chol_mmol = tot_chol_mg / 38.67
+    hdl_mmol = hdl_mg / 38.67
+    smoke = df["smoke"].values.astype(np.float64)
+    diab = (df["gluc"].values.astype(int) >= 2).astype(np.float64)
+
+    cage = (age - 60.0) / 5.0
+    csbp = (sbp - 120.0) / 20.0
+    ctchol = tot_chol_mmol - 6.0
+    chdl = (hdl_mmol - 1.3) / 0.5
+
+    lp_m = (
+        0.3742 * cage
+        + 0.6012 * smoke
+        + 0.2777 * csbp
+        + 0.6457 * diab
+        + 0.1458 * ctchol
+        - 0.2698 * chdl
+        - 0.0755 * cage * smoke
+        - 0.0255 * cage * csbp
+        - 0.0281 * cage * ctchol
+        + 0.0426 * cage * chdl
+        - 0.0983 * cage * diab
+    )
+    lp_f = (
+        0.4648 * cage
+        + 0.7744 * smoke
+        + 0.3131 * csbp
+        + 0.8096 * diab
+        + 0.1002 * ctchol
+        - 0.2606 * chdl
+        - 0.1088 * cage * smoke
+        - 0.0277 * cage * csbp
+        - 0.0226 * cage * ctchol
+        + 0.0613 * cage * chdl
+        - 0.1272 * cage * diab
+    )
+
+    uncal_m = np.clip(1.0 - np.power(0.9605, np.exp(lp_m)), 1e-6, 1.0 - 1e-6)
+    uncal_f = np.clip(1.0 - np.power(0.9776, np.exp(lp_f)), 1e-6, 1.0 - 1e-6)
+
+    # Published ESC SCORE2 regional recalibration scales (EHJ 2021, Table S3)
+    region_scales = {
+        "low": ((-0.5699, 0.7476), (-0.7380, 0.7019)),
+        "moderate": ((-0.1565, 0.8009), (-0.3143, 0.7701)),
+        "high": ((-0.3207, 0.9360), (-0.5710, 0.9369)),
+        "very_high": ((0.5836, 0.8294), (0.9412, 0.8329)),
+    }
+    (s1_m, s2_m), (s1_f, s2_f) = region_scales.get(region, region_scales["high"])
+
+    cal_m = 1.0 - np.exp(-np.exp(s1_m + s2_m * np.log(-np.log(1.0 - uncal_m))))
+    cal_f = 1.0 - np.exp(-np.exp(s1_f + s2_f * np.log(-np.log(1.0 - uncal_f))))
+    return np.clip(np.where(sex == 1, cal_m, cal_f), 1e-6, 1.0 - 1e-6)
 
 
 def _delong_paired_pvalue(y_true: np.ndarray, p1: np.ndarray, p2: np.ndarray) -> tuple[float, float]:
@@ -177,23 +250,33 @@ def run_framingham_benchmark(
     ]
     cg_probs = engine._forward_patients(patients, return_explanations=False)["probs"]
 
-    # 2. Framingham (2008) raw 10-year risk & prevalence-recalibrated Framingham (for fair DCA)
+    # 2. Framingham (2008) & ESC SCORE2 (2021, High-Risk Europe / Poland) + train-recalibrated versions
     fram_raw = compute_framingham_2008_risk(test_df)
-    # Recalibrate Framingham intercept/slope on train split (zero test leakage) for fair DCA comparison
+    score2_raw = compute_esc_score2_2021_risk(test_df, region="high")
+    # Recalibrate guideline intercept/slope on train split (zero test leakage) for fair DCA comparison
     train_df, _ = train_test_split(df, test_size=0.15, random_state=seed, stratify=df["target"])
     from scipy.special import expit, logit
     from sklearn.linear_model import LogisticRegression
 
+    y_tr = train_df["target"].values.astype(int)
     fram_tr = compute_framingham_2008_risk(train_df)
     lr_cal = LogisticRegression(C=10.0)
-    lr_cal.fit(logit(fram_tr).reshape(-1, 1), train_df["target"].values.astype(int))
+    lr_cal.fit(logit(fram_tr).reshape(-1, 1), y_tr)
     fram_cal = expit(lr_cal.coef_[0, 0] * logit(fram_raw) + lr_cal.intercept_[0])
+
+    score2_tr = compute_esc_score2_2021_risk(train_df, region="high")
+    lr_s2 = LogisticRegression(C=10.0)
+    lr_s2.fit(logit(score2_tr).reshape(-1, 1), y_tr)
+    score2_cal = expit(lr_s2.coef_[0, 0] * logit(score2_raw) + lr_s2.intercept_[0])
 
     cg_auc = float(roc_auc_score(y_te, cg_probs))
     fr_auc = float(roc_auc_score(y_te, fram_raw))
+    s2_auc = float(roc_auc_score(y_te, score2_raw))
     cg_ci = _bootstrap_auc_ci(y_te, cg_probs, seed=seed)
     fr_ci = _bootstrap_auc_ci(y_te, fram_raw, seed=seed)
+    s2_ci = _bootstrap_auc_ci(y_te, score2_raw, seed=seed)
     z_stat, p_val = _delong_paired_pvalue(y_te, cg_probs, fram_raw)
+    z_s2, p_s2 = _delong_paired_pvalue(y_te, cg_probs, score2_raw)
 
     thresholds = np.linspace(0.10, 0.70, 25)
     prev = float(np.mean(y_te))
@@ -201,12 +284,15 @@ def run_framingham_benchmark(
     for t in thresholds:
         nb_cg = _net_benefit(y_te, cg_probs, float(t))
         nb_fr_cal = _net_benefit(y_te, fram_cal, float(t))
+        nb_s2_cal = _net_benefit(y_te, score2_cal, float(t))
         nb_all = prev - (1.0 - prev) * (float(t) / (1.0 - float(t)))
         dca_rows.append({
             "threshold": round(float(t), 3),
             "cardiograph_nb": round(nb_cg, 4),
+            "esc_score2_recal_nb": round(nb_s2_cal, 4),
             "framingham_recal_nb": round(nb_fr_cal, 4),
             "treat_all_nb": round(nb_all, 4),
+            "nb_gain_over_score2": round(nb_cg - nb_s2_cal, 4),
             "nb_gain_over_framingham": round(nb_cg - nb_fr_cal, 4),
         })
 
@@ -216,18 +302,19 @@ def run_framingham_benchmark(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8.2, 4.8), dpi=160)
+    fig, ax = plt.subplots(figsize=(8.6, 5.0), dpi=160)
     ts = [r["threshold"] * 100 for r in dca_rows]
-    ax.plot(ts, [r["cardiograph_nb"] for r in dca_rows], color="#0f5c6e", linewidth=2.4, label=f"CardioGraph CDS v3 (AUC {cg_auc:.4f})")
+    ax.plot(ts, [r["cardiograph_nb"] for r in dca_rows], color="#0f5c6e", linewidth=2.5, label=f"CardioGraph CDS v3 (AUC {cg_auc:.4f})")
+    ax.plot(ts, [r["esc_score2_recal_nb"] for r in dca_rows], color="#7c3aed", linewidth=2.1, linestyle="-.", label=f"ESC SCORE2 Poland High-Risk 2021 (AUC {s2_auc:.4f})")
     ax.plot(ts, [r["framingham_recal_nb"] for r in dca_rows], color="#b45309", linewidth=2.0, linestyle="--", label=f"Framingham 2008 Recalibrated (AUC {fr_auc:.4f})")
     ax.plot(ts, [r["treat_all_nb"] for r in dca_rows], color="#64748b", linewidth=1.4, linestyle=":", label="Treat All")
     ax.axhline(0.0, color="#94a3b8", linewidth=1.1, label="Treat None")
     ax.set_ylim(-0.05, max(prev + 0.05, 0.55))
     ax.set_xlabel("Clinical Decision Threshold (%)")
     ax.set_ylabel("Net Benefit (True Positives per Patient)")
-    ax.set_title(f"Decision Curve Analysis vs. Framingham Risk Score (N={len(y_te):,} Holdout)")
+    ax.set_title(f"Decision Curve Analysis vs. ESC SCORE2 (2021) & Framingham (2008) (N={len(y_te):,})")
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper right")
+    ax.legend(frameon=False, loc="upper right", fontsize=9)
     fig.tight_layout()
     fig_path = Path(output_dir) / "figures" / "framingham_vs_cardiograph_dca.png"
     fig_path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,6 +326,9 @@ def run_framingham_benchmark(
         "delong_z": round(z_stat, 3),
         "delong_p_value": p_val,
         "auc_gain": round(cg_auc - fr_auc, 4),
+        "delong_vs_score2_z": round(z_s2, 3),
+        "delong_vs_score2_p_value": p_s2,
+        "auc_gain_vs_score2": round(cg_auc - s2_auc, 4),
         "models": {
             "cardiograph_cds_v3": {
                 "roc_auc": round(cg_auc, 4),
@@ -246,6 +336,19 @@ def run_framingham_benchmark(
                 "pr_auc": round(float(average_precision_score(y_te, cg_probs)), 4),
                 "brier": round(float(brier_score_loss(y_te, cg_probs)), 4),
                 "ece": round(float(compute_ece(cg_probs, y_te)), 4),
+            },
+            "esc_score2_2021_high_risk_raw": {
+                "roc_auc": round(s2_auc, 4),
+                "roc_auc_ci_95": list(s2_ci),
+                "pr_auc": round(float(average_precision_score(y_te, score2_raw)), 4),
+                "brier": round(float(brier_score_loss(y_te, score2_raw)), 4),
+                "ece": round(float(compute_ece(score2_raw, y_te)), 4),
+            },
+            "esc_score2_2021_high_risk_recalibrated": {
+                "roc_auc": round(float(roc_auc_score(y_te, score2_cal)), 4),
+                "pr_auc": round(float(average_precision_score(y_te, score2_cal)), 4),
+                "brier": round(float(brier_score_loss(y_te, score2_cal)), 4),
+                "ece": round(float(compute_ece(score2_cal, y_te)), 4),
             },
             "framingham_2008_raw": {
                 "roc_auc": round(fr_auc, 4),
@@ -268,19 +371,24 @@ def run_framingham_benchmark(
     (out_dir / "framingham_benchmark.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     m_cg = summary["models"]["cardiograph_cds_v3"]
+    m_s2 = summary["models"]["esc_score2_2021_high_risk_raw"]
+    m_s2c = summary["models"]["esc_score2_2021_high_risk_recalibrated"]
     m_fr = summary["models"]["framingham_2008_raw"]
     m_fc = summary["models"]["framingham_2008_recalibrated"]
     nb_50 = next(r for r in dca_rows if abs(r["threshold"] - 0.50) < 0.02)
 
     md = "\n".join([
-        "# Clinical Guideline Benchmark: CardioGraph CDS v3 vs. Framingham Risk Score (2008)",
+        "# Clinical Guideline Showdown: CardioGraph CDS v3 vs. ESC SCORE2 (2021) & Framingham (2008)",
         "",
         f"Evaluated on **{len(y_te):,}** untouched holdout screening patients (OpenML 45547).",
-        f"Paired DeLong test: **+{summary['auc_gain']:.4f} ROC-AUC** (`z = {summary['delong_z']}`, `p = {summary['delong_p_value']:.2e}`).",
+        f"- **vs. European ESC SCORE2 (2021, High-Risk / Poland):** **+{summary['auc_gain_vs_score2']:.4f} ROC-AUC** (paired DeLong `z = {summary['delong_vs_score2_z']}`, `p = {summary['delong_vs_score2_p_value']:.2e}`)",
+        f"- **vs. US Framingham (2008):** **+{summary['auc_gain']:.4f} ROC-AUC** (paired DeLong `z = {summary['delong_z']}`, `p = {summary['delong_p_value']:.2e}`)",
         "",
-        "| Model | Holdout ROC-AUC [95% CI] | PR-AUC | Brier ↓ | ECE ↓ | Net Benefit @ 50% |",
+        "| Model / Clinical Guideline | Holdout ROC-AUC [95% CI] | PR-AUC | Brier ↓ | ECE ↓ | Net Benefit @ 50% |",
         "| :--- | :---: | :---: | :---: | :---: | :---: |",
         f"| **CardioGraph CDS v3 (PLR+UniMP Ensemble)** | **{m_cg['roc_auc']:.4f}** [{m_cg['roc_auc_ci_95'][0]:.4f}, {m_cg['roc_auc_ci_95'][1]:.4f}] | **{m_cg['pr_auc']:.4f}** | **{m_cg['brier']:.4f}** | **{m_cg['ece']:.4f}** | **{nb_50['cardiograph_nb']:.4f}** |",
+        f"| **ESC SCORE2 2021 High-Risk/Poland (Recalibrated)** | {m_s2c['roc_auc']:.4f} [{m_s2['roc_auc_ci_95'][0]:.4f}, {m_s2['roc_auc_ci_95'][1]:.4f}] | {m_s2c['pr_auc']:.4f} | {m_s2c['brier']:.4f} | {m_s2c['ece']:.4f} | {nb_50['esc_score2_recal_nb']:.4f} |",
+        f"| **ESC SCORE2 2021 High-Risk/Poland (Raw 10-yr)** | {m_s2['roc_auc']:.4f} [{m_s2['roc_auc_ci_95'][0]:.4f}, {m_s2['roc_auc_ci_95'][1]:.4f}] | {m_s2['pr_auc']:.4f} | {m_s2['brier']:.4f} | {m_s2['ece']:.4f} | — |",
         f"| **Framingham 2008 (Recalibrated)** | {m_fc['roc_auc']:.4f} [{m_fr['roc_auc_ci_95'][0]:.4f}, {m_fr['roc_auc_ci_95'][1]:.4f}] | {m_fc['pr_auc']:.4f} | {m_fc['brier']:.4f} | {m_fc['ece']:.4f} | {nb_50['framingham_recal_nb']:.4f} |",
         f"| **Framingham 2008 (Raw 10-yr)** | {m_fr['roc_auc']:.4f} [{m_fr['roc_auc_ci_95'][0]:.4f}, {m_fr['roc_auc_ci_95'][1]:.4f}] | {m_fr['pr_auc']:.4f} | {m_fr['brier']:.4f} | {m_fr['ece']:.4f} | — |",
     ]) + "\n"

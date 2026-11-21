@@ -31,10 +31,17 @@ import pandas as pd
 from sklearn.metrics import brier_score_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from clinical_cds import ClinicalInferenceEngine, PatientClinicalInput, recalibrate_bundle_for_site
+from clinical_cds import (
+    ClinicalInferenceEngine,
+    PatientClinicalInput,
+    compute_weighted_conformal_sets,
+    recalibrate_bundle_for_site,
+)
 from clinical_cds.bundle import DEFAULT_BUNDLE_PATH
 from models import compute_ece
 from project_paths import ARTIFACTS_DIR, resolve_data_path
+
+_SHIFT_FEATURE_COLS = ["age_years", "sex", "bmi", "ap_hi", "ap_lo", "cholesterol", "gluc", "smoke", "active"]
 
 
 def _evaluate_df(
@@ -126,9 +133,36 @@ def run_external_validation(
 
     openml_df = pd.read_csv(resolve_data_path(openml_csv))
     # Recreate the untouched 15% holdout test split from seed=42
-    _, openml_test = train_test_split(
+    openml_dev, openml_test = train_test_split(
         openml_df, test_size=0.15, random_state=seed, stratify=openml_df["target"]
     )
+    # Source calibration slice for Zero-Label Weighted Conformal (Tibshirani et al., NeurIPS 2019)
+    src_cal_df = openml_dev[
+        (openml_dev["ap_hi"] > openml_dev["ap_lo"] + 5.0)
+        & (openml_dev["ap_hi"].between(60.0, 250.0))
+        & (openml_dev["ap_lo"].between(40.0, 160.0))
+        & (openml_dev["bmi"].between(12.0, 70.0))
+    ].sample(n=min(4000, len(openml_dev)), random_state=seed).reset_index(drop=True)
+    src_cal_patients = [
+        PatientClinicalInput(
+            age_years=float(r["age_years"]),
+            sex=int(r["sex"]),
+            height_cm=float(r["height"]),
+            weight_kg=float(r["weight"]),
+            systolic_bp=float(r["ap_hi"]),
+            diastolic_bp=float(r["ap_lo"]),
+            cholesterol_level=int(r["cholesterol"]) + 1,
+            glucose_level=int(r["gluc"]) + 1,
+            smoke=int(r["smoke"]),
+            alcohol=int(r["alco"]),
+            active=int(r["active"]),
+        )
+        for _, r in src_cal_df.iterrows()
+    ]
+    src_cal_probs = base_engine._forward_patients(src_cal_patients, return_explanations=False)["probs"]
+    src_cal_y = src_cal_df["target"].values.astype(int)
+    X_src_shift = src_cal_df[_SHIFT_FEATURE_COLS].values.astype(np.float64)
+
     # Apply the same physiological input guardrails enforced by PatientClinicalInput
     openml_test = openml_test[
         (openml_test["ap_hi"] > openml_test["ap_lo"] + 5.0)
@@ -168,6 +202,43 @@ def run_external_validation(
 
             zero_shot = _evaluate_df(base_engine, eval_df, alpha=0.10)
 
+            # Regime 2: Zero-Label Covariate-Shift Weighted Conformal (Tibshirani et al., NeurIPS 2019)
+            eval_patients = [
+                PatientClinicalInput(
+                    age_years=float(r["age_years"]),
+                    sex=int(r["sex"]),
+                    height_cm=float(r["height"]),
+                    weight_kg=float(r["weight"]),
+                    systolic_bp=float(r["ap_hi"]),
+                    diastolic_bp=float(r["ap_lo"]),
+                    cholesterol_level=int(r["cholesterol"]) + 1,
+                    glucose_level=int(r["gluc"]) + 1,
+                    smoke=int(r["smoke"]),
+                    alcohol=int(r["alco"]),
+                    active=int(r["active"]),
+                )
+                for _, r in eval_df.iterrows()
+            ]
+            eval_probs_zs = base_engine._forward_patients(eval_patients, return_explanations=False)["probs"]
+            w_sets, w_diag = compute_weighted_conformal_sets(
+                X_source=X_src_shift,
+                cal_probs=src_cal_probs,
+                cal_y=src_cal_y,
+                X_target=eval_df[_SHIFT_FEATURE_COLS].values.astype(np.float64),
+                target_probs=eval_probs_zs,
+                alpha=0.10,
+                seed=seed,
+            )
+            y_eval = eval_df["target"].values.astype(int)
+            w_cov = float(np.mean([int(int(y) in s) for y, s in zip(y_eval, w_sets, strict=True)]))
+            w_defer = float(np.mean([int(len(s) == 2) for s in w_sets]))
+            weighted_zero_label = {
+                "conformal_90_coverage": round(w_cov, 4),
+                "deferral_rate": round(w_defer, 4),
+                **w_diag,
+            }
+
+            # Regime 3: 2-Second Labeled Local Site Recalibration (Platt + Mondrian)
             cal_csv = tmp_path / f"{site_id}_cal.csv"
             cal_bundle = tmp_path / f"{site_id}_recal.pt"
             cal_df.to_csv(cal_csv, index=False)
@@ -186,6 +257,7 @@ def run_external_validation(
                 "label": label,
                 "n_calibration": int(len(cal_df)),
                 "zero_shot": zero_shot,
+                "weighted_conformal_zero_label": weighted_zero_label,
                 "recalibrated": after_recal,
                 "ece_delta": round(float(after_recal["ece"] - zero_shot["ece"]), 4),
                 "coverage_delta": round(
@@ -199,21 +271,26 @@ def run_external_validation(
     (out_dir / "external_site_validation.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     md_lines = [
-        "# External Site Transfer & Local Recalibration Benchmark (`calibrate-site`)",
+        "# External Site Transfer: Zero-Shot vs. Zero-Label Weighted Conformal vs. Labeled `calibrate-site`",
         "",
         f"Base bundle: `{base_engine.bundle.model_version}` (OpenML 45547, N=68,589).",
-        "Each target clinic is split 50/50 into a local calibration slice and an untouched local holdout slice.",
+        "Compares three deployment regimes across shifted target clinics (50/50 local split):",
+        "1. **Zero-Shot:** Unadapted source bundle.",
+        "2. **Zero-Label Weighted Conformal (Tibshirani et al., NeurIPS 2019):** Density-ratio importance weighting using *unlabeled* target features only.",
+        "3. **2-Second Labeled `calibrate-site`:** Post-blend Platt recalibration + local Mondrian quantiles.",
         "",
-        "| Target Clinic / Cohort | Eval N | Prevalence | Zero-Shot ECE | Recalibrated ECE | Zero-Shot 90% Cov | Recalibrated 90% Cov | ROC-AUC |",
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "| Target Clinic / Cohort | Eval N | Prev. | Zero-Shot ECE | Recal. ECE | Zero-Shot 90% Cov | Zero-Label Weighted 90% Cov | Labeled `calibrate-site` 90% Cov | ROC-AUC |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
     for r in results:
-        zs, rc = r["zero_shot"], r["recalibrated"]
+        zs = r["zero_shot"]
+        wl = r["weighted_conformal_zero_label"]
+        rc = r["recalibrated"]
         md_lines.append(
             f"| **{r['label']}** | {zs['n_eval']} | {zs['prevalence']*100:.1f}% | "
             f"{zs['ece']:.4f} | **{rc['ece']:.4f}** | "
-            f"{zs['conformal_90_coverage']*100:.1f}% | **{rc['conformal_90_coverage']*100:.1f}%** | "
-            f"{rc['roc_auc']:.4f} |"
+            f"{zs['conformal_90_coverage']*100:.1f}% | {wl['conformal_90_coverage']*100:.1f}% | "
+            f"**{rc['conformal_90_coverage']*100:.1f}%** | {rc['roc_auc']:.4f} |"
         )
     (out_dir / "external_site_validation.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     print("\n".join(md_lines))

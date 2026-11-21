@@ -644,3 +644,114 @@ class TestStage2CardiologyWorkup:
         lines = audit_file.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 2
         assert "SHADOW-1" not in lines[0] and "SHADOW-2" not in lines[1]
+
+    def test_smart_launch_escapes_xss_and_sets_csp(self, synthetic_cds_bundle: Path):
+        engine = ClinicalInferenceEngine.from_bundle(synthetic_cds_bundle, device="cpu")
+        app = create_app(engine=engine)
+        client = TestClient(app)
+
+        payload_iss = 'https://evil.test/" onmouseover="alert(1)'
+        resp = client.get(
+            "/smart/launch",
+            params={"iss": payload_iss, "launch": "<script>alert(1)</script>", "patient": '"bad"'},
+        )
+        assert resp.status_code == 200
+        assert "content-security-policy" in resp.headers
+        assert '" onmouseover="' not in resp.text
+        assert "<script>alert(1)</script>" not in resp.text
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
+
+        # Non-http(s) javascript: scheme must fall back to the default safe sandbox URL
+        js_resp = client.get("/smart/launch", params={"iss": "javascript:alert(1)"})
+        assert js_resp.status_code == 200
+        assert "javascript:alert(1)" not in js_resp.text
+        assert "launch.smarthealthit.org" in js_resp.text
+
+    def test_weighted_conformal_sets_zero_label_covariate_shift(self):
+        from clinical_cds import compute_weighted_conformal_sets
+
+        rng = np.random.default_rng(7)
+        X_src = rng.normal(0.0, 1.0, size=(300, 4))
+        logits_src = 1.6 * X_src[:, 0] - 0.8 * X_src[:, 1]
+        p_src = 1.0 / (1.0 + np.exp(-logits_src))
+        y_src = (rng.random(300) < p_src).astype(int)
+
+        X_tgt = rng.normal(0.6, 1.0, size=(120, 4))
+        logits_tgt = 1.6 * X_tgt[:, 0] - 0.8 * X_tgt[:, 1]
+        p_tgt = 1.0 / (1.0 + np.exp(-logits_tgt))
+        y_tgt = (rng.random(120) < p_tgt).astype(int)
+
+        sets, diag = compute_weighted_conformal_sets(
+            X_source=X_src,
+            cal_probs=p_src,
+            cal_y=y_src,
+            X_target=X_tgt,
+            target_probs=p_tgt,
+            alpha=0.10,
+            seed=7,
+        )
+        assert len(sets) == len(y_tgt)
+        cov = float(np.mean([int(int(y) in s) for y, s in zip(y_tgt, sets, strict=True)]))
+        assert cov >= 0.82
+        assert 0.5 < diag["domain_auc"] <= 1.0
+        assert diag["effective_sample_size"] > 10.0
+
+    def test_shadow_trial_report_generator_and_esc_score2(
+        self, synthetic_cds_bundle: Path, tmp_path: Path
+    ):
+        import pandas as pd
+
+        from clinical_cds import generate_shadow_trial_report
+        from experiments.framingham_benchmark import compute_esc_score2_2021_risk
+
+        audit_file = tmp_path / "shadow_audit.jsonl"
+        engine = ClinicalInferenceEngine.from_bundle(
+            synthetic_cds_bundle, device="cpu", audit_log_path=audit_file
+        )
+        outcomes_rows = []
+        rng = np.random.default_rng(11)
+        for i in range(16):
+            high = i % 2 == 1
+            pt = PatientClinicalInput(
+                age_years=66 if high else 42,
+                sex=i % 2,
+                height_cm=172,
+                weight_kg=92 if high else 66,
+                systolic_bp=168 if high else 116,
+                diastolic_bp=98 if high else 74,
+                cholesterol_level=3 if high else 1,
+                glucose_level=2 if high else 1,
+                smoke=1 if high else 0,
+                active=0 if high else 1,
+            )
+            pred = engine.predict(pt)
+            outcomes_rows.append(
+                {
+                    "request_id": pred.request_id,
+                    "target": 1 if (high or rng.random() < 0.1) else 0,
+                    "sex": "male" if pt.sex == 1 else "female",
+                }
+            )
+        outcomes_csv = tmp_path / "outcomes.csv"
+        pd.DataFrame(outcomes_rows).to_csv(outcomes_csv, index=False)
+
+        report = generate_shadow_trial_report(
+            audit_log_path=audit_file,
+            outcomes_csv=outcomes_csv,
+            stage="stage1",
+            output_dir=tmp_path,
+        )
+        assert report["n_matched_outcomes"] == 16
+        assert "sex" in report["subgroups"]
+        assert (tmp_path / "shadow_trial_report.md").exists()
+        assert (tmp_path / "shadow_trial_report.json").exists()
+
+        # Verify ESC SCORE2 (2021 Poland High-Risk) monotonicity: older smoking hypertensive > young healthy
+        demo_df = pd.DataFrame(
+            [
+                {"age_years": 42, "sex": 0, "ap_hi": 115, "cholesterol": 0, "gluc": 0, "smoke": 0},
+                {"age_years": 68, "sex": 1, "ap_hi": 170, "cholesterol": 2, "gluc": 2, "smoke": 1},
+            ]
+        )
+        s2 = compute_esc_score2_2021_risk(demo_df, region="high")
+        assert 0.0 < s2[0] < s2[1] < 1.0

@@ -14,6 +14,14 @@
         "conformal_90_coverage": 0.6678,
         "deferral_rate": 0.4027
       },
+      "weighted_conformal_zero_label": {
+        "conformal_90_coverage": 0.7876,
+        "deferral_rate": 0.4214,
+        "domain_auc": 0.923,
+        "effective_sample_size": 419.6,
+        "ess_fraction": 0.1049,
+        "mean_source_weight": 0.8651
+      },
       "recalibrated": {
         "n_eval": 2086,
         "prevalence": 0.1496,
@@ -38,6 +46,14 @@
         "ece": 0.1841,
         "conformal_90_coverage": 0.78,
         "deferral_rate": 0.4728
+      },
+      "weighted_conformal_zero_label": {
+        "conformal_90_coverage": 0.7865,
+        "deferral_rate": 0.5163,
+        "domain_auc": 0.9305,
+        "effective_sample_size": 410.4,
+        "ess_fraction": 0.1026,
+        "mean_source_weight": 0.9338
       },
       "recalibrated": {
         "n_eval": 459,
@@ -64,6 +80,14 @@
         "conformal_90_coverage": 0.9262,
         "deferral_rate": 0.5876
       },
+      "weighted_conformal_zero_label": {
+        "conformal_90_coverage": 0.8669,
+        "deferral_rate": 0.4683,
+        "domain_auc": 0.8675,
+        "effective_sample_size": 867.2,
+        "ess_fraction": 0.2168,
+        "mean_source_weight": 1.171
+      },
       "recalibrated": {
         "n_eval": 1450,
         "prevalence": 0.6372,
@@ -88,6 +112,14 @@
         "ece": 0.0223,
         "conformal_90_coverage": 0.8712,
         "deferral_rate": 0.2008
+      },
+      "weighted_conformal_zero_label": {
+        "conformal_90_coverage": 0.9293,
+        "deferral_rate": 0.5417,
+        "domain_auc": 0.8421,
+        "effective_sample_size": 1011.1,
+        "ess_fraction": 0.2528,
+        "mean_source_weight": 1.1652
       },
       "recalibrated": {
         "n_eval": 1584,

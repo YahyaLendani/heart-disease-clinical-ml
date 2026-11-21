@@ -312,7 +312,7 @@
           <div class="kpi-card"><span>Stage-1 Screening (68.6k)</span><strong>0.8007</strong><small>ECE 0.0094 &middot; 9.8 ms CPU</small></div>
           <div class="kpi-card"><span>Stage-2 Workup (5-Center)</span><strong>0.9212</strong><small>PR-AUC 0.9322 &middot; 9.5 ms CPU</small></div>
           <div class="kpi-card"><span>Framingham Recalibration</span><strong>-98.6%</strong><small>ECE 0.423 &rarr; 0.006 &middot; Cov 90.9%</small></div>
-          <div class="kpi-card"><span>Engineering Verification</span><strong>127 / 127</strong><small>90.6% cov &middot; Zero pickle &middot; Mypy</small></div>
+          <div class="kpi-card"><span>Engineering Verification</span><strong>131 / 131</strong><small>Zero pickle &middot; Mypy &middot; CSP/XSS</small></div>
         </div>
       </div>
     </section>
@@ -397,13 +397,13 @@
                 <tr class="highlight"><td>Stage 1: PLR+UniMP CDS v3 (68.6k)</td><td>0.8007</td><td>0.7813</td><td>0.0094</td><td>90.22%</td></tr>
                 <tr><td>&nbsp;&nbsp;&rdsh; Standalone PLR+UniMP GAT-T</td><td>0.8006</td><td>—</td><td>—</td><td>—</td></tr>
                 <tr><td>&nbsp;&nbsp;&rdsh; Standalone XGBoost / Lossguide</td><td>0.8003</td><td>—</td><td>—</td><td>—</td></tr>
-                <tr class="highlight"><td>Stage 2: Cardiology Workup (N=918)</td><td>0.9180</td><td>0.9286</td><td>0.0787</td><td>91.85%</td></tr>
+                <tr class="highlight"><td>Stage 2: 5-Center Workup (N=1,221)</td><td>0.9212</td><td>0.9322</td><td>0.0758</td><td>91.30%</td></tr>
                 <tr><td>&nbsp;&nbsp;&rdsh; Standalone PLR+UniMP GAT-T</td><td>0.9014</td><td>—</td><td>—</td><td>—</td></tr>
                 <tr><td>&nbsp;&nbsp;&rdsh; Previous UCI Best (XGBoost)</td><td>0.9090</td><td>0.9240</td><td>—</td><td>—</td></tr>
               </tbody>
             </table>
             <p style="margin-top:14px;font-size:13px;color:var(--ink-secondary);line-height:1.5">
-              Patients deferred or flagged high-risk in Stage-1 primary screening escalate with 1 click into Stage-2 Cardiology Workup (auto-carrying Age, Sex, BP, Lipids, Glucose), lifting discrimination from <strong>0.801 &rarr; 0.918 ROC-AUC</strong> and cutting female FNR from <strong>25.0% &rarr; 12.5%</strong>.
+              Patients deferred or flagged high-risk in Stage-1 escalate with 1 click into Stage-2 Cardiology Workup (5-center domain-weighted transfer adding Tehran UCI 412), lifting discrimination from <strong>0.801 &rarr; 0.921 ROC-AUC</strong> and collapsing the sex sensitivity gap to <strong>0.8%</strong> (Female FNR <strong>12.5%</strong> vs. Male <strong>11.7%</strong>).
             </p>
           </div>
           <div class="chart-box">
@@ -421,19 +421,19 @@
     <section class="slide">
       <div class="slide-content">
         <div class="slide-header">
-          <h2>Clinical Guideline Showdown: CardioGraph v3 vs. Framingham (2008)</h2>
+          <h2>Clinical Guidelines: CardioGraph v3 vs. ESC SCORE2 (2021) &amp; Framingham (2008)</h2>
           <span class="slide-tag">04 &middot; Clinical Utility</span>
         </div>
         <div class="two-col">
           <div style="display:flex;flex-direction:column;gap:14px">
             <div class="kpi-grid tabular" style="grid-template-columns:1fr 1fr">
-              <div class="kpi-card"><span>ROC-AUC Gain</span><strong>+0.0991</strong><small>0.7996 vs 0.7005</small></div>
-              <div class="kpi-card"><span>Paired DeLong Test</span><strong>z = 22.9</strong><small>p = 3.48 &times; 10<sup>-116</sup></small></div>
-              <div class="kpi-card"><span>Net Benefit @ 50%</span><strong>0.2226</strong><small>+68% vs Framingham (0.1325)</small></div>
-              <div class="kpi-card"><span>PR-AUC Gain</span><strong>+0.1214</strong><small>0.7808 vs 0.6594</small></div>
+              <div class="kpi-card"><span>vs. ESC SCORE2 (Poland)</span><strong>+0.1232</strong><small>0.7996 vs 0.6764 (z = 25.8)</small></div>
+              <div class="kpi-card"><span>vs. Framingham (2008)</span><strong>+0.0991</strong><small>0.7996 vs 0.7005 (z = 22.9)</small></div>
+              <div class="kpi-card"><span>Net Benefit @ 50%</span><strong>0.2226</strong><small>+81% vs SCORE2 &middot; +68% vs Fram.</small></div>
+              <div class="kpi-card"><span>Paired DeLong p-value</span><strong>&lt; 10<sup>-115</sup></strong><small>p = 6.96&times;10<sup>-147</sup> vs SCORE2</small></div>
             </div>
             <p style="font-size:13.5px;color:var(--ink-secondary);line-height:1.5">
-              Across every decision threshold from 15% to 70% on <strong>10,288</strong> untouched holdout patients, CardioGraph CDS v3 delivers strictly higher Decision Curve Net Benefit than both recalibrated Framingham (D'Agostino et al., <em>Circulation</em> 2008) and Treat-All / Treat-None policies.
+              Across every threshold from 15% to 70% on <strong>10,288</strong> untouched holdout patients, CardioGraph CDS v3 beats both European <strong>ESC SCORE2 (2021, High-Risk / Poland)</strong> and US <strong>Framingham (2008)</strong> guidelines in ROC-AUC, PR-AUC, and Decision Curve Net Benefit.
             </p>
           </div>
           <div class="chart-box">
@@ -457,16 +457,17 @@
         <div class="two-col">
           <div>
             <table class="data-table tabular">
-              <thead><tr><th>Target Shifted Clinic</th><th>Prev.</th><th>Zero-Shot ECE</th><th>Recal. ECE</th><th>90% Coverage</th></tr></thead>
+              <thead><tr><th>Target Shifted Clinic</th><th>Prev.</th><th>Zero-Shot ECE</th><th>Recal. ECE</th><th>90% Cov (ZS &rarr; 0-Lbl &rarr; Cal)</th></tr></thead>
               <tbody>
-                <tr class="highlight"><td>UCI 4-Center External (N=459)</td><td>55.3%</td><td>0.1875</td><td>0.0425 (-77%)</td><td>78.2% &rarr; 88.7%</td></tr>
-                <tr><td>Wellness Clinic &lt;50y (N=1,584)</td><td>35.0%</td><td>0.0254</td><td>0.0248</td><td>87.5% &rarr; 90.2%</td></tr>
-                <tr><td>Geriatric Clinic &ge;58y (N=1,450)</td><td>63.7%</td><td>0.0246</td><td>0.0266</td><td>92.7% &rarr; 92.5%</td></tr>
+                <tr class="highlight"><td>Framingham Study (N=2,086)</td><td>15.0%</td><td>0.4233</td><td>0.0061 (-98.6%)</td><td>66.8% &rarr; 78.8% &rarr; 90.9%</td></tr>
+                <tr><td>UCI 4-Center External (N=459)</td><td>55.3%</td><td>0.1841</td><td>0.0370 (-80%)</td><td>78.0% &rarr; 78.6% &rarr; 88.9%</td></tr>
+                <tr><td>Wellness Clinic &lt;50y (N=1,584)</td><td>35.0%</td><td>0.0223</td><td>0.0266</td><td>87.1% &rarr; 92.9% &rarr; 90.3%</td></tr>
+                <tr><td>Geriatric Clinic &ge;58y (N=1,450)</td><td>63.7%</td><td>0.0254</td><td>0.0236</td><td>92.6% &rarr; 86.7% &rarr; 92.3%</td></tr>
               </tbody>
             </table>
             <ul class="bullet-list" style="margin-top:14px">
-              <li><strong>Zero Retraining Required:</strong> <span class="mono">heart-pipeline calibrate-site</span> refits Temperature T*, post-blend Platt intercept/slope, and sex-stratified Mondrian quantiles in &lt;2s on CPU.</li>
-              <li><strong>Why Stage-2 Exists:</strong> Stage-1 vitals alone get only 0.544 AUC on referred UCI cardiology patients — proving why deferred patients must escalate to ECG/stress Stage-2 (0.918 AUC).</li>
+              <li><strong>Zero-Label Weighted Conformal (Tibshirani 2019):</strong> Density-ratio weighting lifts Framingham coverage +12 pts (66.8%&rarr;78.8%) &amp; restores Wellness (&lt;50y) to <strong>92.9%</strong> with <em>zero</em> local labels.</li>
+              <li><strong>2-Second Labeled Recalibration (<span class="mono">calibrate-site</span>):</strong> Refits Temperature, Platt intercept/slope &amp; Mondrian quantiles in &lt;2s, slashing Framingham ECE <strong>-98.6%</strong> and recovering <strong>90.9%</strong> coverage.</li>
             </ul>
           </div>
           <div class="chart-box">
@@ -517,7 +518,7 @@
           <div class="kpi-card"><span>Stage-1 CPU Latency</span><strong>9.78 ms</strong><small>1.82 MB zero-pickle bundle</small></div>
           <div class="kpi-card"><span>Stage-2 CPU Latency</span><strong>9.52 ms</strong><small>11&times; faster via XGBRF JSON</small></div>
           <div class="kpi-card"><span>Deserialization Safety</span><strong>0 Pickle</strong><small>Strict weights_only=True + SHA-256</small></div>
-          <div class="kpi-card"><span>CI &amp; Test Suite</span><strong>92.2%</strong><small>103 tests &middot; Python 3.10&ndash;3.13</small></div>
+          <div class="kpi-card"><span>CI &amp; Test Suite</span><strong>131 / 131</strong><small>91% cov &middot; Python 3.10&ndash;3.13</small></div>
         </div>
         <div class="arch-flow" style="margin-top:8px">
           <div class="arch-step">
@@ -564,7 +565,7 @@
           <ul class="bullet-list">
             <li><strong>1. Prospective Silent-Mode Shadow Trial:</strong> Measure clinician alert fatigue, deferral turnaround time, and calibration drift under live hospital EHR streams.</li>
             <li><strong>2. Credentialed Full MIMIC-IV &amp; Raw 12-Lead ECG:</strong> Replace tabular stress summaries with end-to-end 1D ECG encoders fused into the Level-1 Transformer.</li>
-            <li><strong>3. Covariate-Shift Weighted Conformal Sets:</strong> Extend <span class="mono">calibrate-site</span> with Tibshirani et al. (2019) importance-weighted conformal guarantees for zero-label site transfer.</li>
+            <li><strong>3. Automated Shadow Trial Reporting:</strong> Join de-identified <span class="mono">/v1/shadow/stage1|2</span> logs with delayed hospital outcomes via <span class="mono">heart-pipeline shadow-report</span> (TRIPOD+AI / DECIDE-AI compliant).</li>
           </ul>
         </div>
         <div class="slide-footer">
@@ -624,28 +625,29 @@
     new Chart(document.getElementById("stageChart"), {
       type: "bar",
       data: {
-        labels: ["Framingham 2008", "Stage-1 GAT-T", "Stage-1 CDS v3", "UCI LogReg", "UCI XGBoost", "Stage-2 Workup"],
+        labels: ["ESC SCORE2", "Framingham", "Stage-1 GAT-T", "Stage-1 CDS v3", "UCI XGBoost", "Stage-2 5-Ctr"],
         datasets: [{
           label: "Holdout ROC-AUC",
-          data: [0.7005, 0.8006, 0.8007, 0.884, 0.909, 0.918],
-          backgroundColor: ["#9a5504", "#38a3b8", "#0f5c6e", "#94a3b8", "#64748b", "#0c6e4f"],
+          data: [0.6764, 0.7005, 0.8006, 0.8007, 0.909, 0.9212],
+          backgroundColor: ["#7c3aed", "#9a5504", "#38a3b8", "#0f5c6e", "#64748b", "#0c6e4f"],
           borderRadius: 5,
         }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: "Holdout ROC-AUC Across Screening & Workup Stages" }, legend: { display: false } },
-        scales: { y: { min: 0.65, max: 0.96 } },
+        plugins: { title: { display: true, text: "Holdout ROC-AUC Across Guidelines, Screening & Workup" }, legend: { display: false } },
+        scales: { y: { min: 0.62, max: 0.96 } },
       },
     });
 
-    // Slide 5: Decision Curve Analysis vs Framingham 2008
+    // Slide 5: Decision Curve Analysis vs ESC SCORE2 (2021) & Framingham (2008)
     new Chart(document.getElementById("dcaChart"), {
       type: "line",
       data: {
         labels: ["15%", "25%", "35%", "45%", "50%", "55%", "65%"],
         datasets: [
           { label: "CardioGraph CDS v3 (0.7996)", data: [0.415, 0.352, 0.298, 0.249, 0.2226, 0.197, 0.145], borderColor: "#0f5c6e", backgroundColor: "rgba(15,92,110,0.08)", tension: 0.25, borderWidth: 3 },
+          { label: "ESC SCORE2 Poland 2021 (0.6764)", data: [0.402, 0.312, 0.236, 0.160, 0.1227, 0.088, 0.036], borderColor: "#7c3aed", borderDash: [4, 3], tension: 0.25, borderWidth: 2.2 },
           { label: "Framingham 2008 Recal. (0.7005)", data: [0.404, 0.320, 0.245, 0.170, 0.1325, 0.098, 0.044], borderColor: "#9a5504", borderDash: [6, 4], tension: 0.25, borderWidth: 2.2 },
           { label: "Treat All", data: [0.405, 0.325, 0.222, 0.081, -0.011, -0.123, -0.440], borderColor: "#94a3b8", borderDash: [3, 3], tension: 0.2, borderWidth: 1.5 },
         ],
@@ -657,20 +659,20 @@
       },
     });
 
-    // Slide 6: External Shift ECE Reduction
+    // Slide 6: External Shift ECE Reduction (including Framingham Heart Study)
     new Chart(document.getElementById("shiftChart"), {
       type: "bar",
       data: {
-        labels: ["UCI External (N=459)", "Wellness <50y", "Geriatric >=58y"],
+        labels: ["Framingham (N=2,086)", "UCI External (N=459)", "Wellness <50y", "Geriatric >=58y"],
         datasets: [
-          { label: "Zero-Shot ECE", data: [0.1875, 0.0254, 0.0246], backgroundColor: "#a91e2c", borderRadius: 4 },
-          { label: "After calibrate-site ECE", data: [0.0425, 0.0248, 0.0266], backgroundColor: "#0c6e4f", borderRadius: 4 },
+          { label: "Zero-Shot ECE", data: [0.4233, 0.1841, 0.0223, 0.0254], backgroundColor: "#a91e2c", borderRadius: 4 },
+          { label: "After calibrate-site ECE", data: [0.0061, 0.0370, 0.0266, 0.0236], backgroundColor: "#0c6e4f", borderRadius: 4 },
         ],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { title: { display: true, text: "Calibration Error (ECE ↓) Before vs. After calibrate-site" }, legend: { position: "bottom" } },
-        scales: { y: { min: 0, max: 0.22 } },
+        scales: { y: { min: 0, max: 0.46 } },
       },
     });
 
