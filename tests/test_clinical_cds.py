@@ -766,3 +766,35 @@ class TestStage2CardiologyWorkup:
         )
         s2 = compute_esc_score2_2021_risk(demo_df, region="high")
         assert 0.0 < s2[0] < s2[1] < 1.0
+
+    def test_ptbxl_12lead_multimodal_model_and_thesis_pdf_renderer(self, tmp_path: Path):
+        import torch
+
+        from evaluation.build_thesis_pdf import markdown_to_html_body
+        from experiments.ptbxl_multimodal_ecg import (
+            ECGResNet1D,
+            MultimodalECGTransformer,
+            _compute_1d_gradcam,
+        )
+
+        ecg = torch.randn(4, 12, 1000)
+        tab = torch.randn(4, 5)
+        ecg_net = ECGResNet1D(in_leads=12, d_model=32)
+        mm_net = MultimodalECGTransformer(n_tab_features=5, d_model=32, n_heads=4)
+
+        out_ecg = ecg_net(ecg)
+        out_mm, gates = mm_net(ecg, tab)
+        assert out_ecg.shape == (4, 1)
+        assert out_mm.shape == (4, 1)
+        assert gates.shape == (4,)
+        assert bool((gates >= 0.0).all() and (gates <= 1.0).all())
+
+        cam = _compute_1d_gradcam(ecg_net, ecg[:1])
+        assert cam.shape == (1000,)
+        assert 0.0 <= float(cam.min()) <= float(cam.max()) <= 1.0 + 1e-6
+
+        sample_md = "## Abstract\n\nRisk $p_i = \\sigma(z)$.\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n"
+        html_out = markdown_to_html_body(sample_md, tmp_path)
+        assert "<h2>Abstract</h2>" in html_out
+        assert "<table>" in html_out
+        assert "$p_i = \\sigma(z)$" in html_out

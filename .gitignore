@@ -52,6 +52,7 @@ venv.bak/
 # =============================================================================
 cleaned_cardio_70k.csv
 data/processed/cleaned_cardio_70k.csv
+data/processed/ptbxl_ecg_subset.*
 artifacts/cds_audit.jsonl
 artifacts/overfit_*/
 artifacts/*.pt

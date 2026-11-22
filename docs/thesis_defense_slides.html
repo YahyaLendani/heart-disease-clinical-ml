@@ -311,8 +311,8 @@
         <div class="kpi-grid tabular">
           <div class="kpi-card"><span>Stage-1 Screening (68.6k)</span><strong>0.8007</strong><small>ECE 0.0094 &middot; 9.8 ms CPU</small></div>
           <div class="kpi-card"><span>Stage-2 Workup (5-Center)</span><strong>0.9212</strong><small>PR-AUC 0.9322 &middot; 9.5 ms CPU</small></div>
-          <div class="kpi-card"><span>Framingham Recalibration</span><strong>-98.6%</strong><small>ECE 0.423 &rarr; 0.006 &middot; Cov 90.9%</small></div>
-          <div class="kpi-card"><span>Engineering Verification</span><strong>131 / 131</strong><small>Zero pickle &middot; Mypy &middot; CSP/XSS</small></div>
+          <div class="kpi-card"><span>Real 12-Lead ECG (PTB-XL)</span><strong>0.9462</strong><small>PR-AUC 0.9529 &middot; Sens 90.0%</small></div>
+          <div class="kpi-card"><span>Engineering Verification</span><strong>133 / 133</strong><small>Live Render &middot; Zero pickle &middot; Mypy</small></div>
         </div>
       </div>
     </section>
@@ -518,7 +518,7 @@
           <div class="kpi-card"><span>Stage-1 CPU Latency</span><strong>9.78 ms</strong><small>1.82 MB zero-pickle bundle</small></div>
           <div class="kpi-card"><span>Stage-2 CPU Latency</span><strong>9.52 ms</strong><small>11&times; faster via XGBRF JSON</small></div>
           <div class="kpi-card"><span>Deserialization Safety</span><strong>0 Pickle</strong><small>Strict weights_only=True + SHA-256</small></div>
-          <div class="kpi-card"><span>CI &amp; Test Suite</span><strong>131 / 131</strong><small>91% cov &middot; Python 3.10&ndash;3.13</small></div>
+          <div class="kpi-card"><span>CI &amp; Test Suite</span><strong>133 / 133</strong><small>88% cov &middot; Python 3.10&ndash;3.13</small></div>
         </div>
         <div class="arch-flow" style="margin-top:8px">
           <div class="arch-step">
@@ -564,7 +564,7 @@
           </ul>
           <ul class="bullet-list">
             <li><strong>1. Prospective Silent-Mode Shadow Trial:</strong> Measure clinician alert fatigue, deferral turnaround time, and calibration drift under live hospital EHR streams.</li>
-            <li><strong>2. Credentialed Full MIMIC-IV &amp; Raw 12-Lead ECG:</strong> Replace tabular stress summaries with end-to-end 1D ECG encoders fused into the Level-1 Transformer.</li>
+            <li><strong>2. Real 12-Lead ECG Fusion Validated (PTB-XL Fold-10):</strong> Our gated 1D-ResNet + Tabular Cross-Attention reaches <strong>0.9462 ROC-AUC</strong> (PR-AUC <strong>0.9529</strong>, Sensitivity <strong>90.0%</strong> vs. 0.8935 ECG-only &amp; 0.7621 tabular-only, p = 7.3&times;10<sup>-9</sup>); next step is full 21.8k PTB-XL &amp; credentialed MIMIC-IV integration.</li>
             <li><strong>3. Automated Shadow Trial Reporting:</strong> Join de-identified <span class="mono">/v1/shadow/stage1|2</span> logs with delayed hospital outcomes via <span class="mono">heart-pipeline shadow-report</span> (TRIPOD+AI / DECIDE-AI compliant).</li>
           </ul>
         </div>

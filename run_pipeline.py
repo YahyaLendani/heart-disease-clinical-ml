@@ -45,6 +45,8 @@ STEPS: dict[str, tuple[str, str]] = {
     "shadow-report": ("clinical_cds.shadow_report", "Join silent-mode shadow audit logs with delayed outcomes (TRIPOD+AI / DECIDE-AI report)."),
     "external-validation": ("experiments.external_site_validation", "Benchmark zero-shot external site shift vs weighted conformal & local calibrate-site recovery."),
     "framingham-benchmark": ("experiments.framingham_benchmark", "Head-to-head benchmark vs US Framingham 2008 & European ESC SCORE2 2021 + Decision Curve Analysis."),
+    "ptbxl-ecg": ("experiments.ptbxl_multimodal_ecg", "Real 12-lead ECG multimodal cross-attention benchmark on PhysioNet PTB-XL (Fold-10 holdout)."),
+    "build-thesis-pdf": ("evaluation.build_thesis_pdf", "Compile thesis_draft.md into a publication-formatted A4 PDF monograph."),
     "loco": ("experiments.cross_center_generalization", "Leave-one-center-out generalisation."),
     "fairness": ("evaluation.fairness_analysis", "Sex and age subgroup fairness analysis."),
     "reading-list": ("experiments.run_reading_list_suite", "TabTransformer, GNNs, calibration, conformal, causal, recourse."),

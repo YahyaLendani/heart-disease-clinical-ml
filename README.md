@@ -7,7 +7,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-f7931e.svg)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-2.0%2B-189fdd.svg)](https://xgboost.readthedocs.io/)
-[![Tests: 132 passing](https://img.shields.io/badge/tests-132%20passing-success.svg)](tests/)
+[![Tests: 133 passing](https://img.shields.io/badge/tests-133%20passing-success.svg)](tests/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -187,9 +187,13 @@ heart-pipeline download-bundles
 heart-pipeline build-cds-bundle
 heart-pipeline build-workup-bundle
 
-# Run Clinical Guideline (Framingham 2008) & External Site Shift benchmarks
+# Run Clinical Guideline (ESC SCORE2 Poland + Framingham 2008), External Shift & Real 12-Lead PTB-XL ECG benchmarks
 heart-pipeline framingham-benchmark
 heart-pipeline external-validation
+heart-pipeline ptbxl-ecg
+
+# Compile thesis_draft.md into a publication-formatted A4 PDF monograph
+heart-pipeline build-thesis-pdf
 
 # Launch 2-Stage Bedside UI + FHIR R4 + Defense Slides (http://127.0.0.1:8000 and /slides)
 uvicorn clinical_cds.api:app --host 127.0.0.1 --port 8000
@@ -197,6 +201,20 @@ uvicorn clinical_cds.api:app --host 127.0.0.1 --port 8000
 # Or spin up the full CDS API + Prometheus + Grafana Clinical Safety stack
 docker compose up --build
 ```
+
+#### E. Real 12-Lead Clinical ECG Multimodal Cross-Attention (PhysioNet PTB-XL v1.0.3)
+
+Replacing synthetic waveform surrogates with **1,187 real 100 Hz 10-second 12-lead clinical ECGs** from PhysioNet **PTB-XL** (official zero-patient-overlap **Fold-10** holdout, $N=200$, detecting `MI + STTC` ischemia vs. `NORM`), our gated `MultimodalECGTransformer` ([`experiments/ptbxl_multimodal_ecg.py`](experiments/ptbxl_multimodal_ecg.py)) outperforms both unimodal baselines by a wide margin (paired DeLong vs. Tabular Only: `z = 5.78`, `p = 7.29 × 10⁻⁹`):
+
+| Architecture (PTB-XL Fold-10 Holdout, $N=200$) | ROC-AUC [95% CI] | PR-AUC | F1 | Sensitivity | Brier ↓ | ECE ↓ |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Tabular Demographics Only** (`age, sex, height, weight, bmi`) | 0.7621 [0.6947, 0.8217] | 0.7506 | 0.6761 | 0.7200 | 0.1977 | 0.0770 |
+| **12-Lead ECG 1D-ResNet** (`[12, 1000]` waveforms only) | 0.8935 [0.8484, 0.9300] | 0.9051 | 0.7337 | 0.6200 | 0.1755 | 0.1633 |
+| **Multimodal Cross-Attention (ECG + Tabular)** | **0.9462** [0.9175, 0.9711] | **0.9529** | **0.8411** | **0.9000** | **0.1115** | **0.0805** |
+
+<p align="center">
+  <img src="artifacts/figures/ptbxl_multimodal_ecg_benchmark.png" alt="Real 12-Lead PTB-XL ECG Multimodal Cross-Attention Ablation and 1D Grad-CAM Saliency" width="96%"/>
+</p>
 
 ---
 

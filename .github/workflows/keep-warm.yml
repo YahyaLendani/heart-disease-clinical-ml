@@ -1,0 +1,25 @@
+name: Keep Live CDS Demo Warm (Clinic Hours)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Ping every 14 minutes Mon-Fri during 07:00-19:59 UTC (08:00-21:00 CET Warsaw time)
+    - cron: "*/14 7-19 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  ping-health:
+    name: Ping Render /v1/health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm up CardioGraph CDS container
+        run: |
+          code=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 60 https://cardiograph-cds.onrender.com/v1/health || true)
+          echo "HTTP status: ${code}"
+          cat /tmp/health.json 2>/dev/null || true
+          echo ""
+          if [ "${code}" != "200" ]; then
+            echo "::warning::Live demo returned HTTP ${code} (may be waking from sleep)"
+          fi

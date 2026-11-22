@@ -1,0 +1,60 @@
+{
+  "dataset": "PhysioNet PTB-XL v1.0.3 (Real 100 Hz 12-Lead Clinical ECGs, MI/STTC vs NORM)",
+  "device": "cuda",
+  "splits": {
+    "n_train_folds_1_8": 787,
+    "n_val_fold_9": 200,
+    "n_test_fold_10": 200,
+    "patient_overlap": 0
+  },
+  "mean_ecg_fusion_gate": 0.4066,
+  "delong_multimodal_vs_tabular": {
+    "z": 5.784,
+    "p_value": 7.288832079648101e-09
+  },
+  "delong_multimodal_vs_ecg_only": {
+    "z": 3.653,
+    "p_value": 0.0002594769631105832
+  },
+  "models": {
+    "tabular_demographics_only": {
+      "roc_auc": 0.7621,
+      "roc_auc_ci_95": [
+        0.6947,
+        0.8217
+      ],
+      "pr_auc": 0.7506,
+      "f1": 0.6761,
+      "sensitivity": 0.72,
+      "specificity": 0.59,
+      "brier": 0.1977,
+      "ece": 0.077
+    },
+    "ecg_12lead_resnet1d": {
+      "roc_auc": 0.8935,
+      "roc_auc_ci_95": [
+        0.8484,
+        0.93
+      ],
+      "pr_auc": 0.9051,
+      "f1": 0.7337,
+      "sensitivity": 0.62,
+      "specificity": 0.93,
+      "brier": 0.1755,
+      "ece": 0.1633
+    },
+    "multimodal_ecg_cross_attention": {
+      "roc_auc": 0.9462,
+      "roc_auc_ci_95": [
+        0.9175,
+        0.9711
+      ],
+      "pr_auc": 0.9529,
+      "f1": 0.8411,
+      "sensitivity": 0.9,
+      "specificity": 0.76,
+      "brier": 0.1115,
+      "ece": 0.0805
+    }
+  }
+}
